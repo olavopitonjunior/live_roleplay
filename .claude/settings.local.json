@@ -19,7 +19,16 @@
       "Bash(\"C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\python.exe\" main.py dev)",
       "Bash(supabase functions list:*)",
       "Bash(\"C:/Users/User/AppData/Local/Programs/Python/Python313/python.exe\" --version)",
-      "Bash(./venv/Scripts/pip.exe install:*)"
+      "Bash(./venv/Scripts/pip.exe install:*)",
+      "Bash(git remote add:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(git rm:*)",
+      "Bash(railway service create:*)",
+      "Bash(railway service:*)",
+      "Bash(railway status:*)",
+      "Bash(railway logs:*)",
+      "Skill(api-docs)",
+      "Skill(api-docs:*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\User\\OneDrive\\Desktop\\Projetos Web\\live_roleplay\\agent\\venv",
