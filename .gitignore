@@ -46,3 +46,6 @@ supabase/.branches/
 coverage/
 .coverage
 .pytest_cache/
+
+# MCP config (may contain tokens)
+.mcp.json
