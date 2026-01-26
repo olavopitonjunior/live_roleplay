@@ -7,7 +7,8 @@
 
 // Allowed origins - configure FRONTEND_URL in production
 const ALLOWED_ORIGINS: string[] = [
-  // Production URL (set via environment variable)
+  // Production URLs
+  "https://liveroleplay.vercel.app",
   Deno.env.get("FRONTEND_URL") || "",
   // Development URLs
   "http://localhost:5173",
