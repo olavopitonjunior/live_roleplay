@@ -1,0 +1,242 @@
+/**
+ * Edge Function: get-api-metrics
+ *
+ * Returns aggregated API usage metrics for the admin dashboard.
+ * Admin-only access via x-access-code header validation.
+ */
+
+import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import {
+  handleCorsPreflightRequest,
+  corsJsonResponse,
+  corsErrorResponse,
+} from "../_shared/cors.ts";
+
+interface ApiMetric {
+  id: string;
+  session_id: string;
+  gemini_live_input_tokens: number;
+  gemini_live_output_tokens: number;
+  gemini_live_duration_seconds: number;
+  gemini_flash_calls: number;
+  gemini_flash_input_tokens: number;
+  gemini_flash_output_tokens: number;
+  claude_input_tokens: number;
+  claude_output_tokens: number;
+  simli_duration_seconds: number;
+  livekit_participant_minutes: number;
+  estimated_cost_cents: number;
+  created_at: string;
+}
+
+interface DailyAggregate {
+  date: string;
+  session_count: number;
+  total_gemini_live_tokens: number;
+  total_gemini_flash_calls: number;
+  total_claude_tokens: number;
+  total_simli_minutes: number;
+  total_livekit_minutes: number;
+  total_cost_cents: number;
+}
+
+interface MetricsTotals {
+  total_sessions: number;
+  gemini_live_tokens: number;
+  gemini_flash_calls: number;
+  claude_tokens: number;
+  simli_minutes: number;
+  livekit_minutes: number;
+  estimated_cost_usd: number;
+}
+
+serve(async (req: Request) => {
+  // Handle CORS preflight
+  const preflightResponse = handleCorsPreflightRequest(req);
+  if (preflightResponse) return preflightResponse;
+
+  try {
+    // Validate admin access via X-Access-Code header
+    const accessCode = req.headers.get("x-access-code");
+    if (!accessCode) {
+      return corsErrorResponse("Unauthorized - missing access code", 401, req);
+    }
+
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Verify admin role
+    const { data: codeData, error: codeError } = await supabase
+      .from("access_codes")
+      .select("id, role")
+      .eq("code", accessCode.toUpperCase())
+      .eq("is_active", true)
+      .single();
+
+    if (codeError || !codeData) {
+      return corsErrorResponse("Invalid access code", 401, req);
+    }
+
+    if (codeData.role !== "admin") {
+      return corsErrorResponse("Admin access required", 403, req);
+    }
+
+    // Parse query parameters
+    const url = new URL(req.url);
+    const startDate = url.searchParams.get("start_date");
+    const endDate = url.searchParams.get("end_date");
+    const scenarioId = url.searchParams.get("scenario_id");
+    const limit = parseInt(url.searchParams.get("limit") || "100", 10);
+
+    // Build query for metrics with session data
+    let query = supabase
+      .from("api_metrics")
+      .select(`
+        *,
+        sessions (
+          scenario_id,
+          access_code_id,
+          scenarios (
+            id,
+            title
+          )
+        )
+      `)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    // Apply date filters
+    if (startDate) {
+      query = query.gte("created_at", startDate);
+    }
+    if (endDate) {
+      // Add time to end date to include the full day
+      query = query.lte("created_at", `${endDate}T23:59:59.999Z`);
+    }
+
+    const { data: metrics, error: metricsError } = await query;
+
+    if (metricsError) {
+      console.error("Failed to fetch metrics:", metricsError);
+      return corsErrorResponse("Failed to fetch metrics", 500, req);
+    }
+
+    // Filter by scenario if specified (need to do it in memory since it's nested)
+    let filteredMetrics = metrics || [];
+    if (scenarioId) {
+      filteredMetrics = filteredMetrics.filter(
+        (m: any) => m.sessions?.scenario_id === scenarioId
+      );
+    }
+
+    // Calculate totals
+    const totals = calculateTotals(filteredMetrics);
+
+    // Aggregate by date
+    const dailyAggregates = aggregateByDate(filteredMetrics);
+
+    return corsJsonResponse(
+      {
+        metrics: filteredMetrics,
+        totals,
+        daily_aggregates: dailyAggregates,
+        filters: {
+          start_date: startDate,
+          end_date: endDate,
+          scenario_id: scenarioId,
+        },
+      },
+      200,
+      req
+    );
+  } catch (error) {
+    console.error("Error in get-api-metrics:", error);
+    return corsErrorResponse(
+      error instanceof Error ? error.message : "Internal server error",
+      500,
+      req
+    );
+  }
+});
+
+function calculateTotals(metrics: any[]): MetricsTotals {
+  const result = metrics.reduce(
+    (acc, m) => ({
+      total_sessions: acc.total_sessions + 1,
+      gemini_live_tokens:
+        acc.gemini_live_tokens +
+        (m.gemini_live_input_tokens || 0) +
+        (m.gemini_live_output_tokens || 0),
+      gemini_flash_calls: acc.gemini_flash_calls + (m.gemini_flash_calls || 0),
+      claude_tokens:
+        acc.claude_tokens +
+        (m.claude_input_tokens || 0) +
+        (m.claude_output_tokens || 0),
+      simli_minutes:
+        acc.simli_minutes + (m.simli_duration_seconds || 0) / 60,
+      livekit_minutes:
+        acc.livekit_minutes + (m.livekit_participant_minutes || 0),
+      estimated_cost_usd:
+        acc.estimated_cost_usd + (m.estimated_cost_cents || 0) / 100,
+    }),
+    {
+      total_sessions: 0,
+      gemini_live_tokens: 0,
+      gemini_flash_calls: 0,
+      claude_tokens: 0,
+      simli_minutes: 0,
+      livekit_minutes: 0,
+      estimated_cost_usd: 0,
+    }
+  );
+
+  // Round numeric values
+  result.simli_minutes = Math.round(result.simli_minutes * 100) / 100;
+  result.livekit_minutes = Math.round(result.livekit_minutes * 100) / 100;
+  result.estimated_cost_usd = Math.round(result.estimated_cost_usd * 100) / 100;
+
+  return result;
+}
+
+function aggregateByDate(metrics: any[]): DailyAggregate[] {
+  const byDate: Record<string, DailyAggregate> = {};
+
+  metrics.forEach((m) => {
+    const date = m.created_at?.substring(0, 10) || "unknown";
+
+    if (!byDate[date]) {
+      byDate[date] = {
+        date,
+        session_count: 0,
+        total_gemini_live_tokens: 0,
+        total_gemini_flash_calls: 0,
+        total_claude_tokens: 0,
+        total_simli_minutes: 0,
+        total_livekit_minutes: 0,
+        total_cost_cents: 0,
+      };
+    }
+
+    byDate[date].session_count += 1;
+    byDate[date].total_gemini_live_tokens +=
+      (m.gemini_live_input_tokens || 0) + (m.gemini_live_output_tokens || 0);
+    byDate[date].total_gemini_flash_calls += m.gemini_flash_calls || 0;
+    byDate[date].total_claude_tokens +=
+      (m.claude_input_tokens || 0) + (m.claude_output_tokens || 0);
+    byDate[date].total_simli_minutes += (m.simli_duration_seconds || 0) / 60;
+    byDate[date].total_livekit_minutes += m.livekit_participant_minutes || 0;
+    byDate[date].total_cost_cents += m.estimated_cost_cents || 0;
+  });
+
+  // Convert to array and sort by date descending
+  return Object.values(byDate)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map((d) => ({
+      ...d,
+      total_simli_minutes: Math.round(d.total_simli_minutes * 100) / 100,
+      total_livekit_minutes: Math.round(d.total_livekit_minutes * 100) / 100,
+    }));
+}
