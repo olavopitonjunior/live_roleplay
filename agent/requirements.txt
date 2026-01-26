@@ -1,4 +1,5 @@
 livekit-agents[google]>=1.3.0
+livekit-plugins-liveavatar>=1.0.0
 livekit-plugins-simli>=1.0.0
 livekit-plugins-silero>=1.0.0
 python-dotenv>=1.0.0
