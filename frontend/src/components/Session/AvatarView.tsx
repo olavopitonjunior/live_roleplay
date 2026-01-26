@@ -1,7 +1,12 @@
 import { VideoTrack, useRemoteParticipants, useTracks } from '@livekit/components-react';
 import { Track } from 'livekit-client';
+import { AvatarEmotionOverlay } from './AvatarEmotionOverlay';
 
-export function AvatarView() {
+interface AvatarViewProps {
+  showEmotionOverlay?: boolean;
+}
+
+export function AvatarView({ showEmotionOverlay = true }: AvatarViewProps) {
   const participants = useRemoteParticipants();
   const videoTracks = useTracks([Track.Source.Camera]);
 
@@ -51,15 +56,15 @@ export function AvatarView() {
     );
   }
 
-  // Render video
-  return (
+  // Render video with emotion overlay
+  const videoContent = (
     <div className="w-full h-full bg-black relative">
       <VideoTrack
         trackRef={avatarTrack}
         className="w-full h-full object-cover"
       />
-      {/* Optional overlay for status */}
-      <div className="absolute top-4 left-4">
+      {/* Live indicator */}
+      <div className="absolute top-4 left-4 z-10">
         <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm px-3 py-1.5 rounded-full">
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
           <span className="text-white text-sm">Ao vivo</span>
@@ -67,4 +72,15 @@ export function AvatarView() {
       </div>
     </div>
   );
+
+  // Wrap with emotion overlay if enabled
+  if (showEmotionOverlay) {
+    return (
+      <AvatarEmotionOverlay showBorder={true} showCornerIndicator={true} showPulse={true}>
+        {videoContent}
+      </AvatarEmotionOverlay>
+    );
+  }
+
+  return videoContent;
 }

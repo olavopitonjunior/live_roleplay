@@ -53,6 +53,7 @@ from emotion_analyzer import (
     EmotionResult,
 )
 from metrics_collector import get_metrics_collector, remove_metrics_collector, MetricsCollector
+from coaching import get_coaching_engine, reset_coaching_engine, CoachingHint
 
 # Load environment variables
 load_dotenv()
@@ -493,9 +494,10 @@ async def entrypoint(ctx: JobContext):
     async def send_emotion_to_room(
         emotion: str,
         intensity: int | None = None,
-        trend: str | None = None
+        trend: str | None = None,
+        reason: str | None = None
     ):
-        """Send emotion state with intensity and trend to the frontend."""
+        """Send emotion state with intensity, trend, and reason to the frontend."""
         try:
             import json
             payload = {
@@ -507,12 +509,51 @@ async def entrypoint(ctx: JobContext):
                 payload["intensity"] = intensity
             if trend is not None:
                 payload["trend"] = trend
+            if reason is not None:
+                payload["reason"] = reason
 
             data = json.dumps(payload)
             await ctx.room.local_participant.publish_data(data.encode('utf-8'))
-            logger.debug(f"Sent emotion: {emotion}, intensity={intensity}, trend={trend}")
+            logger.debug(f"Sent emotion: {emotion}, intensity={intensity}, trend={trend}, reason={reason}")
         except Exception as e:
             logger.warning(f"Failed to send emotion: {e}")
+
+    async def send_emotion_processing():
+        """Send processing state to frontend while analyzing emotion."""
+        try:
+            import json
+            data = json.dumps({"type": "emotion_processing"})
+            await ctx.room.local_participant.publish_data(data.encode('utf-8'))
+        except Exception as e:
+            logger.warning(f"Failed to send emotion processing: {e}")
+
+    async def send_coaching_hint(hint: CoachingHint):
+        """Send a coaching hint to the frontend."""
+        try:
+            import json
+            data = json.dumps({
+                "type": "coaching_hint",
+                **hint.to_dict()
+            })
+            await ctx.room.local_participant.publish_data(data.encode('utf-8'))
+            logger.debug(f"Sent coaching hint: {hint.title}")
+        except Exception as e:
+            logger.warning(f"Failed to send coaching hint: {e}")
+
+    async def send_coaching_state():
+        """Send current coaching state to frontend."""
+        try:
+            import json
+            coaching = get_coaching_engine()
+            state = coaching.get_state()
+            data = json.dumps({
+                "type": "coaching_state",
+                **state
+            })
+            await ctx.room.local_participant.publish_data(data.encode('utf-8'))
+            logger.debug(f"Sent coaching state: methodology={state['methodology']['completion_percentage']}%")
+        except Exception as e:
+            logger.warning(f"Failed to send coaching state: {e}")
 
     async def handle_early_end():
         """Handle early session termination when user says goodbye."""
@@ -535,6 +576,11 @@ async def entrypoint(ctx: JobContext):
         text = event.transcript
         is_final = event.is_final
         if text:
+            # Signal that we're processing when user starts speaking
+            if not is_final:
+                # User is speaking, show processing state on emotion meter
+                asyncio.create_task(send_emotion_processing())
+
             if is_final:
                 # Add timestamped line to transcript
                 transcript_lines.append(format_transcript_line("Usuario", text))
@@ -544,6 +590,21 @@ async def entrypoint(ctx: JobContext):
                     early_end_triggered = True
                     logger.info("User requested session end, will terminate after response")
                     asyncio.create_task(handle_early_end())
+
+                # Analyze user message for coaching hints
+                async def analyze_user_coaching():
+                    try:
+                        coaching = get_coaching_engine()
+                        hints = coaching.analyze_user_message(text)
+                        for hint in hints:
+                            await send_coaching_hint(hint)
+                        # Send updated state periodically
+                        await send_coaching_state()
+                    except Exception as e:
+                        logger.warning(f"Coaching analysis failed: {e}")
+
+                asyncio.create_task(analyze_user_coaching())
+
             logger.info(f"User said: {text} (final={is_final})")
             # Track input tokens for metrics
             if is_final:
@@ -589,7 +650,8 @@ async def entrypoint(ctx: JobContext):
                         await send_emotion_to_room(
                             result["state"],
                             result["intensity"],
-                            result["trend"]
+                            result["trend"],
+                            result.get("reason")  # Include reason if state changed
                         )
                         # Track Gemini Flash call for emotion analysis
                         # Estimate: prompt ~100 tokens, response ~5 tokens
@@ -600,6 +662,20 @@ async def entrypoint(ctx: JobContext):
                         await send_emotion_to_room(emotion)
 
                 asyncio.create_task(analyze_and_send_emotion())
+
+                # Analyze avatar message for coaching (objection detection)
+                async def analyze_avatar_coaching():
+                    try:
+                        coaching = get_coaching_engine()
+                        hints = coaching.analyze_avatar_message(text)
+                        for hint in hints:
+                            await send_coaching_hint(hint)
+                        # Send updated state with objections
+                        await send_coaching_state()
+                    except Exception as e:
+                        logger.warning(f"Coaching analysis failed: {e}")
+
+                asyncio.create_task(analyze_avatar_coaching())
         except Exception as e:
             logger.error(f"Error in conversation_item_added handler: {e}", exc_info=True)
 
@@ -682,6 +758,11 @@ async def entrypoint(ctx: JobContext):
 
         # Reset emotion history for fresh session
         reset_emotion_history()
+
+        # Initialize coaching engine
+        reset_coaching_engine()
+        coaching = get_coaching_engine()
+        coaching.start_session(scenario)
 
         # Start the session FIRST with RoomOptions (new API)
         # This ensures the agent is ready before avatar starts

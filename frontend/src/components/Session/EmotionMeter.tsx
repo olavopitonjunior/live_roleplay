@@ -70,15 +70,18 @@ export function EmotionMeter() {
   const [displayIntensity, setDisplayIntensity] = useState(50);
   const [trend, setTrend] = useState<TrendType>('stable');
   const [isAnimating, setIsAnimating] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [reason, setReason] = useState<string | null>(null);
   const animationRef = useRef<number | undefined>(undefined);
+  const reasonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Smooth animation to target intensity
+  // Smooth animation to target intensity (faster easing: 0.15)
   useEffect(() => {
     const animate = () => {
       setDisplayIntensity(prev => {
         const diff = targetIntensity - prev;
         if (Math.abs(diff) < 0.5) return targetIntensity;
-        return prev + diff * 0.08; // Smooth easing
+        return prev + diff * 0.15; // Faster easing for more responsive feel
       });
 
       if (Math.abs(displayIntensity - targetIntensity) > 0.5) {
@@ -106,6 +109,9 @@ export function EmotionMeter() {
         const data = JSON.parse(text);
 
         if (data.type === 'emotion') {
+          // Stop processing animation when we get emotion data
+          setIsProcessing(false);
+
           // Handle new format with intensity
           if (typeof data.intensity === 'number') {
             setTargetIntensity(data.intensity);
@@ -117,6 +123,15 @@ export function EmotionMeter() {
               setIsAnimating(true);
               setEmotion(newEmotion);
               setTimeout(() => setIsAnimating(false), 500);
+
+              // Show reason if provided
+              if (data.reason) {
+                if (reasonTimeoutRef.current) {
+                  clearTimeout(reasonTimeoutRef.current);
+                }
+                setReason(data.reason);
+                reasonTimeoutRef.current = setTimeout(() => setReason(null), 4000);
+              }
             }
           }
           // Handle legacy format (just value)
@@ -139,6 +154,10 @@ export function EmotionMeter() {
             }
           }
         }
+        // Handle processing state (when user is speaking)
+        else if (data.type === 'emotion_processing') {
+          setIsProcessing(true);
+        }
       } catch {
         // Ignore non-JSON data
       }
@@ -159,7 +178,7 @@ export function EmotionMeter() {
       <div className="relative">
         <div className={`text-3xl transition-transform duration-300 ${
           isAnimating ? 'scale-125' : 'scale-100'
-        }`}>
+        } ${isProcessing ? 'animate-pulse' : ''}`}>
           {config.emoji}
         </div>
 
@@ -173,10 +192,21 @@ export function EmotionMeter() {
           {trend === 'declining' && '↓'}
           {trend === 'stable' && '→'}
         </div>
+
+        {/* Processing indicator */}
+        {isProcessing && (
+          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 flex gap-0.5">
+            <span className="w-1 h-1 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1 h-1 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1 h-1 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+          </div>
+        )}
       </div>
 
       {/* Thermometer */}
-      <div className="relative w-6 h-32 bg-neutral-800 rounded-full overflow-hidden border border-neutral-700">
+      <div className={`relative w-6 h-32 bg-neutral-800 rounded-full overflow-hidden border border-neutral-700 ${
+        isProcessing ? 'ring-2 ring-yellow-400/50 ring-offset-1 ring-offset-neutral-900' : ''
+      }`}>
         {/* Gradient background */}
         <div className="absolute inset-0 opacity-30"
              style={{
@@ -210,6 +240,13 @@ export function EmotionMeter() {
       <div className={`text-xs font-medium ${config.color} transition-colors duration-300`}>
         {config.label}
       </div>
+
+      {/* Reason tooltip */}
+      {reason && (
+        <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-neutral-800 text-xs text-neutral-200 px-2 py-1 rounded-md whitespace-nowrap shadow-lg border border-neutral-700 animate-fade-in">
+          {reason}
+        </div>
+      )}
     </div>
   );
 }
