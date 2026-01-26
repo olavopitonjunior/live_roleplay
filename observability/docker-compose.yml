@@ -1,0 +1,61 @@
+# Docker Compose - Stack de Observabilidade
+# Prometheus (coleta metricas) + Grafana (visualizacao)
+
+version: '3.8'
+
+services:
+  # =============================================================================
+  # PROMETHEUS - Coleta e armazena metricas
+  # =============================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"  # Interface web: http://localhost:9090
+    volumes:
+      # Monta o arquivo de configuracao
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Volume para persistir dados
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    # Permite acessar localhost do host (onde roda o Python)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # =============================================================================
+  # GRAFANA - Visualizacao e dashboards
+  # =============================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000"  # Interface web: http://localhost:3001
+    environment:
+      # Credenciais padrao (mude em producao!)
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      # Permite embeddings
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      # Desabilita login anonimo
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      # Persistir dashboards e configuracoes
+      - grafana_data:/var/lib/grafana
+      # Provisioning automatico do datasource
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+# Volumes para persistencia de dados
+volumes:
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local

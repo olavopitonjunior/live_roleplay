@@ -1,0 +1,19 @@
+{
+  "name": "live-roleplay",
+  "private": true,
+  "scripts": {
+    "supabase:start": "npx supabase start",
+    "supabase:stop": "npx supabase stop",
+    "supabase:status": "npx supabase status",
+    "db:push": "npx supabase db push",
+    "db:pull": "npx supabase db pull",
+    "db:reset": "npx supabase db reset",
+    "db:diff": "npx supabase db diff",
+    "functions:deploy": "npx supabase functions deploy",
+    "functions:serve": "npx supabase functions serve",
+    "setup": "npx supabase link --project-ref lzjixdhzejnknhxpcnlc && npm run db:push && npm run functions:deploy"
+  },
+  "devDependencies": {
+    "shadcn": "^3.7.0"
+  }
+}

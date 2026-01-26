@@ -1,0 +1,28 @@
+# Prometheus Configuration
+# Este arquivo configura o Prometheus para coletar metricas
+
+global:
+  # Intervalo de coleta - a cada 15 segundos o Prometheus busca metricas
+  scrape_interval: 15s
+
+  # Intervalo de avaliacao de regras de alerta
+  evaluation_interval: 15s
+
+# Configuracao de coleta de metricas
+scrape_configs:
+  # Job para coletar metricas da aplicacao Python
+  - job_name: 'litellm-observability-demo'
+    static_configs:
+      # host.docker.internal permite acessar localhost do host a partir do container
+      - targets: ['host.docker.internal:8000']
+
+    # Labels adicionais para identificar a origem
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'demo-app'
+
+  # Job para coletar metricas do proprio Prometheus
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
