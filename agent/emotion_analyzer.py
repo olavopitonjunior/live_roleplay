@@ -12,9 +12,10 @@ import os
 import logging
 from typing import Literal, TypedDict
 
-# Try to import google.generativeai for Gemini Flash
+# Try to import google.genai (new unified SDK)
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -77,7 +78,7 @@ class EmotionAnalyzer:
 
     def __init__(self):
         """Initialize the emotion analyzer."""
-        self._gemini_model = None
+        self._gemini_client = None
         self._intensity_history: list[int] = []  # Track recent intensities for trend
         self._max_history = 5  # Number of readings to keep for trend calculation
         self._last_state: EmotionState | None = None  # Track previous state for reason generation
@@ -86,7 +87,7 @@ class EmotionAnalyzer:
     def _setup_gemini(self):
         """Setup Gemini Flash for emotion analysis."""
         if not GEMINI_AVAILABLE:
-            logger.warning("google-generativeai not installed, using keyword fallback only")
+            logger.warning("google-genai not installed, using keyword fallback only")
             return
 
         api_key = os.getenv("GOOGLE_API_KEY")
@@ -95,13 +96,12 @@ class EmotionAnalyzer:
             return
 
         try:
-            genai.configure(api_key=api_key)
-            # Use Gemini Flash for fast, cheap analysis
-            self._gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
-            logger.info("Gemini Flash initialized for emotion analysis")
+            # Use new unified google-genai SDK with Client pattern
+            self._gemini_client = genai.Client(api_key=api_key)
+            logger.info("Gemini Flash initialized for emotion analysis (google-genai SDK)")
         except Exception as e:
             logger.error(f"Failed to initialize Gemini: {e}")
-            self._gemini_model = None
+            self._gemini_client = None
 
     async def analyze(
         self,
@@ -124,7 +124,7 @@ class EmotionAnalyzer:
             return "neutral"
 
         # Try AI analysis first (if enabled and available)
-        if use_ai and self._gemini_model:
+        if use_ai and self._gemini_client:
             try:
                 emotion = await self._analyze_with_gemini(text, conversation_history)
                 if emotion in VALID_EMOTIONS:
@@ -285,10 +285,11 @@ class EmotionAnalyzer:
 
         prompt = EMOTION_ANALYSIS_PROMPT.format(text=text, context=context)
 
-        # Generate response (non-streaming for speed)
-        response = await self._gemini_model.generate_content_async(
-            prompt,
-            generation_config=genai.GenerationConfig(
+        # Generate response using new google-genai SDK
+        response = await self._gemini_client.aio.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents=prompt,
+            config=types.GenerateContentConfig(
                 temperature=0.1,  # Low temperature for consistent results
                 max_output_tokens=10,  # We only need one word
             )
