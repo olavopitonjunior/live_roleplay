@@ -103,9 +103,8 @@ export function CoachingPanel() {
             : data.type;
 
           // Parse the hint type from the full data object
-          const hintData = data as CoachingHint & { type: string };
           const actualType = ['encouragement', 'warning', 'suggestion', 'reminder', 'objection'].find(
-            t => data[t] || data.type === t
+            t => (data as Record<string, unknown>)[t] || data.type === t
           ) || 'suggestion';
 
           setHints(prev => {
