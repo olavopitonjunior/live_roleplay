@@ -1,7 +1,6 @@
 livekit-agents[google]>=1.3.0
 livekit-plugins-simli>=1.0.0
 livekit-plugins-silero>=1.0.0
-livekit-plugins-liveavatar>=1.0.0
-livekit-plugins-hedra>=1.0.0
 python-dotenv>=1.0.0
 aiohttp>=3.9.0
+google-generativeai>=0.8.0

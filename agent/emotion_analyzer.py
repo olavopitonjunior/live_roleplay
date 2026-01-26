@@ -39,10 +39,11 @@ EMOTION_BASE_INTENSITY: dict[EmotionState, int] = {
 
 
 class EmotionResult(TypedDict):
-    """Result of emotion analysis with intensity and trend."""
+    """Result of emotion analysis with intensity, trend, and reason."""
     state: EmotionState
     intensity: int  # 0-100
     trend: TrendType
+    reason: str | None  # Human-readable reason for emotion change
 
 # Emotion analysis prompt for Gemini Flash
 EMOTION_ANALYSIS_PROMPT = """Analise a emocao do CLIENTE (usuario) nesta fala de uma sessao de treinamento de vendas.
@@ -79,6 +80,7 @@ class EmotionAnalyzer:
         self._gemini_model = None
         self._intensity_history: list[int] = []  # Track recent intensities for trend
         self._max_history = 5  # Number of readings to keep for trend calculation
+        self._last_state: EmotionState | None = None  # Track previous state for reason generation
         self._setup_gemini()
 
     def _setup_gemini(self):
@@ -151,7 +153,7 @@ class EmotionAnalyzer:
             use_ai: Whether to use AI analysis
 
         Returns:
-            EmotionResult with state, intensity (0-100), and trend
+            EmotionResult with state, intensity (0-100), trend, and reason
         """
         # Get base emotion state
         state = await self.analyze(text, conversation_history, use_ai)
@@ -166,9 +168,49 @@ class EmotionAnalyzer:
 
         trend = self._calculate_trend()
 
-        logger.debug(f"Emotion result: state={state}, intensity={intensity}, trend={trend}")
+        # Generate reason if state changed
+        reason = self._generate_reason(state, trend)
 
-        return EmotionResult(state=state, intensity=intensity, trend=trend)
+        # Update last state
+        self._last_state = state
+
+        logger.debug(f"Emotion result: state={state}, intensity={intensity}, trend={trend}, reason={reason}")
+
+        return EmotionResult(state=state, intensity=intensity, trend=trend, reason=reason)
+
+    def _generate_reason(self, new_state: EmotionState, trend: TrendType) -> str | None:
+        """Generate a human-readable reason for emotion change."""
+        # Only show reason if state actually changed
+        if self._last_state is None or self._last_state == new_state:
+            return None
+
+        # Reason based on transition
+        reasons: dict[tuple[EmotionState, EmotionState], str] = {
+            # Positive transitions
+            ("frustrated", "hesitant"): "Cliente menos resistente",
+            ("frustrated", "neutral"): "Cliente mais aberto",
+            ("frustrated", "receptive"): "Cliente engajou na conversa",
+            ("frustrated", "happy"): "Cliente mudou de opiniao!",
+            ("hesitant", "neutral"): "Duvidas diminuindo",
+            ("hesitant", "receptive"): "Cliente mais interessado",
+            ("hesitant", "happy"): "Cliente convencido!",
+            ("neutral", "receptive"): "Cliente demonstrou interesse",
+            ("neutral", "happy"): "Cliente satisfeito",
+            ("receptive", "happy"): "Cliente pronto para fechar",
+            # Negative transitions
+            ("happy", "receptive"): "Cliente ainda interessado",
+            ("happy", "neutral"): "Cliente esfriou um pouco",
+            ("happy", "hesitant"): "Surgiram duvidas",
+            ("happy", "frustrated"): "Cliente ficou frustrado",
+            ("receptive", "neutral"): "Interesse diminuiu",
+            ("receptive", "hesitant"): "Cliente com duvidas",
+            ("receptive", "frustrated"): "Cliente perdeu paciencia",
+            ("neutral", "hesitant"): "Cliente com incertezas",
+            ("neutral", "frustrated"): "Cliente impaciente",
+            ("hesitant", "frustrated"): "Cliente desistindo",
+        }
+
+        return reasons.get((self._last_state, new_state))
 
     def _calculate_intensity(self, text: str, state: EmotionState) -> int:
         """

@@ -22,6 +22,62 @@ export function useEmotion() {
   return useContext(EmotionContext);
 }
 
+// Typing indicator component
+function TypingIndicator({ speaker }: { speaker: 'user' | 'avatar' }) {
+  return (
+    <div className={`flex items-center gap-1 px-3 py-2 rounded-2xl ${
+      speaker === 'user'
+        ? 'bg-yellow-400/80'
+        : 'bg-gray-700/80'
+    }`}>
+      <span className={`w-2 h-2 rounded-full animate-bounce ${
+        speaker === 'user' ? 'bg-gray-800' : 'bg-gray-400'
+      }`} style={{ animationDelay: '0ms' }} />
+      <span className={`w-2 h-2 rounded-full animate-bounce ${
+        speaker === 'user' ? 'bg-gray-800' : 'bg-gray-400'
+      }`} style={{ animationDelay: '150ms' }} />
+      <span className={`w-2 h-2 rounded-full animate-bounce ${
+        speaker === 'user' ? 'bg-gray-800' : 'bg-gray-400'
+      }`} style={{ animationDelay: '300ms' }} />
+    </div>
+  );
+}
+
+// Keywords to highlight (objections and important terms)
+const HIGHLIGHT_KEYWORDS = [
+  // Objections
+  'caro', 'preço', 'orçamento', 'pensar', 'depois', 'não sei', 'dúvida',
+  // Positive signals
+  'interessante', 'gostei', 'fechado', 'vamos', 'concordo', 'perfeito',
+  // Questions
+  'como', 'quanto', 'quando', 'por que', 'qual'
+];
+
+function highlightKeywords(text: string): React.ReactNode {
+  const lowerText = text.toLowerCase();
+  let hasHighlight = false;
+
+  for (const keyword of HIGHLIGHT_KEYWORDS) {
+    if (lowerText.includes(keyword)) {
+      hasHighlight = true;
+      break;
+    }
+  }
+
+  if (!hasHighlight) return text;
+
+  // Simple highlight - wrap matching words
+  const parts = text.split(/(\s+)/);
+  return parts.map((part, i) => {
+    const lowerPart = part.toLowerCase();
+    const isHighlighted = HIGHLIGHT_KEYWORDS.some(kw => lowerPart.includes(kw));
+    if (isHighlighted) {
+      return <span key={i} className="bg-yellow-500/30 rounded px-0.5">{part}</span>;
+    }
+    return part;
+  });
+}
+
 interface TranscriptionOverlayProps {
   variant?: 'overlay' | 'sidebar';
 }
@@ -128,15 +184,22 @@ export function TranscriptionOverlay({ variant = 'overlay' }: TranscriptionOverl
 
                   {/* Message */}
                   <div className={`flex-1 ${msg.speaker === 'user' ? 'text-right' : ''}`}>
-                    <p className={`text-sm leading-relaxed ${
-                      msg.speaker === 'user' ? 'text-yellow-300' : 'text-gray-100'
-                    } ${!msg.isFinal ? 'opacity-60 italic' : ''}`}>
-                      {msg.text}
-                      {!msg.isFinal && <span className="text-xs ml-1 text-gray-400">...</span>}
-                    </p>
-                    <span className="text-[10px] text-gray-500">
-                      {msg.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                    {!msg.isFinal ? (
+                      <div className={`inline-flex ${msg.speaker === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <TypingIndicator speaker={msg.speaker} />
+                      </div>
+                    ) : (
+                      <p className={`text-sm leading-relaxed ${
+                        msg.speaker === 'user' ? 'text-yellow-300' : 'text-gray-100'
+                      }`}>
+                        {highlightKeywords(msg.text)}
+                      </p>
+                    )}
+                    {msg.isFinal && (
+                      <span className="text-[10px] text-gray-500">
+                        {msg.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -180,16 +243,19 @@ export function TranscriptionOverlay({ variant = 'overlay' }: TranscriptionOverl
               key={msg.id}
               className={`flex ${msg.speaker === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div
-                className={`max-w-[80%] px-4 py-2 rounded-2xl ${
-                  msg.speaker === 'user'
-                    ? 'bg-yellow-400 text-gray-900 rounded-br-sm'
-                    : 'bg-gray-800 text-gray-100 rounded-bl-sm border border-gray-700'
-                } ${!msg.isFinal ? 'opacity-70 italic' : ''}`}
-              >
-                <p className="text-sm">{msg.text}</p>
-                {!msg.isFinal && <span className="text-xs opacity-50 ml-2">...</span>}
-              </div>
+              {!msg.isFinal ? (
+                <TypingIndicator speaker={msg.speaker} />
+              ) : (
+                <div
+                  className={`max-w-[80%] px-4 py-2 rounded-2xl ${
+                    msg.speaker === 'user'
+                      ? 'bg-yellow-400 text-gray-900 rounded-br-sm'
+                      : 'bg-gray-800 text-gray-100 rounded-bl-sm border border-gray-700'
+                  }`}
+                >
+                  <p className="text-sm">{highlightKeywords(msg.text)}</p>
+                </div>
+              )}
             </div>
           ))}
 
