@@ -3,11 +3,12 @@
  *
  * Generates a LiveKit JWT token for users to join a session room.
  * Also creates the session record in the database.
+ * Explicitly dispatches the agent to the room.
  */
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.0.0";
+import { AccessToken, AgentDispatchClient } from "https://esm.sh/livekit-server-sdk@2.9.1";
 import {
   getCorsHeaders,
   handleCorsPreflightRequest,
@@ -59,7 +60,7 @@ serve(async (req: Request) => {
     // Validate scenario exists and is active, fetch avatar/voice settings
     const { data: scenarioData, error: scenarioError } = await supabase
       .from("scenarios")
-      .select("id, title, simli_face_id, gemini_voice")
+      .select("id, title, simli_face_id, gemini_voice, avatar_provider, avatar_id")
       .eq("id", scenario_id)
       .eq("is_active", true)
       .single();
@@ -89,23 +90,46 @@ serve(async (req: Request) => {
     // Get LiveKit credentials from environment
     const livekitApiKey = Deno.env.get("LIVEKIT_API_KEY");
     const livekitApiSecret = Deno.env.get("LIVEKIT_API_SECRET");
+    const livekitUrl = Deno.env.get("LIVEKIT_URL");
 
-    if (!livekitApiKey || !livekitApiSecret) {
+    if (!livekitApiKey || !livekitApiSecret || !livekitUrl) {
       console.error("LiveKit credentials not configured");
       return corsErrorResponse("LiveKit not configured", 500, req);
     }
 
-    // Create LiveKit access token
+    // Prepare metadata for agent dispatch
+    const agentMetadata = JSON.stringify({
+      scenario_id: scenario_id,
+      session_id: sessionId,
+      simli_face_id: scenarioData.simli_face_id || null,
+      gemini_voice: scenarioData.gemini_voice || "Puck",
+      avatar_provider: scenarioData.avatar_provider || null,
+      avatar_id: scenarioData.avatar_id || null,
+    });
+
+    // Explicitly dispatch agent to the room
+    // This ensures the agent is ready when the user joins
+    try {
+      const dispatchClient = new AgentDispatchClient(
+        livekitUrl,
+        livekitApiKey,
+        livekitApiSecret
+      );
+
+      // Dispatch agent with empty name (accepts any agent) and metadata
+      await dispatchClient.createDispatch(roomName, "", {
+        metadata: agentMetadata,
+      });
+      console.log(`Agent dispatched to room: ${roomName}`);
+    } catch (dispatchError) {
+      console.error("Failed to dispatch agent:", dispatchError);
+      // Continue anyway - agent might still connect via auto-dispatch
+    }
+
+    // Create LiveKit access token for the user
     const at = new AccessToken(livekitApiKey, livekitApiSecret, {
       identity: `user_${codeData.id.substring(0, 8)}`,
       name: "Participant",
-      // Room metadata for the agent to read
-      metadata: JSON.stringify({
-        scenario_id: scenario_id,
-        session_id: sessionId,
-        simli_face_id: scenarioData.simli_face_id || null,
-        gemini_voice: scenarioData.gemini_voice || "Puck",
-      }),
     });
 
     // Grant permissions for the room
