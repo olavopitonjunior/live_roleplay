@@ -828,4 +828,9 @@ async def entrypoint(ctx: JobContext):
 
 
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    # Agent name for explicit dispatch - agents with a name require
+    # explicit dispatch via token or API
+    cli.run_app(WorkerOptions(
+        entrypoint_fnc=entrypoint,
+        agent_name="roleplay-agent",  # Named agent for explicit dispatch
+    ))
