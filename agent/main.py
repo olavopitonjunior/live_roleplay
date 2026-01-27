@@ -14,6 +14,7 @@ Improvements:
 import os
 import asyncio
 import logging
+import random
 from datetime import datetime, timezone
 from typing import Any
 
@@ -42,20 +43,24 @@ except ImportError as e:
 try:
     from livekit.plugins import hedra
     HEDRA_AVAILABLE = True
-except ImportError:
+    print(f"[STARTUP] Hedra plugin loaded successfully: {hedra}")
+except ImportError as e:
     HEDRA_AVAILABLE = False
     hedra = None
+    print(f"[STARTUP] Hedra plugin NOT available: {e}")
 
 from prompts import build_agent_instructions
 from emotion_analyzer import (
     analyze_emotion,
     analyze_emotion_sync,
     analyze_emotion_with_intensity,
+    analyze_emotion_streaming,
     reset_emotion_history,
     EmotionResult,
 )
 from metrics_collector import get_metrics_collector, remove_metrics_collector, MetricsCollector
 from coaching import get_coaching_engine, reset_coaching_engine, CoachingHint
+from ai_coach import get_ai_coach, reset_ai_coach, AISuggestion
 
 # Load environment variables
 load_dotenv()
@@ -75,6 +80,13 @@ LIVEAVATAR_API_KEY = os.getenv("LIVEAVATAR_API_KEY", "")
 LIVEAVATAR_AVATAR_ID = os.getenv("LIVEAVATAR_AVATAR_ID", "")
 HEDRA_API_KEY = os.getenv("HEDRA_API_KEY", "")
 HEDRA_AVATAR_ID = os.getenv("HEDRA_AVATAR_ID", "")
+
+# Lista de avatares Hedra disponíveis para seleção aleatória
+HEDRA_AVATAR_IDS = [
+    "a962cefb-57f3-4ed8-acd9-7260eef703b1",
+    "f47a3167-01f8-45a3-b72e-7c36fa097e98",
+    "0a1c73e8-887d-4cfe-84f4-4ec11d087e45",
+]
 
 
 def format_transcript_line(speaker: str, text: str) -> str:
@@ -333,6 +345,11 @@ def create_avatar_session(scenario: dict[str, Any]) -> Any | None:
     Returns:
         AvatarSession instance or None if provider not configured
     """
+    # Allow disabling avatar via environment variable (for testing or when credits depleted)
+    if os.getenv('DISABLE_AVATAR', '').lower() in ('true', '1', 'yes'):
+        logger.info("Avatar disabled via DISABLE_AVATAR environment variable - running audio only")
+        return None
+
     provider = scenario.get('avatar_provider', 'simli')
     avatar_id = scenario.get('avatar_id')
 
@@ -378,7 +395,14 @@ def create_avatar_session(scenario: dict[str, Any]) -> Any | None:
         if not HEDRA_AVAILABLE:
             logger.warning("Hedra plugin not installed. Run: pip install livekit-plugins-hedra")
             return None
-        aid = avatar_id or HEDRA_AVATAR_ID
+        # Seleção aleatória se não especificado no cenário
+        if avatar_id:
+            aid = avatar_id
+        elif HEDRA_AVATAR_IDS:
+            aid = random.choice(HEDRA_AVATAR_IDS)
+            logger.info(f"Randomly selected Hedra avatar: {aid[:8]}...")
+        else:
+            aid = HEDRA_AVATAR_ID
         if HEDRA_API_KEY and aid:
             try:
                 avatar = hedra.AvatarSession(avatar_id=aid)
@@ -462,7 +486,7 @@ async def entrypoint(ctx: JobContext):
         ),
         vad=silero.VAD.load(
             min_speech_duration=0.1,  # Detect shorter speech
-            min_silence_duration=0.4,  # Respond faster after silence
+            min_silence_duration=0.3,  # Respond faster after silence (optimized)
         ),
     )
 
@@ -560,6 +584,33 @@ async def entrypoint(ctx: JobContext):
         except Exception as e:
             logger.warning(f"Failed to send coaching state: {e}")
 
+    async def send_ai_suggestion(suggestion: AISuggestion):
+        """Send an AI-generated coaching suggestion to the frontend."""
+        try:
+            import json
+            data = json.dumps({
+                "type": "ai_suggestion",
+                **suggestion.to_dict()
+            })
+            await ctx.room.local_participant.publish_data(data.encode('utf-8'))
+            logger.debug(f"Sent AI suggestion: {suggestion.title} (streaming={suggestion.is_streaming})")
+        except Exception as e:
+            logger.warning(f"Failed to send AI suggestion: {e}")
+
+    async def send_coaching_processing():
+        """Send processing state to frontend while AI coach is analyzing."""
+        try:
+            import json
+            data = json.dumps({"type": "coaching_processing"})
+            await ctx.room.local_participant.publish_data(data.encode('utf-8'))
+        except Exception as e:
+            logger.warning(f"Failed to send coaching processing: {e}")
+
+    # Streaming analysis tracking
+    import time
+    last_partial_analysis_time = {"user": 0.0, "avatar": 0.0}
+    PARTIAL_ANALYSIS_INTERVAL = 0.5  # seconds
+
     async def handle_early_end():
         """Handle early session termination when user says goodbye."""
         # Wait a bit for the avatar to respond to the goodbye
@@ -586,6 +637,40 @@ async def entrypoint(ctx: JobContext):
                 # User is speaking, show processing state on emotion meter
                 asyncio.create_task(send_emotion_processing())
 
+                # NEW: Streaming analysis for partial transcripts
+                now = time.time()
+                if (now - last_partial_analysis_time["user"] >= PARTIAL_ANALYSIS_INTERVAL
+                    and len(text) >= 15):
+                    last_partial_analysis_time["user"] = now
+
+                    # Streaming AI coach analysis
+                    async def analyze_streaming_user():
+                        try:
+                            ai_coach = get_ai_coach()
+                            suggestion = await ai_coach.analyze_streaming(text, "user")
+                            if suggestion:
+                                await send_ai_suggestion(suggestion)
+                        except Exception as e:
+                            logger.warning(f"Streaming AI coach analysis failed: {e}")
+
+                    asyncio.create_task(analyze_streaming_user())
+
+                    # Streaming emotion analysis (fast keyword-based)
+                    async def analyze_streaming_emotion():
+                        try:
+                            result = await analyze_emotion_streaming(text, transcript_lines)
+                            # Send with lower confidence indicator
+                            await send_emotion_to_room(
+                                result["state"],
+                                result["intensity"],
+                                result["trend"],
+                                None  # No reason for streaming
+                            )
+                        except Exception as e:
+                            logger.warning(f"Streaming emotion analysis failed: {e}")
+
+                    asyncio.create_task(analyze_streaming_emotion())
+
             if is_final:
                 # Add timestamped line to transcript
                 transcript_lines.append(format_transcript_line("Usuario", text))
@@ -596,7 +681,7 @@ async def entrypoint(ctx: JobContext):
                     logger.info("User requested session end, will terminate after response")
                     asyncio.create_task(handle_early_end())
 
-                # Analyze user message for coaching hints
+                # Analyze user message for coaching hints (keyword-based)
                 async def analyze_user_coaching():
                     try:
                         coaching = get_coaching_engine()
@@ -609,6 +694,28 @@ async def entrypoint(ctx: JobContext):
                         logger.warning(f"Coaching analysis failed: {e}")
 
                 asyncio.create_task(analyze_user_coaching())
+
+                # NEW: AI Coach final analysis for specific suggestions
+                async def analyze_user_ai_coach():
+                    try:
+                        await send_coaching_processing()
+                        ai_coach = get_ai_coach()
+                        # Update AI coach context from keyword engine
+                        coaching = get_coaching_engine()
+                        ai_coach.update_context(
+                            methodology_progress=coaching._methodology.to_dict(),
+                            pending_objections=[obj.text for obj in coaching._objections if not obj.addressed],
+                            talk_ratio=coaching.get_talk_ratio()
+                        )
+                        suggestion = await ai_coach.analyze_final(text, "user")
+                        if suggestion:
+                            await send_ai_suggestion(suggestion)
+                            # Track Gemini Flash call for AI coaching
+                            metrics.record_gemini_flash_call(input_tokens=200, output_tokens=50)
+                    except Exception as e:
+                        logger.warning(f"AI coach analysis failed: {e}")
+
+                asyncio.create_task(analyze_user_ai_coach())
 
             logger.info(f"User said: {text} (final={is_final})")
             # Track input tokens for metrics
@@ -681,6 +788,27 @@ async def entrypoint(ctx: JobContext):
                         logger.warning(f"Coaching analysis failed: {e}")
 
                 asyncio.create_task(analyze_avatar_coaching())
+
+                # NEW: AI Coach analysis for avatar (client) responses
+                async def analyze_avatar_ai_coach():
+                    try:
+                        ai_coach = get_ai_coach()
+                        # Update context from keyword engine
+                        coaching = get_coaching_engine()
+                        ai_coach.update_context(
+                            methodology_progress=coaching._methodology.to_dict(),
+                            pending_objections=[obj.text for obj in coaching._objections if not obj.addressed],
+                            talk_ratio=coaching.get_talk_ratio()
+                        )
+                        suggestion = await ai_coach.analyze_final(text, "avatar")
+                        if suggestion:
+                            await send_ai_suggestion(suggestion)
+                            # Track Gemini Flash call
+                            metrics.record_gemini_flash_call(input_tokens=200, output_tokens=50)
+                    except Exception as e:
+                        logger.warning(f"AI coach avatar analysis failed: {e}")
+
+                asyncio.create_task(analyze_avatar_ai_coach())
         except Exception as e:
             logger.error(f"Error in conversation_item_added handler: {e}", exc_info=True)
 
@@ -764,10 +892,22 @@ async def entrypoint(ctx: JobContext):
         # Reset emotion history for fresh session
         reset_emotion_history()
 
-        # Initialize coaching engine
+        # Initialize coaching engine (keyword-based)
         reset_coaching_engine()
         coaching = get_coaching_engine()
         coaching.start_session(scenario)
+
+        # Initialize AI coach with scenario context
+        reset_ai_coach()
+        ai_coach = get_ai_coach()
+        ai_coach.start_session(
+            scenario_name=scenario.get('title', 'Cenario de vendas'),
+            scenario_context=scenario.get('context', scenario.get('description', '')),
+            avatar_profile=scenario.get('avatar_profile', scenario.get('avatar_persona', '')),
+            expected_objections=scenario.get('expected_objections', ['preco', 'timing', 'necessidade']),
+            objectives=scenario.get('coaching_objectives', [])
+        )
+        logger.info("AI Coach initialized with scenario context")
 
         # Start the session FIRST with RoomOptions (new API)
         # This ensures the agent is ready before avatar starts
@@ -777,6 +917,7 @@ async def entrypoint(ctx: JobContext):
             room_input_options=room_io.RoomInputOptions(
                 audio_enabled=True,
                 video_enabled=False,
+                close_on_disconnect=False,  # Keep session alive during brief disconnects
             ),
         )
 
@@ -787,8 +928,8 @@ async def entrypoint(ctx: JobContext):
         # Start metrics collection
         metrics.start_session()
 
-        # Wait a moment for the session to stabilize
-        await asyncio.sleep(0.5)
+        # Wait a moment for the session to stabilize (reduced for lower latency)
+        await asyncio.sleep(0.2)
 
         # Start avatar AFTER session is ready (better sync, less lag)
         if avatar:
@@ -803,8 +944,8 @@ async def entrypoint(ctx: JobContext):
         timeout_task = asyncio.create_task(session_timeout())
         logger.info(f"Session timeout started: {SESSION_TIMEOUT_SECONDS} seconds")
 
-        # Brief wait for connection to stabilize (reduced from 1.0s)
-        await asyncio.sleep(0.3)
+        # Brief wait for connection to stabilize (reduced for lower latency)
+        await asyncio.sleep(0.1)
 
         # Explicitly trigger greeting
         try:
@@ -814,6 +955,22 @@ async def entrypoint(ctx: JobContext):
             logger.info("Greeting triggered successfully")
         except Exception as e:
             logger.warning(f"Failed to trigger greeting: {e}")
+
+        # Generate initial coach suggestion proactively
+        async def generate_initial_coach_suggestion():
+            """Generate and send initial coach suggestion when session starts."""
+            await asyncio.sleep(2)  # Wait for avatar to start greeting
+            try:
+                suggestion = await ai_coach.generate_initial_suggestion()
+                if suggestion:
+                    await send_ai_suggestion(suggestion)
+                    logger.info(f"Initial coach suggestion sent: {suggestion.title}")
+                else:
+                    logger.debug("No initial coach suggestion generated")
+            except Exception as e:
+                logger.warning(f"Failed to generate initial coach suggestion: {e}")
+
+        asyncio.create_task(generate_initial_coach_suggestion())
 
         await send_status_to_room("Ouvindo...")
         logger.info("Session ready and listening")
