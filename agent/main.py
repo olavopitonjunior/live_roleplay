@@ -33,9 +33,11 @@ from livekit.plugins import google, silero, simli
 try:
     from livekit.plugins import liveavatar
     LIVEAVATAR_AVAILABLE = True
-except ImportError:
+    print(f"[STARTUP] LiveAvatar plugin loaded successfully: {liveavatar}")
+except ImportError as e:
     LIVEAVATAR_AVAILABLE = False
     liveavatar = None
+    print(f"[STARTUP] LiveAvatar plugin NOT available: {e}")
 
 try:
     from livekit.plugins import hedra
@@ -355,19 +357,22 @@ def create_avatar_session(scenario: dict[str, Any]) -> Any | None:
             logger.warning("Simli not configured: missing API key or face_id")
 
     elif provider == 'liveavatar':
+        logger.info(f"[AVATAR] Attempting LiveAvatar: AVAILABLE={LIVEAVATAR_AVAILABLE}, API_KEY={'SET' if LIVEAVATAR_API_KEY else 'NOT SET'}")
         if not LIVEAVATAR_AVAILABLE:
-            logger.warning("LiveAvatar plugin not installed. Run: pip install livekit-plugins-liveavatar")
+            logger.error("LiveAvatar plugin not installed. Run: pip install livekit-plugins-liveavatar")
             return None
         aid = avatar_id or LIVEAVATAR_AVATAR_ID
+        logger.info(f"[AVATAR] LiveAvatar avatar_id: {aid}")
         if LIVEAVATAR_API_KEY and aid:
             try:
+                logger.info(f"[AVATAR] Creating LiveAvatar AvatarSession...")
                 avatar = liveavatar.AvatarSession(avatar_id=aid)
-                logger.info(f"LiveAvatar initialized with avatar_id: {aid[:8]}...")
+                logger.info(f"[AVATAR] LiveAvatar initialized successfully with avatar_id: {aid}")
                 return avatar
             except Exception as e:
-                logger.error(f"Failed to initialize LiveAvatar: {e}")
+                logger.error(f"[AVATAR] Failed to initialize LiveAvatar: {e}", exc_info=True)
         else:
-            logger.warning("LiveAvatar not configured: missing API key or avatar_id")
+            logger.error(f"[AVATAR] LiveAvatar not configured: API_KEY={'SET' if LIVEAVATAR_API_KEY else 'MISSING'}, avatar_id={aid or 'MISSING'}")
 
     elif provider == 'hedra':
         if not HEDRA_AVAILABLE:
