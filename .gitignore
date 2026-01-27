@@ -46,6 +46,14 @@ supabase/.branches/
 coverage/
 .coverage
 .pytest_cache/
+tests/*.png
+
+# Agent logs
+agent/*.err
+agent/*.out
+
+# Temporary directories
+shadow/
 
 # MCP config (may contain tokens)
 .mcp.json
