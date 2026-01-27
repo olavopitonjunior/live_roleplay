@@ -3,18 +3,21 @@
  *
  * Generates a LiveKit JWT token for users to join a session room.
  * Also creates the session record in the database.
- * Explicitly dispatches the agent to the room.
+ * Uses token-based dispatch to assign agent when user joins.
  */
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { AccessToken, AgentDispatchClient } from "https://esm.sh/livekit-server-sdk@2.9.1";
+import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.15.0";
 import {
   getCorsHeaders,
   handleCorsPreflightRequest,
   corsJsonResponse,
   corsErrorResponse,
 } from "../_shared/cors.ts";
+
+// Agent name must match the agent registered in the worker
+const AGENT_NAME = "roleplay-agent";
 
 interface RequestBody {
   scenario_id: string;
@@ -90,14 +93,13 @@ serve(async (req: Request) => {
     // Get LiveKit credentials from environment
     const livekitApiKey = Deno.env.get("LIVEKIT_API_KEY");
     const livekitApiSecret = Deno.env.get("LIVEKIT_API_SECRET");
-    const livekitUrl = Deno.env.get("LIVEKIT_URL");
 
-    if (!livekitApiKey || !livekitApiSecret || !livekitUrl) {
+    if (!livekitApiKey || !livekitApiSecret) {
       console.error("LiveKit credentials not configured");
       return corsErrorResponse("LiveKit not configured", 500, req);
     }
 
-    // Prepare metadata for agent dispatch
+    // Prepare metadata for agent (passed via room metadata, not dispatch)
     const agentMetadata = JSON.stringify({
       scenario_id: scenario_id,
       session_id: sessionId,
@@ -107,29 +109,14 @@ serve(async (req: Request) => {
       avatar_id: scenarioData.avatar_id || null,
     });
 
-    // Explicitly dispatch agent to the room
-    // This ensures the agent is ready when the user joins
-    try {
-      const dispatchClient = new AgentDispatchClient(
-        livekitUrl,
-        livekitApiKey,
-        livekitApiSecret
-      );
+    console.log(`Session created, room: ${roomName}, agent: ${AGENT_NAME}`);
 
-      // Dispatch agent with empty name (accepts any agent) and metadata
-      await dispatchClient.createDispatch(roomName, "", {
-        metadata: agentMetadata,
-      });
-      console.log(`Agent dispatched to room: ${roomName}`);
-    } catch (dispatchError) {
-      console.error("Failed to dispatch agent:", dispatchError);
-      // Continue anyway - agent might still connect via auto-dispatch
-    }
-
-    // Create LiveKit access token for the user
+    // Create LiveKit access token for the user with agent dispatch
     const at = new AccessToken(livekitApiKey, livekitApiSecret, {
       identity: `user_${codeData.id.substring(0, 8)}`,
       name: "Participant",
+      // Include metadata for the agent to read from participant
+      metadata: agentMetadata,
     });
 
     // Grant permissions for the room
@@ -140,6 +127,19 @@ serve(async (req: Request) => {
       canSubscribe: true,
       canPublishData: true,
     });
+
+    // Configure token-based agent dispatch
+    // This automatically dispatches the named agent when user joins
+    // @ts-ignore - roomConfig is available in newer SDK versions
+    at.roomConfig = {
+      agents: [
+        {
+          agentName: AGENT_NAME,
+          // Note: metadata in dispatch may cause issues per GitHub #3898
+          // The agent can read metadata from participant instead
+        },
+      ],
+    };
 
     // Generate JWT token
     const token = await at.toJwt();
