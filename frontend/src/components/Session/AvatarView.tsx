@@ -1,4 +1,4 @@
-import { VideoTrack, useRemoteParticipants, useTracks } from '@livekit/components-react';
+import { AudioTrack, VideoTrack, useRemoteParticipants, useTracks } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import { AvatarEmotionOverlay } from './AvatarEmotionOverlay';
 
@@ -8,13 +8,25 @@ interface AvatarViewProps {
 
 export function AvatarView({ showEmotionOverlay = true }: AvatarViewProps) {
   const participants = useRemoteParticipants();
-  const videoTracks = useTracks([Track.Source.Camera]);
+  const videoTracks = useTracks([Track.Source.Camera]).filter((track) => !track.participant.isLocal);
+  const audioTracks = useTracks([Track.Source.Microphone]).filter((track) => !track.participant.isLocal);
 
   // Find the avatar's video track (from the agent)
-  const avatarTrack = videoTracks.find(
-    (track) => track.participant.identity.includes('agent') ||
-               track.participant.identity.includes('simli')
-  );
+  const avatarTrack =
+    videoTracks.find((track) => {
+      const identity = track.participant.identity.toLowerCase();
+      return (
+        identity.includes('agent') ||
+        identity.includes('simli') ||
+        identity.includes('liveavatar') ||
+        identity.includes('heygen') ||
+        identity.includes('hedra')
+      );
+    }) ?? videoTracks[0];
+  const avatarAudioTrack = avatarTrack
+    ? audioTracks.find((track) => track.participant.identity === avatarTrack.participant.identity)
+    : null;
+  const resolvedAudioTrack = avatarAudioTrack ?? audioTracks[0] ?? null;
 
   // Loading state
   if (participants.length === 0) {
@@ -52,6 +64,9 @@ export function AvatarView({ showEmotionOverlay = true }: AvatarViewProps) {
         </div>
         <p className="mt-6 text-gray-300">Avatar conectado</p>
         <p className="mt-2 text-gray-500 text-sm">Aguardando video...</p>
+        {resolvedAudioTrack && (
+          <AudioTrack trackRef={resolvedAudioTrack} className="hidden" />
+        )}
       </div>
     );
   }
@@ -63,6 +78,9 @@ export function AvatarView({ showEmotionOverlay = true }: AvatarViewProps) {
         trackRef={avatarTrack}
         className="w-full h-full object-cover"
       />
+      {resolvedAudioTrack && (
+        <AudioTrack trackRef={resolvedAudioTrack} className="hidden" />
+      )}
       {/* Live indicator */}
       <div className="absolute top-4 left-4 z-10">
         <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm px-3 py-1.5 rounded-full">

@@ -31,6 +31,10 @@ interface ScenarioData {
   objections: Objection[];
   evaluation_criteria: EvaluationCriterion[];
   ideal_outcome?: string | null;
+  simli_face_id?: string | null;
+  gemini_voice?: string | null;
+  avatar_provider?: string | null;
+  avatar_id?: string | null;
   is_active: boolean;
 }
 
@@ -166,6 +170,10 @@ async function handleCreate(supabase: any, body: CreateRequest, req: Request) {
       objections: cleanedObjections,
       evaluation_criteria: cleanedCriteria,
       ideal_outcome: data.ideal_outcome?.trim() || null,
+      simli_face_id: data.simli_face_id?.trim() || null,
+      gemini_voice: data.gemini_voice || null,
+      avatar_provider: data.avatar_provider || null,
+      avatar_id: data.avatar_id?.trim() || null,
       is_active: data.is_active ?? true,
     })
     .select()
@@ -241,6 +249,18 @@ async function handleUpdate(supabase: any, body: UpdateRequest, req: Request) {
   }
   if (data.ideal_outcome !== undefined) {
     updates.ideal_outcome = data.ideal_outcome?.trim() || null;
+  }
+  if (data.simli_face_id !== undefined) {
+    updates.simli_face_id = data.simli_face_id?.trim() || null;
+  }
+  if (data.gemini_voice !== undefined) {
+    updates.gemini_voice = data.gemini_voice || null;
+  }
+  if (data.avatar_provider !== undefined) {
+    updates.avatar_provider = data.avatar_provider || null;
+  }
+  if (data.avatar_id !== undefined) {
+    updates.avatar_id = data.avatar_id?.trim() || null;
   }
   if (data.is_active !== undefined) {
     updates.is_active = data.is_active;

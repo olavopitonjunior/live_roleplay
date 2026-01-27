@@ -12,6 +12,12 @@ const GEMINI_VOICES: { value: GeminiVoice; label: string; description: string }[
   { value: 'Aoede', label: 'Aoede', description: 'Feminina, expressiva' },
 ];
 
+const AVATAR_PROVIDERS: { value: AvatarProvider; label: string; description: string }[] = [
+  { value: 'simli', label: 'Simli', description: 'Avatar padrao com lip-sync' },
+  { value: 'liveavatar', label: 'HeyGen (LiveAvatar)', description: 'Avatar mais expressivo' },
+  { value: 'hedra', label: 'Hedra', description: 'Avatar expressivo alternativo' },
+];
+
 interface ScenarioFormProps {
   isOpen: boolean;
   onClose: () => void;
@@ -31,7 +37,7 @@ export interface ScenarioFormData {
   simli_face_id: string;
   gemini_voice: GeminiVoice;
   avatar_provider: AvatarProvider | null;
-  avatar_id: string | null;
+  avatar_id: string;
   is_active: boolean;
 }
 
@@ -44,8 +50,8 @@ const emptyFormData: ScenarioFormData = {
   ideal_outcome: '',
   simli_face_id: '',
   gemini_voice: 'Puck',
-  avatar_provider: null,
-  avatar_id: null,
+  avatar_provider: 'simli',
+  avatar_id: '',
   is_active: true,
 };
 
@@ -67,8 +73,8 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
           ideal_outcome: generatedData.ideal_outcome,
           simli_face_id: '',
           gemini_voice: generatedData.suggested_voice || 'Puck',
-          avatar_provider: null,
-          avatar_id: null,
+          avatar_provider: 'simli',
+          avatar_id: '',
           is_active: true,
         });
       } else if (scenario && (mode === 'edit' || mode === 'duplicate')) {
@@ -85,8 +91,8 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
           ideal_outcome: scenario.ideal_outcome || '',
           simli_face_id: scenario.simli_face_id || '',
           gemini_voice: scenario.gemini_voice || 'Puck',
-          avatar_provider: scenario.avatar_provider || null,
-          avatar_id: scenario.avatar_id || null,
+          avatar_provider: scenario.avatar_provider || 'simli',
+          avatar_id: scenario.avatar_id || '',
           is_active: scenario.is_active,
         });
       } else {
@@ -111,6 +117,10 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
     }
     if (!formData.avatar_profile.trim()) {
       setError('Perfil do avatar e obrigatorio');
+      return;
+    }
+    if (formData.avatar_provider !== 'simli' && !formData.avatar_id.trim()) {
+      setError('Avatar ID e obrigatorio para o provedor selecionado');
       return;
     }
 
@@ -267,6 +277,33 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
 
         {/* Voice and Avatar Settings */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Avatar Provider */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Provedor do Avatar
+            </label>
+            <select
+              value={formData.avatar_provider || 'simli'}
+              onChange={(e) =>
+                setFormData(prev => ({
+                  ...prev,
+                  avatar_provider: e.target.value as AvatarProvider,
+                }))
+              }
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
+                         focus:border-black focus:ring-0 transition-colors outline-none bg-white"
+            >
+              {AVATAR_PROVIDERS.map((provider) => (
+                <option key={provider.value} value={provider.value}>
+                  {provider.label} - {provider.description}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              Escolha o provedor do avatar para este cenario.
+            </p>
+          </div>
+
           {/* Gemini Voice */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -290,22 +327,41 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
           </div>
 
           {/* Simli Face ID */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Face ID do Simli
-            </label>
-            <input
-              type="text"
-              value={formData.simli_face_id}
-              onChange={(e) => setFormData(prev => ({ ...prev, simli_face_id: e.target.value }))}
-              placeholder="Opcional - deixe vazio para usar o padrao"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
-                         focus:border-black focus:ring-0 transition-colors outline-none"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              ID do avatar Simli. Deixe vazio para usar o avatar padrao.
-            </p>
-          </div>
+          {formData.avatar_provider === 'simli' ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Face ID do Simli
+              </label>
+              <input
+                type="text"
+                value={formData.simli_face_id}
+                onChange={(e) => setFormData(prev => ({ ...prev, simli_face_id: e.target.value }))}
+                placeholder="Opcional - deixe vazio para usar o padrao"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
+                           focus:border-black focus:ring-0 transition-colors outline-none"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                ID do avatar Simli. Deixe vazio para usar o avatar padrao.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Avatar ID do Provedor
+              </label>
+              <input
+                type="text"
+                value={formData.avatar_id}
+                onChange={(e) => setFormData(prev => ({ ...prev, avatar_id: e.target.value }))}
+                placeholder="Obrigatorio para HeyGen/Hedra"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
+                           focus:border-black focus:ring-0 transition-colors outline-none"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                ID do avatar no provedor selecionado.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Objections */}

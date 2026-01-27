@@ -1,11 +1,10 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
 import {
   LiveKitRoom,
-  RoomAudioRenderer,
   useRoomContext,
   useConnectionState,
 } from '@livekit/components-react';
-import { ConnectionState } from 'livekit-client';
+import { ConnectionState, Room } from 'livekit-client';
 import { AvatarView } from './AvatarView';
 import { MicrophoneIndicator } from './MicrophoneIndicator';
 import { SidePanel } from './SidePanel';
@@ -19,6 +18,7 @@ interface SessionRoomProps {
   onSessionEnd: (durationSeconds: number) => void;
   scenarioTitle?: string;
   scenarioContext?: string;
+  existingRoom?: Room | null; // Pass existing room from useAgentConnection
 }
 
 /**
@@ -112,15 +112,18 @@ function DesktopSessionLayout({
   const isWarning = remaining <= 30;
   const isCritical = remaining <= 10;
 
-  // Connection states
+  // Connection states - these should rarely be seen since connection
+  // is verified during loading, but kept as fallback
   if (connectionState === ConnectionState.Connecting) {
+    // This should not happen normally since we connect during loading
+    // But keep as fallback just in case
     return (
       <div className="w-full h-screen bg-neutral-950 flex flex-col items-center justify-center">
         <div className="relative">
           <div className="w-20 h-20 rounded-full border-4 border-primary-500 border-t-transparent animate-spin" />
         </div>
-        <p className="mt-6 text-white text-lg">Conectando a sala...</p>
-        <p className="mt-2 text-neutral-400 text-sm">Preparando seu treinamento</p>
+        <p className="mt-6 text-white text-lg">Reconectando...</p>
+        <p className="mt-2 text-neutral-400 text-sm">Por favor aguarde</p>
       </div>
     );
   }
@@ -209,9 +212,6 @@ function DesktopSessionLayout({
               {/* Avatar Video */}
               <AvatarView />
 
-              {/* Audio Renderer */}
-              <RoomAudioRenderer />
-
               {/* Emotion Meter - Left side inside video */}
               <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10">
                 <div className="bg-neutral-900/80 backdrop-blur-sm rounded-xl p-2 border border-neutral-700">
@@ -253,12 +253,16 @@ export function SessionRoom({
   onSessionEnd,
   scenarioTitle,
   scenarioContext,
+  existingRoom,
 }: SessionRoomProps) {
+  // If we have an existing room from useAgentConnection, use it
+  // Otherwise, let LiveKitRoom create a new connection
   return (
     <LiveKitRoom
-      token={token}
-      serverUrl={serverUrl}
-      connect={true}
+      room={existingRoom ?? undefined}
+      token={existingRoom ? undefined : token}
+      serverUrl={existingRoom ? undefined : serverUrl}
+      connect={!existingRoom} // Don't auto-connect if room already exists
       audio={true}
       video={false}
       options={{

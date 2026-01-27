@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useSession } from '../hooks/useSession';
+import { useAgentConnection } from '../hooks/useAgentConnection';
 import { SessionRoom, SessionLoading } from '../components/Session';
 import { Button } from '../components/ui';
 import { supabase } from '../lib/supabase';
@@ -29,9 +30,21 @@ export function Session() {
     error,
   } = useSession();
 
-  const [isReady, setIsReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [scenario, setScenario] = useState<Scenario | null>(null);
+
+  // Use agent connection hook to connect during loading
+  const {
+    state: agentState,
+    room: connectedRoom,
+    error: agentError,
+    retry: retryConnection,
+    disconnect,
+  } = useAgentConnection({
+    token,
+    serverUrl: livekitUrl,
+    agentTimeout: 30000, // 30 seconds
+  });
 
   // Fetch scenario data
   useEffect(() => {
@@ -55,13 +68,13 @@ export function Session() {
     fetchScenario();
   }, [scenarioId]);
 
+  // Start session (get token)
   useEffect(() => {
     if (!scenarioId || !accessCode || token) return;
 
     const initSession = async () => {
       try {
         await startSession(scenarioId, accessCode.code);
-        setIsReady(true);
       } catch (err) {
         setInitError(
           err instanceof Error ? err.message : 'Falha ao iniciar sessao'
@@ -75,14 +88,25 @@ export function Session() {
   const handleSessionEnd = useCallback(
     async (durationSeconds: number) => {
       if (sessionId) {
+        disconnect(); // Clean up the room connection
         await endSession(sessionId, durationSeconds);
         navigate(`/feedback/${sessionId}`);
       }
     },
-    [sessionId, endSession, navigate]
+    [sessionId, endSession, navigate, disconnect]
   );
 
-  // Error state
+  const handleRetry = useCallback(() => {
+    setInitError(null);
+    retryConnection();
+  }, [retryConnection]);
+
+  const handleCancel = useCallback(() => {
+    disconnect();
+    navigate('/home');
+  }, [disconnect, navigate]);
+
+  // Token fetch error (not agent connection error - that's shown on loading screen)
   if (error || initError) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white p-4">
@@ -94,16 +118,6 @@ export function Session() {
           </Button>
         </div>
       </div>
-    );
-  }
-
-  // Loading state
-  if (isConnecting || !isReady || !token) {
-    return (
-      <SessionLoading
-        scenarioTitle={scenario?.title}
-        scenarioContext={scenario?.context}
-      />
     );
   }
 
@@ -125,7 +139,23 @@ export function Session() {
     );
   }
 
-  // Connected - render session room
+  // Loading state - show until agent is ready
+  // This includes: getting token, connecting to LiveKit, waiting for agent
+  if (isConnecting || !token || agentState !== 'ready') {
+    return (
+      <SessionLoading
+        scenarioTitle={scenario?.title}
+        scenarioContext={scenario?.context}
+        connectionState={agentState}
+        hasToken={!!token}
+        error={agentError}
+        onRetry={handleRetry}
+        onCancel={handleCancel}
+      />
+    );
+  }
+
+  // Agent connected - render session room with the already connected room
   return (
     <SessionRoom
       token={token}
@@ -133,6 +163,7 @@ export function Session() {
       onSessionEnd={handleSessionEnd}
       scenarioTitle={scenario?.title}
       scenarioContext={scenario?.context}
+      existingRoom={connectedRoom}
     />
   );
 }
