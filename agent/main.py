@@ -11,6 +11,7 @@ Improvements:
 - Avatar synchronized after session start for better latency
 """
 
+import json
 import os
 import asyncio
 import logging
@@ -472,7 +473,6 @@ async def entrypoint(ctx: JobContext):
     async def send_transcription_to_room(speaker: str, text: str, is_final: bool = True):
         """Send transcription data to the frontend via data channel."""
         try:
-            import json
             data = json.dumps({
                 "type": "transcription",
                 "speaker": speaker,
@@ -487,7 +487,6 @@ async def entrypoint(ctx: JobContext):
     async def send_status_to_room(status: str):
         """Send status update to the frontend."""
         try:
-            import json
             data = json.dumps({
                 "type": "status",
                 "message": status
@@ -504,7 +503,6 @@ async def entrypoint(ctx: JobContext):
     ):
         """Send emotion state with intensity, trend, and reason to the frontend."""
         try:
-            import json
             payload = {
                 "type": "emotion",
                 "value": emotion
@@ -526,7 +524,6 @@ async def entrypoint(ctx: JobContext):
     async def send_emotion_processing():
         """Send processing state to frontend while analyzing emotion."""
         try:
-            import json
             data = json.dumps({"type": "emotion_processing"})
             await ctx.room.local_participant.publish_data(data.encode('utf-8'))
         except Exception as e:
@@ -535,7 +532,6 @@ async def entrypoint(ctx: JobContext):
     async def send_coaching_hint(hint: CoachingHint):
         """Send a coaching hint to the frontend."""
         try:
-            import json
             data = json.dumps({
                 "type": "coaching_hint",
                 **hint.to_dict()
@@ -548,7 +544,6 @@ async def entrypoint(ctx: JobContext):
     async def send_coaching_state():
         """Send current coaching state to frontend."""
         try:
-            import json
             coaching = get_coaching_engine()
             state = coaching.get_state()
             data = json.dumps({
