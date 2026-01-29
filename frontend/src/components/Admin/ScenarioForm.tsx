@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Modal, ModalFooter } from '../ui/Modal';
 import { Button } from '../ui';
-import type { Scenario, Objection, EvaluationCriterion, GeminiVoice, GeneratedScenario, AvatarProvider } from '../../types';
+import { supabase } from '../../lib/supabase';
+import type { Scenario, Objection, EvaluationCriterion, GeminiVoice, GeneratedScenario, AvatarProvider, SuggestedScenarioFields } from '../../types';
 
 // Available Gemini voices with descriptions
 const GEMINI_VOICES: { value: GeminiVoice; label: string; description: string }[] = [
@@ -25,6 +26,7 @@ interface ScenarioFormProps {
   scenario?: Scenario | null;
   mode: 'create' | 'edit' | 'duplicate';
   generatedData?: GeneratedScenario | null;
+  accessCode?: string;
 }
 
 export interface ScenarioFormData {
@@ -55,10 +57,174 @@ const emptyFormData: ScenarioFormData = {
   is_active: true,
 };
 
-export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, generatedData }: ScenarioFormProps) {
+// Field types that can be generated individually
+type FieldType = 'avatar_profile' | 'objections' | 'evaluation_criteria' | 'ideal_outcome' | 'all';
+
+// AI Field Button component - small icon next to labels
+function AIFieldButton({
+  field,
+  disabled,
+  isLoading,
+  onClick,
+  tooltip,
+}: {
+  field: FieldType;
+  disabled: boolean;
+  isLoading: boolean;
+  onClick: () => void;
+  tooltip: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || isLoading}
+      title={tooltip}
+      className={`inline-flex items-center justify-center w-6 h-6 rounded-md transition-all ${
+        disabled || isLoading
+          ? 'text-gray-300 cursor-not-allowed'
+          : 'text-purple-500 hover:text-purple-600 hover:bg-purple-50'
+      }`}
+    >
+      {isLoading ? (
+        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+        </svg>
+      ) : (
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, generatedData, accessCode }: ScenarioFormProps) {
   const [formData, setFormData] = useState<ScenarioFormData>(emptyFormData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [generatingField, setGeneratingField] = useState<FieldType | null>(null);
+
+  // Handler for individual field suggestion
+  const handleFieldSuggestion = async (field: FieldType) => {
+    if (!accessCode) {
+      setError('Codigo de acesso nao encontrado');
+      return;
+    }
+    if (!formData.title.trim()) {
+      setError('Preencha o titulo antes de gerar sugestoes');
+      return;
+    }
+    if (formData.context.trim().length < 50) {
+      setError('O contexto precisa ter pelo menos 50 caracteres para gerar sugestoes');
+      return;
+    }
+
+    setGeneratingField(field);
+    setError(null);
+
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke('suggest-scenario-fields', {
+        body: {
+          access_code: accessCode,
+          title: formData.title,
+          context: formData.context,
+          field,
+        },
+      });
+
+      if (invokeError) {
+        throw new Error(invokeError.message || 'Erro ao gerar sugestao');
+      }
+
+      if (data?.fields) {
+        const fields = data.fields;
+        setFormData(prev => {
+          const updated = { ...prev };
+
+          if (fields.avatar_profile !== undefined) {
+            updated.avatar_profile = fields.avatar_profile;
+          }
+          if (fields.objections !== undefined) {
+            updated.objections = fields.objections;
+          }
+          if (fields.evaluation_criteria !== undefined) {
+            updated.evaluation_criteria = fields.evaluation_criteria;
+          }
+          if (fields.ideal_outcome !== undefined) {
+            updated.ideal_outcome = fields.ideal_outcome;
+          }
+          if (fields.suggested_voice !== undefined) {
+            updated.gemini_voice = fields.suggested_voice;
+          }
+
+          return updated;
+        });
+      } else {
+        throw new Error('Resposta invalida do servidor');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao gerar sugestao');
+    } finally {
+      setGeneratingField(null);
+    }
+  };
+
+  // Handler for AI suggestion (all fields)
+  const handleAISuggestion = async () => {
+    if (!accessCode) {
+      setError('Codigo de acesso nao encontrado');
+      return;
+    }
+    if (!formData.title.trim()) {
+      setError('Preencha o titulo antes de gerar sugestoes');
+      return;
+    }
+    if (formData.context.trim().length < 50) {
+      setError('O contexto precisa ter pelo menos 50 caracteres para gerar sugestoes');
+      return;
+    }
+
+    setIsSuggesting(true);
+    setError(null);
+
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke('suggest-scenario-fields', {
+        body: {
+          access_code: accessCode,
+          title: formData.title,
+          context: formData.context,
+        },
+      });
+
+      if (invokeError) {
+        throw new Error(invokeError.message || 'Erro ao gerar sugestoes');
+      }
+
+      if (data?.fields) {
+        const fields = data.fields as SuggestedScenarioFields;
+        setFormData(prev => ({
+          ...prev,
+          avatar_profile: fields.avatar_profile,
+          objections: fields.objections,
+          evaluation_criteria: fields.evaluation_criteria,
+          ideal_outcome: fields.ideal_outcome,
+          gemini_voice: fields.suggested_voice || prev.gemini_voice,
+        }));
+      } else {
+        throw new Error('Resposta invalida do servidor');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao gerar sugestoes');
+    } finally {
+      setIsSuggesting(false);
+    }
+  };
+
+  const canSuggest = Boolean(accessCode && formData.title.trim() && formData.context.trim().length >= 50);
+  const isAnyGenerating = isSuggesting || generatingField !== null;
 
   useEffect(() => {
     if (isOpen) {
@@ -258,12 +424,58 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
                        focus:border-black focus:ring-0 transition-colors outline-none resize-none"
           />
+          {/* AI Suggestion Button */}
+          {accessCode && (
+            <div className="mt-2 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleAISuggestion}
+                disabled={!canSuggest || isAnyGenerating}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  canSuggest && !isAnyGenerating
+                    ? 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white hover:from-purple-600 hover:to-indigo-600 shadow-md hover:shadow-lg'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                {isAnyGenerating ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Gerando...
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+                    </svg>
+                    Sugestao da I.A.
+                  </>
+                )}
+              </button>
+              {!canSuggest && formData.context.trim().length < 50 && formData.context.trim().length > 0 && (
+                <span className="text-xs text-gray-500">
+                  {50 - formData.context.trim().length} caracteres restantes para habilitar
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Avatar Profile */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
             Perfil do Avatar *
+            {accessCode && (
+              <AIFieldButton
+                field="avatar_profile"
+                disabled={!canSuggest}
+                isLoading={generatingField === 'avatar_profile'}
+                onClick={() => handleFieldSuggestion('avatar_profile')}
+                tooltip={canSuggest ? 'Gerar perfil com I.A.' : 'Preencha titulo e contexto primeiro'}
+              />
+            )}
           </label>
           <textarea
             value={formData.avatar_profile}
@@ -367,8 +579,17 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
         {/* Objections */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
               Objecoes do Cliente *
+              {accessCode && (
+                <AIFieldButton
+                  field="objections"
+                  disabled={!canSuggest}
+                  isLoading={generatingField === 'objections'}
+                  onClick={() => handleFieldSuggestion('objections')}
+                  tooltip={canSuggest ? 'Gerar objecoes com I.A.' : 'Preencha titulo e contexto primeiro'}
+                />
+              )}
             </label>
             <button
               type="button"
@@ -406,8 +627,17 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
         {/* Evaluation Criteria */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
               Criterios de Avaliacao *
+              {accessCode && (
+                <AIFieldButton
+                  field="evaluation_criteria"
+                  disabled={!canSuggest}
+                  isLoading={generatingField === 'evaluation_criteria'}
+                  onClick={() => handleFieldSuggestion('evaluation_criteria')}
+                  tooltip={canSuggest ? 'Gerar criterios com I.A.' : 'Preencha titulo e contexto primeiro'}
+                />
+              )}
             </label>
             <button
               type="button"
@@ -444,8 +674,17 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
 
         {/* Ideal Outcome */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
             Resultado Ideal Esperado
+            {accessCode && (
+              <AIFieldButton
+                field="ideal_outcome"
+                disabled={!canSuggest}
+                isLoading={generatingField === 'ideal_outcome'}
+                onClick={() => handleFieldSuggestion('ideal_outcome')}
+                tooltip={canSuggest ? 'Gerar resultado com I.A.' : 'Preencha titulo e contexto primeiro'}
+              />
+            )}
           </label>
           <textarea
             value={formData.ideal_outcome}

@@ -14,6 +14,7 @@ interface MobileSessionLayoutProps {
   onSessionEnd: (durationSeconds: number) => void;
   scenarioTitle?: string;
   scenarioContext?: string;
+  maxDuration?: number;
 }
 
 type ActiveTab = 'video' | 'chat';
@@ -28,6 +29,7 @@ export function MobileSessionLayout({
   onSessionEnd,
   scenarioTitle,
   scenarioContext,
+  maxDuration = 180,
 }: MobileSessionLayoutProps) {
   const room = useRoomContext();
   const connectionState = useConnectionState();
@@ -35,7 +37,6 @@ export function MobileSessionLayout({
   const [elapsed, setElapsed] = useState(0);
   const [isEnding, setIsEnding] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>('video');
-  const maxDuration = 180; // 3 minutes
 
   // Timer
   useEffect(() => {

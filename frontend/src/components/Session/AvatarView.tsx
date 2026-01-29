@@ -143,7 +143,7 @@ export function AvatarView({ showEmotionOverlay = true }: AvatarViewProps) {
     <div className="w-full h-full bg-black relative">
       <VideoTrack
         trackRef={avatarTrack}
-        className="w-full h-full object-cover"
+        className="w-full h-full object-contain bg-black"
       />
       {resolvedAudioTrack && (
         <AudioTrack trackRef={resolvedAudioTrack} className="hidden" />

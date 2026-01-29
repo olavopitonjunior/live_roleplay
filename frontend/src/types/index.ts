@@ -124,6 +124,15 @@ export interface GenerateScenarioRequest {
   difficulty?: 'easy' | 'medium' | 'hard';
 }
 
+// AI-suggested fields for scenario (partial, without title/context)
+export interface SuggestedScenarioFields {
+  avatar_profile: string;
+  objections: Objection[];
+  evaluation_criteria: EvaluationCriterion[];
+  ideal_outcome: string;
+  suggested_voice: GeminiVoice;
+}
+
 // Session types
 export interface Session {
   id: string;

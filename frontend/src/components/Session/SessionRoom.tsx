@@ -18,6 +18,7 @@ interface SessionRoomProps {
   onSessionEnd: (durationSeconds: number) => void;
   scenarioTitle?: string;
   scenarioContext?: string;
+  maxDuration?: number; // Maximum session duration in seconds (default: 180)
   existingRoom?: Room | null; // Pass existing room from useAgentConnection
 }
 
@@ -30,10 +31,12 @@ function SessionContent({
   onSessionEnd,
   scenarioTitle,
   scenarioContext,
+  maxDuration = 180,
 }: {
   onSessionEnd: (duration: number) => void;
   scenarioTitle?: string;
   scenarioContext?: string;
+  maxDuration?: number;
 }) {
   const isMobile = useIsMobile();
 
@@ -44,6 +47,7 @@ function SessionContent({
         onSessionEnd={onSessionEnd}
         scenarioTitle={scenarioTitle}
         scenarioContext={scenarioContext}
+        maxDuration={maxDuration}
       />
     );
   }
@@ -54,6 +58,7 @@ function SessionContent({
       onSessionEnd={onSessionEnd}
       scenarioTitle={scenarioTitle}
       scenarioContext={scenarioContext}
+      maxDuration={maxDuration}
     />
   );
 }
@@ -65,17 +70,18 @@ function DesktopSessionLayout({
   onSessionEnd,
   scenarioTitle,
   scenarioContext,
+  maxDuration = 180,
 }: {
   onSessionEnd: (duration: number) => void;
   scenarioTitle?: string;
   scenarioContext?: string;
+  maxDuration?: number;
 }) {
   const room = useRoomContext();
   const connectionState = useConnectionState();
   const startTimeRef = useRef(Date.now());
   const [elapsed, setElapsed] = useState(0);
   const [isEnding, setIsEnding] = useState(false);
-  const maxDuration = 180; // 3 minutes
 
   // Timer
   useEffect(() => {
@@ -206,7 +212,7 @@ function DesktopSessionLayout({
       <div className="flex-1 flex overflow-hidden">
         {/* Avatar Area (Left) - YouTube-style centered 16:9 video */}
         <div className="flex-1 flex items-center justify-center bg-neutral-950 p-4">
-          <div className="relative w-full max-w-4xl">
+          <div className="relative w-full max-w-3xl">
             {/* 16:9 Aspect Ratio Container */}
             <div className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-2xl border border-neutral-800">
               {/* Avatar Video */}
@@ -253,6 +259,7 @@ export function SessionRoom({
   onSessionEnd,
   scenarioTitle,
   scenarioContext,
+  maxDuration = 180,
   existingRoom,
 }: SessionRoomProps) {
   // If we have an existing room from useAgentConnection, use it
@@ -285,6 +292,7 @@ export function SessionRoom({
         onSessionEnd={onSessionEnd}
         scenarioTitle={scenarioTitle}
         scenarioContext={scenarioContext}
+        maxDuration={maxDuration}
       />
     </LiveKitRoom>
   );
