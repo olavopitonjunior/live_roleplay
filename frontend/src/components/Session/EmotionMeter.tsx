@@ -153,12 +153,16 @@ export function EmotionMeter() {
             setTrend(data.trend || 'stable');
             setIsStreaming(data.is_streaming || false);
 
-            // Get emotion from value or intensity
-            const newEmotion = (data.value && EMOTIONS[data.value as EmotionState])
-              ? data.value as EmotionState
-              : getEmotionFromIntensity(data.intensity);
+            // Get emotion from value or intensity - with validation
+            let newEmotion: EmotionState;
+            if (data.value && EMOTIONS[data.value as EmotionState]) {
+              newEmotion = data.value as EmotionState;
+            } else {
+              newEmotion = getEmotionFromIntensity(data.intensity);
+            }
 
-            if (EMOTIONS[newEmotion] && newEmotion !== emotion) {
+            // Only update if valid and different
+            if (newEmotion !== emotion) {
               setIsAnimating(true);
               setEmotion(newEmotion);
               setTimeout(() => setIsAnimating(false), 500);
@@ -212,7 +216,8 @@ export function EmotionMeter() {
     };
   }, [room, emotion]);
 
-  const config = EMOTIONS[emotion];
+  // Fallback to neutral if emotion is not recognized
+  const config = EMOTIONS[emotion] || EMOTIONS.neutral;
   const barColor = getIntensityColor(displayIntensity);
 
   return (
