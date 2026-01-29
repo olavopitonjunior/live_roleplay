@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import type { Scenario, GeneratedScenario, GenerateScenarioRequest } from '../types';
+import type { Scenario, GeneratedScenario, GenerateScenarioRequest, SuggestedScenarioFields } from '../types';
 
 export function useScenarios() {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSuggesting, setIsSuggesting] = useState(false);
 
   const fetchScenarios = useCallback(async (includeInactive = false) => {
     setLoading(true);
@@ -147,6 +148,37 @@ export function useScenarios() {
     }
   }, []);
 
+  const suggestScenarioFields = useCallback(async (
+    accessCode: string,
+    title: string,
+    context: string
+  ): Promise<{ data: SuggestedScenarioFields | null; error: { message: string } | null }> => {
+    setIsSuggesting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('suggest-scenario-fields', {
+        body: {
+          access_code: accessCode,
+          title,
+          context,
+        },
+      });
+
+      if (error) {
+        return { data: null, error: { message: error.message || 'Erro ao gerar sugestoes' } };
+      }
+
+      if (data?.fields) {
+        return { data: data.fields as SuggestedScenarioFields, error: null };
+      }
+
+      return { data: null, error: { message: 'Resposta invalida do servidor' } };
+    } catch (err) {
+      return { data: null, error: { message: err instanceof Error ? err.message : 'Erro ao gerar sugestoes' } };
+    } finally {
+      setIsSuggesting(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchScenarios();
   }, [fetchScenarios]);
@@ -156,10 +188,12 @@ export function useScenarios() {
     loading,
     error,
     isGenerating,
+    isSuggesting,
     fetchScenarios,
     createScenario,
     updateScenario,
     deleteScenario,
     generateScenario,
+    suggestScenarioFields,
   };
 }

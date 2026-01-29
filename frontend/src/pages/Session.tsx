@@ -15,6 +15,7 @@ interface Scenario {
   context: string;
   persona_name: string;
   persona_style: string;
+  duration_max_seconds?: number;
 }
 
 interface LocationState {
@@ -183,6 +184,7 @@ export function Session() {
       onSessionEnd={handleSessionEnd}
       scenarioTitle={scenario?.title}
       scenarioContext={scenario?.context}
+      maxDuration={scenario?.duration_max_seconds || 180}
       existingRoom={null} // Let SessionRoom create fresh connection
     />
   );

@@ -263,6 +263,7 @@ export function AdminScenarios() {
         scenario={selectedScenario}
         mode={formMode}
         generatedData={generatedData}
+        accessCode={accessCode?.code}
       />
 
       {/* Scenario Generator Modal */}
