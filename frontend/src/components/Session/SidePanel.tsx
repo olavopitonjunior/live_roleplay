@@ -8,7 +8,7 @@ interface SidePanelProps {
 }
 
 export function SidePanel({ scenarioTitle, scenarioContext }: SidePanelProps) {
-  const [activeTab, setActiveTab] = useState<'chat' | 'coach' | 'info'>('coach');
+  const [activeTab, setActiveTab] = useState<'chat' | 'coach' | 'info'>('chat');
 
   return (
     <div className="h-full flex flex-col bg-neutral-900/95 backdrop-blur-sm">
