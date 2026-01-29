@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRoomContext } from '@livekit/components-react';
 import { RoomEvent } from 'livekit-client';
 
@@ -9,6 +9,19 @@ interface CoachingHint {
   message: string;
   priority: number;
   methodology_step?: string;
+  timestamp: string;
+}
+
+interface AISuggestion {
+  id: string;
+  type: 'question' | 'statement' | 'technique' | 'objection_response' | 'encouragement';
+  title: string;
+  message: string;
+  context: string;
+  priority: number;
+  methodology_step?: string;
+  is_streaming: boolean;
+  confidence: number;
   timestamp: string;
 }
 
@@ -54,6 +67,14 @@ const HINT_COLORS: Record<string, string> = {
   objection: 'border-red-500 bg-red-500/10',
 };
 
+const AI_SUGGESTION_ICONS: Record<string, string> = {
+  question: '❓',
+  statement: '💬',
+  technique: '🎯',
+  objection_response: '🛡️',
+  encouragement: '✨',
+};
+
 const METHODOLOGY_LABELS: Record<string, string> = {
   situation: 'Situacao',
   problem: 'Problema',
@@ -74,7 +95,19 @@ export function CoachingPanel() {
   const [hints, setHints] = useState<CoachingHint[]>([]);
   const [state, setState] = useState<CoachingState | null>(null);
   const [latestHint, setLatestHint] = useState<CoachingHint | null>(null);
+  const [aiSuggestion, setAiSuggestion] = useState<AISuggestion | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [copied, setCopied] = useState(false);
   const hintsRef = useRef<HTMLDivElement>(null);
+
+  // Copy suggestion to clipboard
+  const copySuggestion = useCallback(() => {
+    if (aiSuggestion?.message) {
+      navigator.clipboard.writeText(aiSuggestion.message);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [aiSuggestion]);
 
   // Listen for coaching data
   useEffect(() => {
@@ -86,35 +119,59 @@ export function CoachingPanel() {
         const text = decoder.decode(payload);
         const data = JSON.parse(text);
 
-        // Handle new coaching hint
+        // Handle AI suggestion (new feature)
+        if (data.type === 'ai_suggestion') {
+          // suggestionType contains the actual type (question, statement, etc.)
+          const suggestionType = data.suggestionType || 'question';
+
+          const suggestion: AISuggestion = {
+            id: data.id,
+            type: suggestionType,
+            title: data.title,
+            message: data.message,
+            context: data.context || '',
+            priority: data.priority,
+            methodology_step: data.methodology_step,
+            is_streaming: data.is_streaming || false,
+            confidence: data.confidence || 1.0,
+            timestamp: data.timestamp,
+          };
+
+          setAiSuggestion(suggestion);
+          setIsProcessing(false);
+
+          // Auto-clear after 8 seconds (longer for AI suggestions)
+          setTimeout(() => setAiSuggestion(null), 8000);
+        }
+
+        // Handle processing state
+        if (data.type === 'coaching_processing') {
+          setIsProcessing(true);
+        }
+
+        // Handle new coaching hint (keyword-based)
         if (data.type === 'coaching_hint') {
+          // hintType contains the actual type (encouragement, warning, etc.)
+          const hintType = data.hintType || 'suggestion';
+
           const hint: CoachingHint = {
             id: data.id,
-            type: data.type === 'coaching_hint' ? data.type : data.type,
+            type: hintType,
             title: data.title,
             message: data.message,
             priority: data.priority,
             methodology_step: data.methodology_step,
             timestamp: data.timestamp,
           };
-          // Fix: extract the actual hint type from the nested data
-          hint.type = data.type === 'coaching_hint'
-            ? (data as { type: string; id: string; title: string; message: string; priority: number; methodology_step?: string; timestamp: string }).type
-            : data.type;
-
-          // Parse the hint type from the full data object
-          const actualType = ['encouragement', 'warning', 'suggestion', 'reminder', 'objection'].find(
-            t => (data as Record<string, unknown>)[t] || data.type === t
-          ) || 'suggestion';
 
           setHints(prev => {
-            const newHints = [...prev, { ...hint, type: actualType as CoachingHint['type'] }];
+            const newHints = [...prev, hint];
             return newHints.slice(-10); // Keep last 10 hints
           });
-          setLatestHint({ ...hint, type: actualType as CoachingHint['type'] });
+          setLatestHint(hint);
 
-          // Auto-clear latest hint after 5 seconds
-          setTimeout(() => setLatestHint(null), 5000);
+          // Auto-clear latest hint after 3 seconds (reduced from 5s)
+          setTimeout(() => setLatestHint(null), 3000);
         }
 
         // Handle full coaching state update
@@ -153,8 +210,72 @@ export function CoachingPanel() {
 
   return (
     <div className="h-full flex flex-col bg-neutral-900 text-white overflow-hidden">
-      {/* Latest Hint Banner */}
-      {latestHint && (
+      {/* AI Suggestion Banner (Priority - Most Prominent) */}
+      {aiSuggestion && (
+        <div className={`p-3 border-l-4 border-primary-500 bg-primary-500/20 animate-fade-in ${
+          aiSuggestion.is_streaming ? 'opacity-80' : ''
+        }`}>
+          <div className="flex items-start gap-2">
+            <span className="text-xl">{AI_SUGGESTION_ICONS[aiSuggestion.type] || '💡'}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <p className="font-semibold text-sm text-primary-300">
+                  {aiSuggestion.type === 'question' ? 'Pergunte:' :
+                   aiSuggestion.type === 'statement' ? 'Diga:' :
+                   aiSuggestion.type === 'objection_response' ? 'Responda:' :
+                   aiSuggestion.title}
+                </p>
+                {aiSuggestion.is_streaming && (
+                  <span className="text-[10px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">
+                    analisando...
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-white font-medium leading-relaxed">
+                "{aiSuggestion.message}"
+              </p>
+              {aiSuggestion.context && (
+                <p className="text-xs text-neutral-400 mt-1 italic">
+                  {aiSuggestion.context}
+                </p>
+              )}
+              <button
+                onClick={copySuggestion}
+                className="mt-2 text-xs text-primary-400 hover:text-primary-300 flex items-center gap-1 transition-colors"
+              >
+                {copied ? (
+                  <>
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Copiado!
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Copiar sugestao
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Processing Indicator */}
+      {isProcessing && !aiSuggestion && (
+        <div className="p-2 bg-neutral-800/50 border-b border-neutral-700">
+          <div className="flex items-center gap-2 text-xs text-neutral-400">
+            <div className="w-3 h-3 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+            <span>Analisando conversa...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Latest Hint Banner (Secondary) */}
+      {latestHint && !aiSuggestion && (
         <div className={`p-3 border-l-4 ${HINT_COLORS[latestHint.type]} animate-fade-in`}>
           <div className="flex items-start gap-2">
             <span className="text-lg">{HINT_ICONS[latestHint.type]}</span>
@@ -281,13 +402,13 @@ export function CoachingPanel() {
         )}
 
         {/* Empty state */}
-        {!methodology && hints.length === 0 && (
+        {!methodology && hints.length === 0 && !aiSuggestion && (
           <div className="text-center py-8 text-neutral-500">
             <svg className="w-10 h-10 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
             </svg>
-            <p className="text-sm">Dicas de coaching aparecao aqui</p>
+            <p className="text-sm">Dicas de coaching aparecerao aqui</p>
             <p className="text-xs mt-1">durante a conversa</p>
           </div>
         )}

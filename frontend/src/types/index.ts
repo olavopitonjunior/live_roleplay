@@ -7,10 +7,65 @@ export interface AccessCode {
   created_at: string;
 }
 
+// ============================================
+// PRD 08: Avaliacao Evidenciada
+// ============================================
+
+// Session modes
+export type SessionMode = 'training' | 'evaluation';
+export type CoachIntensity = 'low' | 'medium' | 'high';
+export type ConfidenceLevel = 'low' | 'medium' | 'high';
+export type ObjectionSeverity = 'low' | 'medium' | 'high';
+export type ObjectionStatus = 'not_detected' | 'detected' | 'partial' | 'addressed';
+export type EvidenceType = 'criterion' | 'objection' | 'key_moment';
+
+// Rubric levels (1-4)
+export type RubricLevel = 1 | 2 | 3 | 4;
+
+export const RUBRIC_LEVEL_LABELS: Record<RubricLevel, string> = {
+  1: 'Fraco',
+  2: 'Parcial',
+  3: 'Bom',
+  4: 'Excelente'
+};
+
+export const RUBRIC_LEVEL_COLORS: Record<RubricLevel, string> = {
+  1: 'text-red-600 bg-red-50',
+  2: 'text-orange-600 bg-orange-50',
+  3: 'text-blue-600 bg-blue-50',
+  4: 'text-green-600 bg-green-50'
+};
+
 // Scenario types
 export interface Objection {
   id: string;
   description: string;
+}
+
+// Detailed objection with detection keywords (from scenario_objections table)
+export interface DetailedObjection {
+  id: string;
+  description: string;
+  severity: ObjectionSeverity;
+  trigger_keywords: string[];
+  expected_response_keywords: string[];
+}
+
+// Rubric for a criterion (4 levels)
+export interface CriterionRubric {
+  level_1: string; // Fraco
+  level_2: string; // Parcial
+  level_3: string; // Bom
+  level_4: string; // Excelente
+}
+
+// Criterion with rubric (from criterion_rubrics table)
+export interface CriterionWithRubric {
+  id: string;
+  name: string;
+  description: string;
+  weight: number;
+  rubric: CriterionRubric;
 }
 
 export interface EvaluationCriterion {
@@ -39,6 +94,16 @@ export interface Scenario {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // PRD 08: New fields
+  duration_min_seconds?: number;
+  duration_max_seconds?: number;
+  default_session_mode?: SessionMode;
+}
+
+// Extended scenario with rubrics and detailed objections (from view)
+export interface ScenarioWithRubrics extends Omit<Scenario, 'objections' | 'evaluation_criteria'> {
+  criteria_with_rubrics: CriterionWithRubric[];
+  objections_detailed: DetailedObjection[];
 }
 
 // AI-generated scenario (before saving to database)
@@ -70,6 +135,18 @@ export interface Session {
   ended_at: string | null;
   duration_seconds: number | null;
   status: 'active' | 'completed' | 'cancelled';
+  // PRD 08: New fields
+  session_mode?: SessionMode;
+  coach_intensity?: CoachIntensity;
+  is_valid?: boolean | null;
+  validation_reasons?: string[];
+  has_avatar_fallback?: boolean;
+}
+
+// Session validation reason
+export interface ValidationReason {
+  code: string;
+  message: string;
 }
 
 export interface SessionWithRelations extends Session {
@@ -78,19 +155,84 @@ export interface SessionWithRelations extends Session {
 }
 
 // Feedback types
+
+// Legacy: pass/fail criteria result (for backwards compatibility)
 export interface CriteriaResult {
   criteria_id: string;
   passed: boolean;
   observation: string;
 }
 
+// PRD 08: Criteria score with rubric level (1-4)
+export interface CriteriaScore {
+  criterion_id: string;
+  criterion_name: string;
+  level: RubricLevel;
+  weight: number;
+  observation: string;
+  evidence_ids: string[];
+  rubric_descriptor: string; // The descriptor text for the assigned level
+  // Evidence from generate-feedback
+  evidence_excerpt?: string;
+  evidence_start_index?: number;
+  evidence_end_index?: number;
+}
+
+// Evidence linking transcript to evaluation
+export interface Evidence {
+  id: string;
+  session_id: string;
+  criterion_id: string;
+  transcript_start_index: number;
+  transcript_end_index: number;
+  transcript_excerpt: string;
+  timestamp_ms?: number;
+  evidence_type: EvidenceType;
+  label?: string; // e.g., 'empatia', 'fechamento', 'objecao', 'risco'
+  confidence: number;
+}
+
+// Objection status during session
+export interface SessionObjectionStatus {
+  id: string;
+  session_id: string;
+  objection_id: string;
+  status: ObjectionStatus;
+  detected_at_ms?: number;
+  detected_transcript_index?: number;
+  addressed_at_ms?: number;
+  addressed_transcript_index?: number;
+  recommendation?: string;
+}
+
+// Key moment in the session
+export interface KeyMoment {
+  type: 'positive' | 'negative' | 'opportunity' | 'objection' | 'empathy' | 'closing' | 'risk';
+  quote: string;
+  explanation: string;
+  timestamp_ms?: number;
+  transcript_index?: number;
+}
+
 export interface Feedback {
   id: string;
   session_id: string;
-  criteria_results: CriteriaResult[];
+  criteria_results: CriteriaResult[]; // Legacy: kept for backwards compatibility
   summary: string;
   score: number;
   created_at: string;
+  // PRD 08: New fields
+  criteria_scores?: CriteriaScore[];
+  weighted_score?: number;
+  confidence_level?: ConfidenceLevel;
+  transcript_coverage?: number;
+  key_moments?: KeyMoment[];
+}
+
+// Extended feedback with evidences and objection status
+export interface FeedbackWithEvidences extends Feedback {
+  evidences: Evidence[];
+  objection_statuses: SessionObjectionStatus[];
 }
 
 // Auth state
@@ -109,9 +251,16 @@ export interface LiveKitTokenResponse {
 // Feedback generation response
 export interface FeedbackResponse {
   feedback_id: string;
-  criteria_results: CriteriaResult[];
+  criteria_results: CriteriaResult[]; // Legacy
   summary: string;
   score: number;
+  // PRD 08: New fields
+  criteria_scores?: CriteriaScore[];
+  weighted_score?: number;
+  confidence_level?: ConfidenceLevel;
+  key_moments?: KeyMoment[];
+  evidences?: Evidence[];
+  objection_statuses?: SessionObjectionStatus[];
 }
 
 // API Metrics types

@@ -1,10 +1,13 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import type { Feedback, Scenario } from '../types';
+import type { Feedback, Scenario, Evidence, SessionObjectionStatus } from '../types';
 
 interface FeedbackState {
   feedback: Feedback | null;
   scenario: Scenario | null;
+  transcript: string | null;
+  evidences: Evidence[];
+  objectionStatuses: SessionObjectionStatus[];
   loading: boolean;
   generating: boolean;
   waitingForTranscript: boolean;
@@ -45,6 +48,9 @@ export function useFeedback() {
   const [state, setState] = useState<FeedbackState>({
     feedback: null,
     scenario: null,
+    transcript: null,
+    evidences: [],
+    objectionStatuses: [],
     loading: false,
     generating: false,
     waitingForTranscript: false,
@@ -147,26 +153,64 @@ export function useFeedback() {
         }));
       }
 
-      // Fetch scenario for criteria labels
+      // Fetch session data including transcript
       const { data: sessionData } = await supabase
         .from('sessions')
-        .select('scenario_id')
+        .select('scenario_id, transcript')
         .eq('id', sessionId)
         .single();
 
-      if (sessionData?.scenario_id) {
-        const { data: scenarioData } = await supabase
-          .from('scenarios')
-          .select('*')
-          .eq('id', sessionData.scenario_id)
-          .single();
-
-        if (scenarioData) {
+      if (sessionData) {
+        // Set transcript
+        if (sessionData.transcript) {
           setState((prev) => ({
             ...prev,
-            scenario: scenarioData as Scenario,
+            transcript: sessionData.transcript,
           }));
         }
+
+        // Fetch scenario
+        if (sessionData.scenario_id) {
+          const { data: scenarioData } = await supabase
+            .from('scenarios')
+            .select('*')
+            .eq('id', sessionData.scenario_id)
+            .single();
+
+          if (scenarioData) {
+            setState((prev) => ({
+              ...prev,
+              scenario: scenarioData as Scenario,
+            }));
+          }
+        }
+      }
+
+      // Fetch evidences (PRD 08)
+      const { data: evidencesData } = await supabase
+        .from('session_evidences')
+        .select('*')
+        .eq('session_id', sessionId)
+        .order('transcript_start_index', { ascending: true });
+
+      if (evidencesData) {
+        setState((prev) => ({
+          ...prev,
+          evidences: evidencesData as Evidence[],
+        }));
+      }
+
+      // Fetch objection statuses (PRD 08)
+      const { data: objectionStatusData } = await supabase
+        .from('session_objection_status')
+        .select('*')
+        .eq('session_id', sessionId);
+
+      if (objectionStatusData) {
+        setState((prev) => ({
+          ...prev,
+          objectionStatuses: objectionStatusData as SessionObjectionStatus[],
+        }));
       }
     } catch (err) {
       const errorMessage =

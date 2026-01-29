@@ -11,7 +11,10 @@
     "db:diff": "npx supabase db diff",
     "functions:deploy": "npx supabase functions deploy",
     "functions:serve": "npx supabase functions serve",
-    "setup": "npx supabase link --project-ref lzjixdhzejnknhxpcnlc && npm run db:push && npm run functions:deploy"
+    "setup": "npx supabase link --project-ref lzjixdhzejnknhxpcnlc && npm run db:push && npm run functions:deploy",
+    "verify": "node tests/automated-verify.js",
+    "verify:json": "node tests/automated-verify.js --json",
+    "verify:headed": "node tests/automated-verify.js --headed"
   },
   "devDependencies": {
     "dotenv": "^17.2.3",

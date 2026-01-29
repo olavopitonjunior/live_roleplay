@@ -19,9 +19,14 @@ import {
 // Agent name must match the agent registered in the worker
 const AGENT_NAME = "roleplay-agent";
 
+type SessionMode = "training" | "evaluation";
+type CoachIntensity = "low" | "medium" | "high";
+
 interface RequestBody {
   scenario_id: string;
   access_code: string;
+  session_mode?: SessionMode;
+  coach_intensity?: CoachIntensity;
 }
 
 interface TokenResponse {
@@ -37,7 +42,12 @@ serve(async (req: Request) => {
 
   try {
     // Parse request body
-    const { scenario_id, access_code }: RequestBody = await req.json();
+    const {
+      scenario_id,
+      access_code,
+      session_mode = "training",
+      coach_intensity = "medium",
+    }: RequestBody = await req.json();
 
     if (!scenario_id || !access_code) {
       return corsErrorResponse("Missing scenario_id or access_code", 400, req);
@@ -76,13 +86,15 @@ serve(async (req: Request) => {
     const sessionId = crypto.randomUUID();
     const roomName = `roleplay_${sessionId}`;
 
-    // Create session record in database
+    // Create session record in database with mode settings
     const { error: sessionError } = await supabase.from("sessions").insert({
       id: sessionId,
       access_code_id: codeData.id,
       scenario_id: scenario_id,
       livekit_room_name: roomName,
       status: "active",
+      session_mode: session_mode,
+      coach_intensity: coach_intensity,
     });
 
     if (sessionError) {
@@ -107,9 +119,12 @@ serve(async (req: Request) => {
       gemini_voice: scenarioData.gemini_voice || "Puck",
       avatar_provider: scenarioData.avatar_provider || null,
       avatar_id: scenarioData.avatar_id || null,
+      // PRD 08: Session mode and coach intensity
+      session_mode: session_mode,
+      coach_intensity: coach_intensity,
     });
 
-    console.log(`Session created, room: ${roomName}, agent: ${AGENT_NAME}`);
+    console.log(`Session created, room: ${roomName}, agent: ${AGENT_NAME}, mode: ${session_mode}, intensity: ${coach_intensity}`);
 
     // Create LiveKit access token for the user with agent dispatch
     const at = new AccessToken(livekitApiKey, livekitApiSecret, {

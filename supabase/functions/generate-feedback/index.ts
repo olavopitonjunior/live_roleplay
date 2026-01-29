@@ -1,14 +1,15 @@
 /**
  * Edge Function: generate-feedback
  *
- * Analyzes session transcripts using Claude API and generates
- * structured feedback based on scenario evaluation criteria.
+ * PRD 08: Avaliacao Evidenciada e Calibrada V2
  *
- * Improvements:
- * - Secure CORS (whitelist instead of wildcard)
- * - Retry logic with exponential backoff for Claude API
- * - Few-shot examples in prompt for better evaluation
- * - Consistent scoring (always calculated from criteria, not from Claude)
+ * Analyzes session transcripts using Claude API and generates
+ * structured feedback with:
+ * - Rubric-based scoring (levels 1-4 instead of pass/fail)
+ * - Evidence linking to transcript excerpts
+ * - Objection status tracking
+ * - Weighted score calculation
+ * - Key moments with timestamps
  */
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
@@ -25,39 +26,136 @@ interface RequestBody {
   session_id: string;
 }
 
+// Legacy interface (for backwards compatibility)
 interface CriteriaResult {
   criteria_id: string;
   passed: boolean;
   observation: string;
 }
 
-interface FeedbackData {
-  criteria_results: CriteriaResult[];
-  summary: string;
-  score: number;
+// New: Rubric-based score (1-4)
+interface CriteriaScore {
+  criterion_id: string;
+  criterion_name: string;
+  level: 1 | 2 | 3 | 4;
+  weight: number;
+  observation: string;
+  evidence_excerpt: string;
+  evidence_start_index: number;
+  evidence_end_index: number;
 }
 
-interface EvaluationCriterion {
+// Objection status in response
+interface ObjectionStatusResult {
+  objection_id: string;
+  status: "not_detected" | "detected" | "partial" | "addressed";
+  detected_excerpt?: string;
+  detected_index?: number;
+  addressed_excerpt?: string;
+  addressed_index?: number;
+  recommendation?: string;
+}
+
+interface KeyMoment {
+  type: "positive" | "negative" | "opportunity" | "objection" | "empathy" | "closing" | "risk";
+  quote: string;
+  explanation: string;
+  transcript_index?: number;
+}
+
+interface FeedbackResponse {
+  criteria_scores: CriteriaScore[];
+  objection_statuses: ObjectionStatusResult[];
+  key_moments: KeyMoment[];
+  summary: string;
+  confidence_level: "low" | "medium" | "high";
+  transcript_coverage: number;
+}
+
+// Criterion with rubric from database
+interface CriterionWithRubric {
+  id: string;
+  name: string;
+  description: string;
+  weight: number;
+  rubric: {
+    level_1: string;
+    level_2: string;
+    level_3: string;
+    level_4: string;
+  };
+}
+
+// Objection from database
+interface DetailedObjection {
   id: string;
   description: string;
+  severity: string;
+  trigger_keywords: string[];
+  expected_response_keywords: string[];
 }
 
-interface Scenario {
+interface ScenarioWithRubrics {
   id: string;
   title: string;
   context: string;
-  evaluation_criteria: EvaluationCriterion[];
   ideal_outcome?: string;
+  criteria_with_rubrics: CriterionWithRubric[];
+  objections_detailed: DetailedObjection[];
+  // PRD 08, US-14: Duration limits
+  duration_min_seconds?: number;
+  duration_max_seconds?: number;
 }
 
 /**
- * Build the evaluation prompt with few-shot examples for better accuracy
+ * Find the index of a quote in the transcript
  */
-function buildEvaluationPrompt(
-  scenario: Scenario,
-  transcript: string,
-  criteriaText: string
+function findQuoteIndex(transcript: string, quote: string): number {
+  // Try exact match first
+  let index = transcript.toLowerCase().indexOf(quote.toLowerCase());
+  if (index !== -1) return index;
+
+  // Try partial match (first 50 chars)
+  const partial = quote.substring(0, 50).toLowerCase();
+  index = transcript.toLowerCase().indexOf(partial);
+  return index;
+}
+
+/**
+ * Build the evaluation prompt with rubrics for 1-4 scoring
+ */
+function buildRubricEvaluationPrompt(
+  scenario: ScenarioWithRubrics,
+  transcript: string
 ): string {
+  const criteriaSection = scenario.criteria_with_rubrics
+    .map(
+      (c, i) => `
+CRITERIO ${i + 1}: ${c.name} [ID: ${c.id}]
+Descricao: ${c.description}
+Peso: ${c.weight}%
+
+Rubrica de avaliacao:
+- Nivel 1 (Fraco): ${c.rubric.level_1}
+- Nivel 2 (Parcial): ${c.rubric.level_2}
+- Nivel 3 (Bom): ${c.rubric.level_3}
+- Nivel 4 (Excelente): ${c.rubric.level_4}
+`
+    )
+    .join("\n---\n");
+
+  const objectionsSection = scenario.objections_detailed
+    ?.map(
+      (o, i) => `
+OBJECAO ${i + 1}: [ID: ${o.id}]
+Descricao: ${o.description}
+Severidade: ${o.severity}
+Palavras-chave de deteccao: ${o.trigger_keywords.join(", ")}
+Palavras-chave de tratamento: ${o.expected_response_keywords.join(", ")}
+`
+    )
+    .join("\n") || "Nenhuma objecao obrigatoria definida.";
+
   const idealOutcomeSection = scenario.ideal_outcome
     ? `
 ═══════════════════════════════════════════════════════════════
@@ -68,26 +166,32 @@ ${scenario.ideal_outcome}
     : "";
 
   return `Voce e um avaliador especializado em treinamentos de vendas e negociacao.
-Analise a transcricao abaixo e avalie o desempenho do participante com base nos criterios fornecidos.
+Analise a transcricao abaixo e avalie o desempenho do participante usando RUBRICAS DE 4 NIVEIS.
 
 ═══════════════════════════════════════════════════════════════
-EXEMPLOS DE AVALIACAO (para calibrar seu julgamento):
+EXEMPLO DE AVALIACAO COM RUBRICA (para calibrar):
 ═══════════════════════════════════════════════════════════════
 
-EXEMPLO 1 - Criterio ATENDIDO (passed: true):
-Criterio: "Respondeu adequadamente a objecao de preco com argumentos de valor"
-Trecho da conversa: 'Usuario: Entendo sua preocupacao com o investimento. Deixa eu contextualizar: este plano oferece cobertura completa para toda sua familia, incluindo assistencia 24 horas. Se compararmos com os custos de uma emergencia medica, o valor mensal representa menos de 2% do que voce gastaria em uma unica internacao.'
-Avaliacao: {"criteria_id": "crit_2", "passed": true, "observation": "O participante respondeu a objecao de preco apresentando argumentos de valor concretos: cobertura familiar completa, assistencia 24h, e comparacao custo-beneficio com cenario real."}
+Criterio: "Tratamento de objecao de preco"
+Rubrica:
+- Nivel 1: Ignorou ou ofereceu desconto sem argumentar
+- Nivel 2: Reconheceu mas argumentou de forma generica
+- Nivel 3: Apresentou argumentos de valor conectados
+- Nivel 4: Reverteu com ROI, comparacao e apelo emocional
 
-EXEMPLO 2 - Criterio NAO ATENDIDO (passed: false):
-Criterio: "Respondeu adequadamente a objecao de preco com argumentos de valor"
-Trecho da conversa: 'Usuario: Bom, esse e o preco que temos. Posso verificar se existe algum desconto disponivel ou um plano mais basico.'
-Avaliacao: {"criteria_id": "crit_2", "passed": false, "observation": "O participante nao apresentou argumentos de valor para justificar o preco. Ao inves disso, ofereceu desconto ou downgrade, desvalorizando o produto sem defender seus beneficios."}
+Trecho: 'Usuario: Entendo sua preocupacao. Este plano custa menos que 2% do que voce gastaria em uma emergencia. Alem disso, protege a educacao dos seus filhos.'
 
-EXEMPLO 3 - Criterio NAO ABORDADO (passed: false):
-Criterio: "Criou senso de urgencia sem ser agressivo"
-Observacao: Se a conversa terminou antes do participante ter oportunidade de criar urgencia, ou se ele simplesmente nao abordou esse ponto.
-Avaliacao: {"criteria_id": "crit_4", "passed": false, "observation": "O criterio nao foi abordado durante a conversa. O participante encerrou sem criar senso de urgencia ou mencionar prazos/oportunidades limitadas."}
+Avaliacao:
+{
+  "criterion_id": "crit_2",
+  "criterion_name": "Tratamento de preco",
+  "level": 3,
+  "weight": 25,
+  "observation": "Apresentou argumentos de valor (custo-beneficio, protecao dos filhos) mas faltou calculo de ROI explicito ou comparacao com alternativas.",
+  "evidence_excerpt": "Este plano custa menos que 2% do que voce gastaria em uma emergencia. Alem disso, protege a educacao dos seus filhos",
+  "evidence_start_index": 42,
+  "evidence_end_index": 156
+}
 
 ═══════════════════════════════════════════════════════════════
 CONTEXTO DO CENARIO:
@@ -95,9 +199,14 @@ CONTEXTO DO CENARIO:
 ${scenario.context}
 ${idealOutcomeSection}
 ═══════════════════════════════════════════════════════════════
-CRITERIOS DE AVALIACAO (use os IDs exatos):
+CRITERIOS COM RUBRICAS (avalie cada um com nivel 1-4):
 ═══════════════════════════════════════════════════════════════
-${criteriaText}
+${criteriaSection}
+
+═══════════════════════════════════════════════════════════════
+OBJECOES OBRIGATORIAS (verifique se foram tratadas):
+═══════════════════════════════════════════════════════════════
+${objectionsSection}
 
 ═══════════════════════════════════════════════════════════════
 TRANSCRICAO DA CONVERSA:
@@ -108,26 +217,163 @@ ${transcript}
 INSTRUCOES PARA SUA AVALIACAO:
 ═══════════════════════════════════════════════════════════════
 
-1. Analise CADA criterio individualmente
-2. Para cada criterio, identifique se foi ATENDIDO (passed: true) ou NAO ATENDIDO (passed: false)
-3. Nas observacoes, CITE trechos especificos da conversa que justifiquem sua avaliacao
-4. Se um criterio nao foi abordado na conversa, considere como NAO ATENDIDO
-5. Escreva um resumo geral do desempenho em 2-3 frases
+1. Para CADA CRITERIO:
+   - Atribua um nivel de 1 a 4 baseado na rubrica
+   - Identifique o trecho EXATO da conversa que justifica (evidence_excerpt)
+   - Informe a posicao do trecho no transcript (evidence_start_index, evidence_end_index)
+   - Se nao houver evidencia, atribua nivel 1 e mencione "nao abordado"
 
-Retorne APENAS um JSON valido (sem markdown, sem comentarios, sem texto adicional) com esta estrutura:
+2. Para CADA OBJECAO obrigatoria:
+   - status: "not_detected" se nao apareceu, "detected" se apareceu mas nao foi tratada, "partial" se foi parcialmente tratada, "addressed" se foi bem tratada
+   - Cite o trecho onde foi detectada e/ou tratada
+   - Se nao tratada, sugira uma recomendacao
+
+3. MOMENTOS-CHAVE:
+   - Identifique 3-5 momentos importantes (positivos, negativos, oportunidades, objecoes)
+   - Cada momento deve ter quote EXATO e explicacao
+
+4. CONFIANCA:
+   - "high" se a transcricao e clara e cobre toda a conversa
+   - "medium" se ha trechos confusos ou faltando
+   - "low" se a transcricao e muito curta ou incompleta
+
+5. COBERTURA:
+   - Estime qual % do audio foi transcrito (0.0 a 1.0)
+
+Retorne APENAS um JSON valido com esta estrutura:
 
 {
-  "criteria_results": [
+  "criteria_scores": [
     {
-      "criteria_id": "crit_1",
-      "passed": true,
-      "observation": "Explicacao especifica com citacao da conversa"
+      "criterion_id": "crit_1",
+      "criterion_name": "Nome do criterio",
+      "level": 3,
+      "weight": 25,
+      "observation": "Explicacao da avaliacao",
+      "evidence_excerpt": "Trecho exato da conversa",
+      "evidence_start_index": 0,
+      "evidence_end_index": 50
     }
   ],
-  "summary": "Resumo geral do desempenho destacando pontos fortes e areas de melhoria"
+  "objection_statuses": [
+    {
+      "objection_id": "obj_price",
+      "status": "addressed",
+      "detected_excerpt": "Trecho onde objecao foi levantada",
+      "detected_index": 100,
+      "addressed_excerpt": "Trecho onde foi tratada",
+      "addressed_index": 200,
+      "recommendation": null
+    }
+  ],
+  "key_moments": [
+    {
+      "type": "positive",
+      "quote": "Trecho exato",
+      "explanation": "Por que foi importante",
+      "transcript_index": 150
+    }
+  ],
+  "summary": "Resumo geral do desempenho em 2-3 frases",
+  "confidence_level": "high",
+  "transcript_coverage": 0.95
+}`;
 }
 
-IMPORTANTE: O campo "score" sera calculado automaticamente. NAO inclua score no JSON.`;
+/**
+ * Calculate weighted score from criteria scores
+ * Score = sum(level * 25 * weight / 100) / sum(weights) * 100
+ */
+function calculateWeightedScore(criteriaScores: CriteriaScore[]): number {
+  if (criteriaScores.length === 0) return 0;
+
+  let totalWeight = 0;
+  let weightedSum = 0;
+
+  for (const score of criteriaScores) {
+    const levelPercent = score.level * 25; // 1=25%, 2=50%, 3=75%, 4=100%
+    weightedSum += (levelPercent * score.weight) / 100;
+    totalWeight += score.weight;
+  }
+
+  if (totalWeight === 0) return 0;
+  return Math.round((weightedSum * 100) / totalWeight);
+}
+
+/**
+ * Convert rubric scores to legacy pass/fail format
+ * Level 1-2 = failed, Level 3-4 = passed
+ */
+function convertToLegacyFormat(criteriaScores: CriteriaScore[]): CriteriaResult[] {
+  return criteriaScores.map((score) => ({
+    criteria_id: score.criterion_id,
+    passed: score.level >= 3,
+    observation: `[Nivel ${score.level}/4] ${score.observation}`,
+  }));
+}
+
+/**
+ * PRD 08, US-13: Session validation
+ * Validates if a session meets minimum criteria for evaluation
+ */
+interface ValidationResult {
+  is_valid: boolean;
+  validation_reasons: string[];
+}
+
+function validateSession(
+  transcript: string,
+  durationSeconds: number | null,
+  hasAvatarFallback: boolean,
+  confidenceLevel: string,
+  transcriptCoverage: number,
+  minDurationSeconds: number = 120,  // 2 min default
+  maxDurationSeconds: number = 600   // 10 min default
+): ValidationResult {
+  const reasons: string[] = [];
+
+  // 1. Check duration
+  if (durationSeconds !== null) {
+    if (durationSeconds < minDurationSeconds) {
+      reasons.push(`Sessão muito curta: ${Math.round(durationSeconds)}s (mínimo: ${minDurationSeconds}s)`);
+    } else if (durationSeconds > maxDurationSeconds) {
+      reasons.push(`Sessão muito longa: ${Math.round(durationSeconds)}s (máximo: ${maxDurationSeconds}s)`);
+    }
+  }
+
+  // 2. Check transcript quality
+  const lines = transcript.split("\n").filter((l) => l.trim().length > 0);
+  const userLines = lines.filter((l) => l.includes("Usuario:")).length;
+  const avatarLines = lines.filter((l) => l.includes("Avatar:")).length;
+
+  if (userLines < 3) {
+    reasons.push(`Participação insuficiente do usuário: ${userLines} falas (mínimo: 3)`);
+  }
+  if (avatarLines < 3) {
+    reasons.push(`Participação insuficiente do avatar: ${avatarLines} falas (mínimo: 3)`);
+  }
+
+  // 3. Check confidence level
+  if (confidenceLevel === "low") {
+    reasons.push("Transcrição de baixa qualidade (confiança baixa)");
+  }
+
+  // 4. Check transcript coverage
+  if (transcriptCoverage < 0.5) {
+    reasons.push(`Cobertura de transcrição insuficiente: ${Math.round(transcriptCoverage * 100)}% (mínimo: 50%)`);
+  }
+
+  // 5. Avatar fallback is informational, not a blocker
+  // But note it for transparency
+  if (hasAvatarFallback) {
+    // This doesn't invalidate the session, but is tracked
+    console.log("Note: Session used avatar fallback (audio-only)");
+  }
+
+  return {
+    is_valid: reasons.length === 0,
+    validation_reasons: reasons,
+  };
 }
 
 serve(async (req: Request) => {
@@ -137,7 +383,7 @@ serve(async (req: Request) => {
 
   try {
     const { session_id }: RequestBody = await req.json();
-    console.log("generate-feedback called with session_id:", session_id);
+    console.log("generate-feedback V2 called with session_id:", session_id);
 
     if (!session_id) {
       console.error("Missing session_id in request");
@@ -149,7 +395,7 @@ serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Fetch session with scenario data (including ideal_outcome)
+    // Fetch session with scenario data
     console.log("Fetching session data...");
     const { data: session, error: sessionError } = await supabase
       .from("sessions")
@@ -159,13 +405,9 @@ serve(async (req: Request) => {
         transcript,
         scenario_id,
         status,
-        scenarios (
-          id,
-          title,
-          context,
-          evaluation_criteria,
-          ideal_outcome
-        )
+        session_mode,
+        has_avatar_fallback,
+        duration_seconds
       `
       )
       .eq("id", session_id)
@@ -181,7 +423,7 @@ serve(async (req: Request) => {
       status: session.status,
       has_transcript: !!session.transcript,
       transcript_length: session.transcript?.length || 0,
-      scenario_id: session.scenario_id
+      session_mode: session.session_mode,
     });
 
     // Check if feedback already exists
@@ -202,20 +444,66 @@ serve(async (req: Request) => {
       return corsErrorResponse("No transcript available for this session", 400, req);
     }
 
-    const scenario = session.scenarios as Scenario;
-    const criteria = scenario.evaluation_criteria || [];
+    // Fetch scenario with rubrics using the view
+    console.log("Fetching scenario with rubrics...");
+    const { data: scenario, error: scenarioError } = await supabase
+      .from("scenario_full_details")
+      .select("*")
+      .eq("id", session.scenario_id)
+      .single();
 
-    if (criteria.length === 0) {
-      return corsErrorResponse("No evaluation criteria defined for this scenario", 400, req);
+    if (scenarioError || !scenario) {
+      // Fallback to legacy scenario fetch
+      console.warn("Could not fetch rubrics, falling back to legacy:", scenarioError);
+      const { data: legacyScenario } = await supabase
+        .from("scenarios")
+        .select("id, title, context, evaluation_criteria, ideal_outcome")
+        .eq("id", session.scenario_id)
+        .single();
+
+      if (!legacyScenario) {
+        return corsErrorResponse("Scenario not found", 404, req);
+      }
+
+      // Use legacy evaluation (pass/fail)
+      return await handleLegacyEvaluation(
+        supabase,
+        session,
+        legacyScenario,
+        req
+      );
     }
 
-    // Build criteria text for prompt
-    const criteriaText = criteria
-      .map((c: EvaluationCriterion, i: number) => `${i + 1}. [${c.id}] ${c.description}`)
-      .join("\n");
+    // Check if we have rubrics
+    if (!scenario.criteria_with_rubrics || scenario.criteria_with_rubrics.length === 0) {
+      console.warn("No rubrics found, falling back to legacy evaluation");
+      return await handleLegacyEvaluation(
+        supabase,
+        session,
+        {
+          id: scenario.id,
+          title: scenario.title,
+          context: scenario.context,
+          ideal_outcome: scenario.ideal_outcome,
+          evaluation_criteria: [], // Will use legacy criteria
+        },
+        req
+      );
+    }
 
-    // Build prompt with few-shot examples
-    const prompt = buildEvaluationPrompt(scenario, session.transcript, criteriaText);
+    const scenarioWithRubrics: ScenarioWithRubrics = {
+      id: scenario.id,
+      title: scenario.title,
+      context: scenario.context,
+      ideal_outcome: scenario.ideal_outcome,
+      criteria_with_rubrics: scenario.criteria_with_rubrics,
+      objections_detailed: scenario.objections_detailed || [],
+      duration_min_seconds: scenario.duration_min_seconds,
+      duration_max_seconds: scenario.duration_max_seconds,
+    };
+
+    // Build prompt with rubrics
+    const prompt = buildRubricEvaluationPrompt(scenarioWithRubrics, session.transcript);
 
     // Initialize Anthropic client
     const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -226,13 +514,13 @@ serve(async (req: Request) => {
     const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
     // Call Claude API with retry logic
-    console.log("Calling Claude API for session:", session_id);
+    console.log("Calling Claude API for rubric evaluation...");
 
     const message = await withRetry(
       async () => {
         return await anthropic.messages.create({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 2048,
+          max_tokens: 4096, // Increased for more detailed response
           messages: [
             {
               role: "user",
@@ -254,12 +542,12 @@ serve(async (req: Request) => {
     const responseText =
       message.content[0].type === "text" ? message.content[0].text : "";
 
-    // Extract token usage from Claude response for metrics
+    // Extract token usage
     const claudeInputTokens = message.usage?.input_tokens ?? 0;
     const claudeOutputTokens = message.usage?.output_tokens ?? 0;
     console.log(`Claude API tokens: ${claudeInputTokens} input, ${claudeOutputTokens} output`);
 
-    // Update api_metrics table with Claude token counts
+    // Update api_metrics
     try {
       await supabase
         .from("api_metrics")
@@ -268,16 +556,13 @@ serve(async (req: Request) => {
           claude_output_tokens: claudeOutputTokens,
         })
         .eq("session_id", session_id);
-      console.log("Claude tokens saved to api_metrics");
     } catch (metricsError) {
-      // Non-fatal: continue even if metrics update fails
-      console.warn("Failed to update api_metrics with Claude tokens:", metricsError);
+      console.warn("Failed to update api_metrics:", metricsError);
     }
 
     // Parse Claude's response
-    let feedbackData: Omit<FeedbackData, "score">;
+    let feedbackData: FeedbackResponse;
     try {
-      // Try to extract JSON from response (in case there's extra text)
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error("No JSON found in response");
@@ -285,40 +570,74 @@ serve(async (req: Request) => {
       feedbackData = JSON.parse(jsonMatch[0]);
     } catch (parseError) {
       console.error("Failed to parse Claude response:", responseText);
-      return corsErrorResponse(
-        "Failed to parse AI response",
-        500,
-        req
-      );
+      return corsErrorResponse("Failed to parse AI response", 500, req);
     }
 
-    // Validate and normalize criteria results
-    const normalizedResults: CriteriaResult[] = criteria.map(
-      (c: EvaluationCriterion) => {
-        const result = feedbackData.criteria_results?.find(
-          (r) => r.criteria_id === c.id
+    // Validate and normalize criteria scores
+    const normalizedScores: CriteriaScore[] = scenarioWithRubrics.criteria_with_rubrics.map(
+      (c) => {
+        const result = feedbackData.criteria_scores?.find(
+          (r) => r.criterion_id === c.id
         );
+        if (result) {
+          // Find actual index in transcript
+          const startIndex = findQuoteIndex(
+            session.transcript!,
+            result.evidence_excerpt || ""
+          );
+          return {
+            criterion_id: c.id,
+            criterion_name: c.name,
+            level: Math.max(1, Math.min(4, result.level || 1)) as 1 | 2 | 3 | 4,
+            weight: c.weight,
+            observation: result.observation || "Nao avaliado",
+            evidence_excerpt: result.evidence_excerpt || "",
+            evidence_start_index: startIndex !== -1 ? startIndex : 0,
+            evidence_end_index:
+              startIndex !== -1
+                ? startIndex + (result.evidence_excerpt?.length || 0)
+                : 0,
+          };
+        }
         return {
-          criteria_id: c.id,
-          passed: result?.passed ?? false,
-          observation: result?.observation ?? "Criterio nao avaliado na analise",
+          criterion_id: c.id,
+          criterion_name: c.name,
+          level: 1 as const,
+          weight: c.weight,
+          observation: "Criterio nao abordado na conversa",
+          evidence_excerpt: "",
+          evidence_start_index: 0,
+          evidence_end_index: 0,
         };
       }
     );
 
-    // ALWAYS calculate score from criteria results (consistent scoring)
-    // This ensures score always matches the passed/failed criteria
-    const passedCount = normalizedResults.filter((r) => r.passed).length;
-    const finalScore = Math.round((passedCount / criteria.length) * 100);
+    // Calculate scores
+    const weightedScore = calculateWeightedScore(normalizedScores);
+    const legacyResults = convertToLegacyFormat(normalizedScores);
+    const legacyScore = Math.round(
+      (legacyResults.filter((r) => r.passed).length / legacyResults.length) * 100
+    );
+
+    // Determine confidence level
+    const confidenceLevel = feedbackData.confidence_level || "medium";
+    const transcriptCoverage = feedbackData.transcript_coverage || 0.8;
 
     // Save feedback to database
     const { data: feedback, error: feedbackError } = await supabase
       .from("feedbacks")
       .insert({
         session_id: session_id,
-        criteria_results: normalizedResults,
+        // Legacy fields
+        criteria_results: legacyResults,
         summary: feedbackData.summary || "Avaliacao concluida.",
-        score: finalScore,
+        score: legacyScore,
+        // New PRD 08 fields
+        criteria_scores: normalizedScores,
+        weighted_score: weightedScore,
+        confidence_level: confidenceLevel,
+        transcript_coverage: transcriptCoverage,
+        key_moments: feedbackData.key_moments || [],
       })
       .select()
       .single();
@@ -328,15 +647,98 @@ serve(async (req: Request) => {
       return corsErrorResponse("Failed to save feedback", 500, req);
     }
 
+    // Save evidences to session_evidences table
+    const evidencesToInsert = normalizedScores
+      .filter((s) => s.evidence_excerpt && s.evidence_start_index > 0)
+      .map((s) => ({
+        session_id: session_id,
+        criterion_id: s.criterion_id,
+        transcript_start_index: s.evidence_start_index,
+        transcript_end_index: s.evidence_end_index,
+        transcript_excerpt: s.evidence_excerpt,
+        evidence_type: "criterion",
+        label: s.criterion_name.toLowerCase().replace(/\s+/g, "_"),
+        confidence: 1.0,
+      }));
+
+    // Add key moments as evidences
+    const keyMomentEvidences = (feedbackData.key_moments || [])
+      .filter((km) => km.quote)
+      .map((km) => {
+        const startIndex = findQuoteIndex(session.transcript!, km.quote);
+        return {
+          session_id: session_id,
+          criterion_id: `km_${km.type}`,
+          transcript_start_index: startIndex !== -1 ? startIndex : 0,
+          transcript_end_index:
+            startIndex !== -1 ? startIndex + km.quote.length : 0,
+          transcript_excerpt: km.quote,
+          evidence_type: "key_moment",
+          label: km.type,
+          confidence: 0.9,
+        };
+      });
+
+    if (evidencesToInsert.length > 0 || keyMomentEvidences.length > 0) {
+      await supabase
+        .from("session_evidences")
+        .insert([...evidencesToInsert, ...keyMomentEvidences]);
+    }
+
+    // Save objection statuses
+    const objectionStatuses = feedbackData.objection_statuses || [];
+    if (objectionStatuses.length > 0) {
+      const objectionRecords = objectionStatuses.map((os) => ({
+        session_id: session_id,
+        objection_id: os.objection_id,
+        status: os.status,
+        detected_at_ms: os.detected_index ? os.detected_index * 10 : null, // Rough estimate
+        detected_transcript_index: os.detected_index || null,
+        addressed_at_ms: os.addressed_index ? os.addressed_index * 10 : null,
+        addressed_transcript_index: os.addressed_index || null,
+        recommendation: os.recommendation || null,
+      }));
+
+      await supabase.from("session_objection_status").insert(objectionRecords);
+    }
+
+    // PRD 08, US-13: Validate session
+    const validation = validateSession(
+      session.transcript,
+      session.duration_seconds,
+      session.has_avatar_fallback || false,
+      confidenceLevel,
+      transcriptCoverage,
+      scenario.duration_min_seconds || 120,  // From scenario or default 2 min
+      scenario.duration_max_seconds || 600   // From scenario or default 10 min
+    );
+
+    // Update session with validation result
+    await supabase
+      .from("sessions")
+      .update({
+        is_valid: validation.is_valid,
+        validation_reasons: validation.validation_reasons,
+      })
+      .eq("id", session_id);
+
+    console.log(`Session validation: is_valid=${validation.is_valid}, reasons=${JSON.stringify(validation.validation_reasons)}`);
+
     // Return success response
     return corsJsonResponse(
       {
         feedback_id: feedback.id,
-        criteria_results: normalizedResults,
+        // Legacy format
+        criteria_results: legacyResults,
+        score: legacyScore,
+        // New PRD 08 format
+        criteria_scores: normalizedScores,
+        weighted_score: weightedScore,
+        confidence_level: confidenceLevel,
+        transcript_coverage: transcriptCoverage,
+        key_moments: feedbackData.key_moments || [],
+        objection_statuses: objectionStatuses,
         summary: feedbackData.summary,
-        score: finalScore,
-        passed_count: passedCount,
-        total_criteria: criteria.length,
       },
       200,
       req
@@ -350,3 +752,141 @@ serve(async (req: Request) => {
     );
   }
 });
+
+/**
+ * Handle legacy evaluation (pass/fail) when rubrics are not available
+ */
+async function handleLegacyEvaluation(
+  supabase: ReturnType<typeof createClient>,
+  session: { id: string; transcript: string; scenario_id: string },
+  scenario: {
+    id: string;
+    title: string;
+    context: string;
+    evaluation_criteria: { id: string; description: string }[];
+    ideal_outcome?: string;
+  },
+  req: Request
+) {
+  // Fetch criteria from scenarios table if not in view
+  if (!scenario.evaluation_criteria || scenario.evaluation_criteria.length === 0) {
+    const { data: fullScenario } = await supabase
+      .from("scenarios")
+      .select("evaluation_criteria")
+      .eq("id", scenario.id)
+      .single();
+
+    if (fullScenario?.evaluation_criteria) {
+      scenario.evaluation_criteria = fullScenario.evaluation_criteria;
+    }
+  }
+
+  const criteria = scenario.evaluation_criteria || [];
+  if (criteria.length === 0) {
+    return corsErrorResponse("No evaluation criteria defined", 400, req);
+  }
+
+  const criteriaText = criteria
+    .map((c, i) => `${i + 1}. [${c.id}] ${c.description}`)
+    .join("\n");
+
+  const prompt = buildLegacyPrompt(scenario, session.transcript!, criteriaText);
+
+  const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!anthropicApiKey) {
+    return corsErrorResponse("Anthropic API not configured", 500, req);
+  }
+
+  const anthropic = new Anthropic({ apiKey: anthropicApiKey });
+
+  const message = await withRetry(
+    async () => {
+      return await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2048,
+        messages: [{ role: "user", content: prompt }],
+      });
+    },
+    { maxAttempts: 3, initialDelay: 1000 }
+  );
+
+  const responseText =
+    message.content[0].type === "text" ? message.content[0].text : "";
+
+  let feedbackData: { criteria_results: CriteriaResult[]; key_moments?: KeyMoment[]; summary: string };
+  try {
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON found");
+    feedbackData = JSON.parse(jsonMatch[0]);
+  } catch {
+    return corsErrorResponse("Failed to parse AI response", 500, req);
+  }
+
+  const normalizedResults = criteria.map((c) => {
+    const result = feedbackData.criteria_results?.find((r) => r.criteria_id === c.id);
+    return {
+      criteria_id: c.id,
+      passed: result?.passed ?? false,
+      observation: result?.observation ?? "Nao avaliado",
+    };
+  });
+
+  const passedCount = normalizedResults.filter((r) => r.passed).length;
+  const finalScore = Math.round((passedCount / criteria.length) * 100);
+
+  const { data: feedback, error: feedbackError } = await supabase
+    .from("feedbacks")
+    .insert({
+      session_id: session.id,
+      criteria_results: normalizedResults,
+      summary: feedbackData.summary || "Avaliacao concluida.",
+      score: finalScore,
+      key_moments: feedbackData.key_moments || [],
+    })
+    .select()
+    .single();
+
+  if (feedbackError) {
+    return corsErrorResponse("Failed to save feedback", 500, req);
+  }
+
+  return corsJsonResponse(
+    {
+      feedback_id: feedback.id,
+      criteria_results: normalizedResults,
+      key_moments: feedbackData.key_moments || [],
+      summary: feedbackData.summary,
+      score: finalScore,
+    },
+    200,
+    req
+  );
+}
+
+/**
+ * Build legacy prompt for pass/fail evaluation
+ */
+function buildLegacyPrompt(
+  scenario: { context: string; ideal_outcome?: string },
+  transcript: string,
+  criteriaText: string
+): string {
+  return `Voce e um avaliador especializado em treinamentos de vendas.
+Analise a transcricao e avalie se cada criterio foi ATENDIDO (passed: true) ou NAO ATENDIDO (passed: false).
+
+CONTEXTO: ${scenario.context}
+${scenario.ideal_outcome ? `RESULTADO IDEAL: ${scenario.ideal_outcome}` : ""}
+
+CRITERIOS:
+${criteriaText}
+
+TRANSCRICAO:
+${transcript}
+
+Retorne JSON:
+{
+  "criteria_results": [{"criteria_id": "crit_1", "passed": true, "observation": "..."}],
+  "key_moments": [{"type": "positive", "quote": "...", "explanation": "..."}],
+  "summary": "..."
+}`;
+}
