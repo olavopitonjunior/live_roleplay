@@ -231,7 +231,12 @@ async def fetch_scenario(scenario_id: str) -> dict[str, Any] | None:
     )
 
 
-async def _update_session_transcript_impl(session_id: str, transcript: str, status: str = "completed") -> bool:
+async def _update_session_transcript_impl(
+    session_id: str,
+    transcript: str,
+    status: str = "completed",
+    has_avatar_fallback: bool = False
+) -> bool:
     """Internal implementation of update_session_transcript."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         logger.error("Supabase credentials not configured")
@@ -250,6 +255,7 @@ async def _update_session_transcript_impl(session_id: str, transcript: str, stat
         "transcript": transcript,
         "status": status,
         "ended_at": "now()",
+        "has_avatar_fallback": has_avatar_fallback,
     }
 
     try:
@@ -264,13 +270,19 @@ async def _update_session_transcript_impl(session_id: str, transcript: str, stat
         return False
 
 
-async def update_session_transcript(session_id: str, transcript: str, status: str = "completed") -> bool:
+async def update_session_transcript(
+    session_id: str,
+    transcript: str,
+    status: str = "completed",
+    has_avatar_fallback: bool = False
+) -> bool:
     """Update session with transcript with retry."""
     result = await with_retry(
         _update_session_transcript_impl,
         session_id,
         transcript,
         status,
+        has_avatar_fallback,
         max_retries=3,
         delay=1.0,
         operation_name="update_session_transcript"
@@ -454,7 +466,13 @@ async def entrypoint(ctx: JobContext):
         logger.error("No scenario_id in session")
         return
 
+    # PRD 08: Get session mode and coach intensity
+    session_mode = session_data.get("session_mode", "training")
+    coach_intensity = session_data.get("coach_intensity", "medium")
+    coaching_enabled = session_mode == "training"
+
     logger.info(f"Session ID: {session_id}, Scenario ID: {scenario_id}")
+    logger.info(f"Session mode: {session_mode}, Coach intensity: {coach_intensity}, Coaching enabled: {coaching_enabled}")
 
     # Fetch scenario from Supabase
     scenario = await fetch_scenario(scenario_id)
@@ -493,20 +511,37 @@ async def entrypoint(ctx: JobContext):
     # Transcript collection
     transcript_lines: list[str] = []
 
-    async def send_transcription_to_room(speaker: str, text: str, is_final: bool = True):
-        """Send transcription data to the frontend via data channel."""
-        try:
-            import json
-            data = json.dumps({
-                "type": "transcription",
-                "speaker": speaker,
-                "text": text,
-                "isFinal": is_final
-            })
-            await ctx.room.local_participant.publish_data(data.encode('utf-8'))
-            logger.debug(f"Sent transcription: {speaker}: {text}")
-        except Exception as e:
-            logger.warning(f"Failed to send transcription: {e}")
+    async def send_transcription_to_room(speaker: str, text: str, is_final: bool = True) -> bool:
+        """Send transcription data to the frontend via data channel with retry."""
+        if not text.strip():
+            return True
+
+        import json
+        import time as time_module
+        data = {
+            "type": "transcription",
+            "speaker": speaker,
+            "text": text,
+            "isFinal": is_final,
+            "timestamp": int(time_module.time() * 1000)
+        }
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                await ctx.room.local_participant.publish_data(
+                    json.dumps(data).encode('utf-8'),
+                    reliable=True
+                )
+                logger.debug(f"Transcription sent: {speaker}: {text[:50]}...")
+                return True
+            except Exception as e:
+                logger.warning(f"Transcription attempt {attempt+1}/{max_retries} failed: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.1 * (attempt + 1))
+
+        logger.error(f"Failed to send transcription after {max_retries} attempts: {text[:100]}")
+        return False
 
     async def send_status_to_room(status: str):
         """Send status update to the frontend."""
@@ -560,9 +595,13 @@ async def entrypoint(ctx: JobContext):
         """Send a coaching hint to the frontend."""
         try:
             import json
+            # Build payload avoiding type field collision
+            # hint.to_dict() has "type" (e.g. "encouragement"), we need "type": "coaching_hint"
+            hint_data = hint.to_dict()
+            hint_data["hintType"] = hint_data.pop("type")  # Rename to hintType
             data = json.dumps({
                 "type": "coaching_hint",
-                **hint.to_dict()
+                **hint_data
             })
             await ctx.room.local_participant.publish_data(data.encode('utf-8'))
             logger.debug(f"Sent coaching hint: {hint.title}")
@@ -588,9 +627,13 @@ async def entrypoint(ctx: JobContext):
         """Send an AI-generated coaching suggestion to the frontend."""
         try:
             import json
+            # Build payload avoiding type field collision
+            # suggestion.to_dict() has "type" (e.g. "question"), we need "type": "ai_suggestion"
+            suggestion_data = suggestion.to_dict()
+            suggestion_data["suggestionType"] = suggestion_data.pop("type")  # Rename to suggestionType
             data = json.dumps({
                 "type": "ai_suggestion",
-                **suggestion.to_dict()
+                **suggestion_data
             })
             await ctx.room.local_participant.publish_data(data.encode('utf-8'))
             logger.debug(f"Sent AI suggestion: {suggestion.title} (streaming={suggestion.is_streaming})")
@@ -643,17 +686,18 @@ async def entrypoint(ctx: JobContext):
                     and len(text) >= 15):
                     last_partial_analysis_time["user"] = now
 
-                    # Streaming AI coach analysis
-                    async def analyze_streaming_user():
-                        try:
-                            ai_coach = get_ai_coach()
-                            suggestion = await ai_coach.analyze_streaming(text, "user")
-                            if suggestion:
-                                await send_ai_suggestion(suggestion)
-                        except Exception as e:
-                            logger.warning(f"Streaming AI coach analysis failed: {e}")
+                    # Streaming AI coach analysis (only in training mode)
+                    if coaching_enabled:
+                        async def analyze_streaming_user():
+                            try:
+                                ai_coach = get_ai_coach()
+                                suggestion = await ai_coach.analyze_streaming(text, "user")
+                                if suggestion:
+                                    await send_ai_suggestion(suggestion)
+                            except Exception as e:
+                                logger.warning(f"Streaming AI coach analysis failed: {e}")
 
-                    asyncio.create_task(analyze_streaming_user())
+                        asyncio.create_task(analyze_streaming_user())
 
                     # Streaming emotion analysis (fast keyword-based)
                     async def analyze_streaming_emotion():
@@ -681,41 +725,42 @@ async def entrypoint(ctx: JobContext):
                     logger.info("User requested session end, will terminate after response")
                     asyncio.create_task(handle_early_end())
 
-                # Analyze user message for coaching hints (keyword-based)
-                async def analyze_user_coaching():
-                    try:
-                        coaching = get_coaching_engine()
-                        hints = coaching.analyze_user_message(text)
-                        for hint in hints:
-                            await send_coaching_hint(hint)
-                        # Send updated state periodically
-                        await send_coaching_state()
-                    except Exception as e:
-                        logger.warning(f"Coaching analysis failed: {e}")
+                # Analyze user message for coaching hints (keyword-based) - only in training mode
+                if coaching_enabled:
+                    async def analyze_user_coaching():
+                        try:
+                            coaching = get_coaching_engine()
+                            hints = coaching.analyze_user_message(text)
+                            for hint in hints:
+                                await send_coaching_hint(hint)
+                            # Send updated state periodically
+                            await send_coaching_state()
+                        except Exception as e:
+                            logger.warning(f"Coaching analysis failed: {e}")
 
-                asyncio.create_task(analyze_user_coaching())
+                    asyncio.create_task(analyze_user_coaching())
 
-                # NEW: AI Coach final analysis for specific suggestions
-                async def analyze_user_ai_coach():
-                    try:
-                        await send_coaching_processing()
-                        ai_coach = get_ai_coach()
-                        # Update AI coach context from keyword engine
-                        coaching = get_coaching_engine()
-                        ai_coach.update_context(
-                            methodology_progress=coaching._methodology.to_dict(),
-                            pending_objections=[obj.text for obj in coaching._objections if not obj.addressed],
-                            talk_ratio=coaching.get_talk_ratio()
-                        )
-                        suggestion = await ai_coach.analyze_final(text, "user")
-                        if suggestion:
-                            await send_ai_suggestion(suggestion)
-                            # Track Gemini Flash call for AI coaching
-                            metrics.record_gemini_flash_call(input_tokens=200, output_tokens=50)
-                    except Exception as e:
-                        logger.warning(f"AI coach analysis failed: {e}")
+                    # AI Coach final analysis for specific suggestions
+                    async def analyze_user_ai_coach():
+                        try:
+                            await send_coaching_processing()
+                            ai_coach = get_ai_coach()
+                            # Update AI coach context from keyword engine
+                            coaching = get_coaching_engine()
+                            ai_coach.update_context(
+                                methodology_progress=coaching._methodology.to_dict(),
+                                pending_objections=[obj.text for obj in coaching._objections if not obj.addressed],
+                                talk_ratio=coaching.get_talk_ratio()
+                            )
+                            suggestion = await ai_coach.analyze_final(text, "user")
+                            if suggestion:
+                                await send_ai_suggestion(suggestion)
+                                # Track Gemini Flash call for AI coaching
+                                metrics.record_gemini_flash_call(input_tokens=200, output_tokens=50)
+                        except Exception as e:
+                            logger.warning(f"AI coach analysis failed: {e}")
 
-                asyncio.create_task(analyze_user_ai_coach())
+                    asyncio.create_task(analyze_user_ai_coach())
 
             logger.info(f"User said: {text} (final={is_final})")
             # Track input tokens for metrics
@@ -775,50 +820,55 @@ async def entrypoint(ctx: JobContext):
 
                 asyncio.create_task(analyze_and_send_emotion())
 
-                # Analyze avatar message for coaching (objection detection)
-                async def analyze_avatar_coaching():
-                    try:
-                        coaching = get_coaching_engine()
-                        hints = coaching.analyze_avatar_message(text)
-                        for hint in hints:
-                            await send_coaching_hint(hint)
-                        # Send updated state with objections
-                        await send_coaching_state()
-                    except Exception as e:
-                        logger.warning(f"Coaching analysis failed: {e}")
+                # Analyze avatar message for coaching (objection detection) - only in training mode
+                if coaching_enabled:
+                    async def analyze_avatar_coaching():
+                        try:
+                            coaching = get_coaching_engine()
+                            hints = coaching.analyze_avatar_message(text)
+                            for hint in hints:
+                                await send_coaching_hint(hint)
+                            # Send updated state with objections
+                            await send_coaching_state()
+                        except Exception as e:
+                            logger.warning(f"Coaching analysis failed: {e}")
 
-                asyncio.create_task(analyze_avatar_coaching())
+                    asyncio.create_task(analyze_avatar_coaching())
 
-                # NEW: AI Coach analysis for avatar (client) responses
-                async def analyze_avatar_ai_coach():
-                    try:
-                        ai_coach = get_ai_coach()
-                        # Update context from keyword engine
-                        coaching = get_coaching_engine()
-                        ai_coach.update_context(
-                            methodology_progress=coaching._methodology.to_dict(),
-                            pending_objections=[obj.text for obj in coaching._objections if not obj.addressed],
-                            talk_ratio=coaching.get_talk_ratio()
-                        )
-                        suggestion = await ai_coach.analyze_final(text, "avatar")
-                        if suggestion:
-                            await send_ai_suggestion(suggestion)
-                            # Track Gemini Flash call
-                            metrics.record_gemini_flash_call(input_tokens=200, output_tokens=50)
-                    except Exception as e:
-                        logger.warning(f"AI coach avatar analysis failed: {e}")
+                    # AI Coach analysis for avatar (client) responses
+                    async def analyze_avatar_ai_coach():
+                        try:
+                            ai_coach = get_ai_coach()
+                            # Update context from keyword engine
+                            coaching = get_coaching_engine()
+                            ai_coach.update_context(
+                                methodology_progress=coaching._methodology.to_dict(),
+                                pending_objections=[obj.text for obj in coaching._objections if not obj.addressed],
+                                talk_ratio=coaching.get_talk_ratio()
+                            )
+                            suggestion = await ai_coach.analyze_final(text, "avatar")
+                            if suggestion:
+                                await send_ai_suggestion(suggestion)
+                                # Track Gemini Flash call
+                                metrics.record_gemini_flash_call(input_tokens=200, output_tokens=50)
+                        except Exception as e:
+                            logger.warning(f"AI coach avatar analysis failed: {e}")
 
-                asyncio.create_task(analyze_avatar_ai_coach())
+                    asyncio.create_task(analyze_avatar_ai_coach())
         except Exception as e:
             logger.error(f"Error in conversation_item_added handler: {e}", exc_info=True)
 
     # Initialize avatar using factory (supports simli, liveavatar, hedra)
     avatar = create_avatar_session(scenario)
 
+    # Track if avatar failed (for has_avatar_fallback flag)
+    avatar_failed = False
+
     # Shutdown callback to save transcript and metrics
     async def on_shutdown():
         """Called when session ends."""
-        logger.info(f"on_shutdown called: session_id={session_id}, transcript_lines={len(transcript_lines)}")
+        nonlocal avatar_failed
+        logger.info(f"on_shutdown called: session_id={session_id}, transcript_lines={len(transcript_lines)}, avatar_failed={avatar_failed}")
 
         if not session_id:
             logger.warning("No session_id available, cannot save transcript")
@@ -827,7 +877,7 @@ async def entrypoint(ctx: JobContext):
         if not transcript_lines:
             logger.warning("No transcript lines captured - session may have ended before conversation started")
             # Still mark session as completed even without transcript
-            await update_session_transcript(session_id, "", "completed")
+            await update_session_transcript(session_id, "", "completed", has_avatar_fallback=avatar_failed)
             remove_metrics_collector(session_id)
             logger.info("Agent session ended (no transcript)")
             return
@@ -835,7 +885,7 @@ async def entrypoint(ctx: JobContext):
         full_transcript = "\n".join(transcript_lines)
         logger.info(f"Saving transcript ({len(transcript_lines)} lines, {len(full_transcript)} chars)")
 
-        success = await update_session_transcript(session_id, full_transcript)
+        success = await update_session_transcript(session_id, full_transcript, has_avatar_fallback=avatar_failed)
         if success:
             logger.info("Transcript saved successfully")
 
@@ -861,15 +911,16 @@ async def entrypoint(ctx: JobContext):
     # Event to signal when session should end
     shutdown_event = asyncio.Event()
 
-    # Session timeout configuration (3 minutes = 180 seconds)
-    SESSION_TIMEOUT_SECONDS = 180
+    # PRD 08, US-14: Session timeout from scenario config (fallback to 3 minutes)
+    session_timeout_seconds = scenario.get('duration_max_seconds', 180)
+    logger.info(f"Session timeout configured: {session_timeout_seconds}s (from scenario)")
     timeout_task: asyncio.Task | None = None
 
     async def session_timeout():
         """End session after timeout period."""
         try:
-            await asyncio.sleep(SESSION_TIMEOUT_SECONDS)
-            logger.info(f"Session timeout reached ({SESSION_TIMEOUT_SECONDS}s)")
+            await asyncio.sleep(session_timeout_seconds)
+            logger.info(f"Session timeout reached ({session_timeout_seconds}s)")
             await send_status_to_room("Tempo esgotado! Encerrando sessao...")
             # Give time for the message to be sent
             await asyncio.sleep(1)
@@ -892,35 +943,87 @@ async def entrypoint(ctx: JobContext):
         # Reset emotion history for fresh session
         reset_emotion_history()
 
-        # Initialize coaching engine (keyword-based)
-        reset_coaching_engine()
-        coaching = get_coaching_engine()
-        coaching.start_session(scenario)
+        # Initialize coaching engine (keyword-based) - only in training mode
+        if coaching_enabled:
+            reset_coaching_engine()
+            coaching = get_coaching_engine()
+            coaching.start_session(scenario)
 
-        # Initialize AI coach with scenario context
-        reset_ai_coach()
-        ai_coach = get_ai_coach()
-        ai_coach.start_session(
-            scenario_name=scenario.get('title', 'Cenario de vendas'),
-            scenario_context=scenario.get('context', scenario.get('description', '')),
-            avatar_profile=scenario.get('avatar_profile', scenario.get('avatar_persona', '')),
-            expected_objections=scenario.get('expected_objections', ['preco', 'timing', 'necessidade']),
-            objectives=scenario.get('coaching_objectives', [])
-        )
-        logger.info("AI Coach initialized with scenario context")
+            # Initialize AI coach with scenario context and intensity
+            reset_ai_coach()
+            ai_coach = get_ai_coach()
+            ai_coach.start_session(
+                scenario_name=scenario.get('title', 'Cenario de vendas'),
+                scenario_context=scenario.get('context', scenario.get('description', '')),
+                avatar_profile=scenario.get('avatar_profile', scenario.get('avatar_persona', '')),
+                expected_objections=scenario.get('expected_objections', ['preco', 'timing', 'necessidade']),
+                objectives=scenario.get('coaching_objectives', []),
+                intensity=coach_intensity  # PRD 08, US-11
+            )
+            logger.info(f"AI Coach initialized with scenario context, intensity: {coach_intensity}")
+        else:
+            logger.info("Evaluation mode - coaching disabled")
 
-        # Start the session FIRST with RoomOptions (new API)
-        # This ensures the agent is ready before avatar starts
+        # Helper function to send avatar status to frontend
+        async def send_avatar_status(status: str):
+            """Send avatar status to frontend (connecting, ready, audio_only, failed)."""
+            try:
+                import json
+                data = json.dumps({
+                    "type": "avatar_status",
+                    "status": status
+                })
+                await ctx.room.local_participant.publish_data(data.encode('utf-8'))
+                logger.debug(f"Sent avatar status: {status}")
+            except Exception as e:
+                logger.warning(f"Failed to send avatar status: {e}")
+
+        # Helper function to start avatar with timeout and retry
+        async def start_avatar_with_timeout(av, sess, room):
+            """Start avatar with timeout and retry logic."""
+            if not av:
+                return None
+
+            max_attempts = 3
+            base_timeout = 5.0  # Start with 5s, increase each attempt
+
+            await send_avatar_status("connecting")
+
+            for attempt in range(max_attempts):
+                timeout = base_timeout + (attempt * 5.0)  # 5s, 10s, 15s
+                try:
+                    await asyncio.wait_for(av.start(sess, room=room), timeout=timeout)
+                    logger.info(f"Avatar started successfully on attempt {attempt + 1}")
+                    await send_avatar_status("ready")
+                    return av
+                except asyncio.TimeoutError:
+                    logger.warning(f"Avatar timeout attempt {attempt + 1}/{max_attempts} (timeout={timeout}s)")
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(2.0)  # Backoff before retry
+                except Exception as e:
+                    logger.error(f"Avatar error attempt {attempt + 1}/{max_attempts}: {e}")
+                    break  # Don't retry on non-timeout errors
+
+            # All attempts failed - notify frontend
+            logger.error(f"Avatar failed after {max_attempts} attempts - continuing with audio only")
+            await send_avatar_status("audio_only")
+            await send_status_to_room("Avatar indisponível - continuando com áudio")
+            return None
+
+        # Start session and avatar in PARALLEL for faster initialization
+        logger.info("Starting session and avatar in parallel...")
+        await send_status_to_room("Iniciando sessao...")
+
+        # Start session (must be awaited!)
         await session.start(
             room=ctx.room,
             agent=Agent(instructions=full_instructions),
             room_input_options=room_io.RoomInputOptions(
                 audio_enabled=True,
                 video_enabled=False,
-                close_on_disconnect=False,  # Keep session alive during brief disconnects
+                close_on_disconnect=False,
             ),
         )
-
         logger.info("Session started successfully")
         logger.info(f"Event handlers registered: user_input_transcribed, conversation_item_added")
         logger.info(f"Transcript collection initialized, current lines: {len(transcript_lines)}")
@@ -928,26 +1031,24 @@ async def entrypoint(ctx: JobContext):
         # Start metrics collection
         metrics.start_session()
 
-        # Wait a moment for the session to stabilize (reduced for lower latency)
-        await asyncio.sleep(0.2)
-
-        # Start avatar AFTER session is ready (better sync, less lag)
+        # Start avatar in parallel (with timeout)
         if avatar:
             await send_status_to_room("Iniciando avatar...")
-            await avatar.start(session, room=ctx.room)
-            metrics.start_avatar()  # Track Simli duration
-            logger.info("Avatar synchronized with session")
+            avatar_result = await start_avatar_with_timeout(avatar, session, ctx.room)
+            if avatar_result:
+                metrics.start_avatar()
+            else:
+                avatar = None  # Disable avatar if failed
+                avatar_failed = True  # PRD 08: Track avatar failure
+                logger.info("Avatar failed flag set - will be recorded in session")
 
         await send_status_to_room("Conectado! Aguardando...")
 
         # Start the session timeout timer
         timeout_task = asyncio.create_task(session_timeout())
-        logger.info(f"Session timeout started: {SESSION_TIMEOUT_SECONDS} seconds")
+        logger.info(f"Session timeout started: {session_timeout_seconds} seconds")
 
-        # Brief wait for connection to stabilize (reduced for lower latency)
-        await asyncio.sleep(0.1)
-
-        # Explicitly trigger greeting
+        # Trigger greeting immediately (no delay needed)
         try:
             logger.info("Triggering greeting...")
             await send_status_to_room("Avatar iniciando...")
@@ -956,21 +1057,22 @@ async def entrypoint(ctx: JobContext):
         except Exception as e:
             logger.warning(f"Failed to trigger greeting: {e}")
 
-        # Generate initial coach suggestion proactively
-        async def generate_initial_coach_suggestion():
-            """Generate and send initial coach suggestion when session starts."""
-            await asyncio.sleep(2)  # Wait for avatar to start greeting
-            try:
-                suggestion = await ai_coach.generate_initial_suggestion()
-                if suggestion:
-                    await send_ai_suggestion(suggestion)
-                    logger.info(f"Initial coach suggestion sent: {suggestion.title}")
-                else:
-                    logger.debug("No initial coach suggestion generated")
-            except Exception as e:
-                logger.warning(f"Failed to generate initial coach suggestion: {e}")
+        # Generate initial coach suggestion proactively (no delay) - only in training mode
+        if coaching_enabled:
+            async def generate_initial_coach_suggestion():
+                """Generate and send initial coach suggestion when session starts."""
+                # REMOVED: await asyncio.sleep(2) - no delay needed
+                try:
+                    suggestion = await ai_coach.generate_initial_suggestion()
+                    if suggestion:
+                        await send_ai_suggestion(suggestion)
+                        logger.info(f"Initial coach suggestion sent: {suggestion.title}")
+                    else:
+                        logger.warning("Coach: No initial suggestion generated")
+                except Exception as e:
+                    logger.error(f"Coach: Failed to generate initial suggestion: {e}")
 
-        asyncio.create_task(generate_initial_coach_suggestion())
+            asyncio.create_task(generate_initial_coach_suggestion())
 
         await send_status_to_room("Ouvindo...")
         logger.info("Session ready and listening")

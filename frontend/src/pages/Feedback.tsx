@@ -7,8 +7,17 @@ import { Button } from '../components/ui';
 export function Feedback() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { feedback, scenario, loading, generating, error, fetchFeedback } =
-    useFeedback();
+  const {
+    feedback,
+    scenario,
+    transcript,
+    evidences,
+    objectionStatuses,
+    loading,
+    generating,
+    error,
+    fetchFeedback,
+  } = useFeedback();
 
   useEffect(() => {
     if (sessionId) {
@@ -104,7 +113,13 @@ export function Feedback() {
 
       {/* Feedback Content */}
       <main className="pb-32">
-        <FeedbackView feedback={feedback} scenario={scenario} />
+        <FeedbackView
+          feedback={feedback}
+          scenario={scenario}
+          transcript={transcript || undefined}
+          evidences={evidences}
+          objectionStatuses={objectionStatuses}
+        />
       </main>
 
       {/* Bottom Actions */}

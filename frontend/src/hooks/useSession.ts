@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { createSessionToken, endSessionInDatabase, LIVEKIT_URL } from '../lib/livekit';
+import type { SessionMode, CoachIntensity } from '../types';
 
 interface SessionState {
   sessionId: string | null;
@@ -20,13 +21,20 @@ export function useSession() {
     error: null,
   });
 
-  const startSession = useCallback(async (scenarioId: string, accessCode: string) => {
+  const startSession = useCallback(async (
+    scenarioId: string,
+    accessCode: string,
+    sessionMode: SessionMode = 'training',
+    coachIntensity: CoachIntensity = 'medium'
+  ) => {
     setState((prev) => ({ ...prev, isConnecting: true, error: null }));
 
     try {
       const { token, room_name, session_id } = await createSessionToken(
         scenarioId,
-        accessCode
+        accessCode,
+        sessionMode,
+        coachIntensity
       );
 
       setState({

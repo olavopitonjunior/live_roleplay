@@ -177,16 +177,47 @@ Se nao houver nada urgente, responda apenas: {{"skip": true}}
 JSON: {{"type": "question|statement|objection_response", "title": "...", "message": "Sugestao especifica", "context": "...", "priority": 1-3, "methodology_step": "..."}}"""
 
 
+class CoachIntensity(str, Enum):
+    """Coach intensity levels (PRD 08, US-11)."""
+    LOW = "low"       # Minimal hints, only critical ones
+    MEDIUM = "medium" # Balanced guidance
+    HIGH = "high"     # Maximum guidance for intensive learning
+
+
+# Intensity-based configuration
+INTENSITY_CONFIG = {
+    CoachIntensity.LOW: {
+        "cooldown_seconds": 8,      # Longer cooldown
+        "streaming_cooldown": 4,
+        "max_hints_per_minute": 4,  # Fewer hints
+        "min_priority": 2,          # Only high priority hints
+    },
+    CoachIntensity.MEDIUM: {
+        "cooldown_seconds": 2,
+        "streaming_cooldown": 1,
+        "max_hints_per_minute": 12,
+        "min_priority": 4,          # Most hints
+    },
+    CoachIntensity.HIGH: {
+        "cooldown_seconds": 1,      # Very short cooldown
+        "streaming_cooldown": 0.5,
+        "max_hints_per_minute": 20, # Maximum hints
+        "min_priority": 5,          # All hints
+    },
+}
+
+
 class AICoachEngine:
     """
     AI-powered coaching engine that generates specific, contextual suggestions.
     Uses Gemini Flash for fast inference (~100-200ms).
+    Supports intensity control (low/medium/high) per PRD 08, US-11.
     """
 
-    # Configuration
-    COOLDOWN_SECONDS = 5  # Reduced from 15 to 5
-    STREAMING_COOLDOWN = 2  # Shorter cooldown for streaming
-    MAX_HINTS_PER_MINUTE = 6
+    # Default configuration (medium intensity)
+    COOLDOWN_SECONDS = 2  # Reduced from 5 to 2 for faster suggestions
+    STREAMING_COOLDOWN = 1  # Shorter cooldown for streaming
+    MAX_HINTS_PER_MINUTE = 12  # Increased from 6 to 12
     MIN_TEXT_LENGTH_STREAMING = 15
     MIN_TEXT_LENGTH_FINAL = 5
 
@@ -198,7 +229,30 @@ class AICoachEngine:
         self._suggestions_this_minute: list[float] = []
         self._context: Optional[ConversationContext] = None
         self._objectives: list[SessionObjective] = []
+        self._intensity: CoachIntensity = CoachIntensity.MEDIUM
         self._setup_gemini()
+
+    @property
+    def intensity(self) -> CoachIntensity:
+        """Get current coaching intensity."""
+        return self._intensity
+
+    @intensity.setter
+    def intensity(self, value: str | CoachIntensity):
+        """Set coaching intensity."""
+        if isinstance(value, str):
+            try:
+                self._intensity = CoachIntensity(value)
+            except ValueError:
+                logger.warning(f"Invalid intensity '{value}', using medium")
+                self._intensity = CoachIntensity.MEDIUM
+        else:
+            self._intensity = value
+        logger.info(f"Coach intensity set to: {self._intensity.value}")
+
+    def _get_intensity_config(self) -> dict:
+        """Get configuration based on current intensity."""
+        return INTENSITY_CONFIG.get(self._intensity, INTENSITY_CONFIG[CoachIntensity.MEDIUM])
 
     def _setup_gemini(self):
         """Setup Gemini Flash for coaching."""
@@ -224,9 +278,13 @@ class AICoachEngine:
         scenario_context: str = "",
         avatar_profile: str = "",
         expected_objections: list[str] = None,
-        objectives: list[dict] = None
+        objectives: list[dict] = None,
+        intensity: str = "medium"
     ):
-        """Initialize a new coaching session with context."""
+        """Initialize a new coaching session with context and intensity."""
+        # Set intensity first
+        self.intensity = intensity
+
         self._context = ConversationContext(
             scenario_name=scenario_name or "Cenario de vendas",
             scenario_context=scenario_context or "Treinamento de vendas B2B",
@@ -262,7 +320,12 @@ class AICoachEngine:
 
     async def generate_initial_suggestion(self) -> Optional[AISuggestion]:
         """Generate proactive suggestion at session start."""
-        if not self._gemini_client or not self._context:
+        if not self._gemini_client:
+            logger.warning("Coach: Gemini client not initialized")
+            return None
+
+        if not self._context:
+            logger.warning("Coach: No context available for initial suggestion")
             return None
 
         try:
@@ -282,27 +345,34 @@ REGRAS:
 Responda APENAS com JSON valido (sem markdown):
 {{"type": "question", "title": "Abertura", "message": "Sugestao especifica para iniciar a conversa", "context": "Dica de abertura para engajar o cliente", "priority": 1, "methodology_step": "situation"}}"""
 
-            response = await self._gemini_client.aio.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.4,
-                    max_output_tokens=200,
-                )
+            # Add timeout to prevent blocking
+            response = await asyncio.wait_for(
+                self._gemini_client.aio.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.4,
+                        max_output_tokens=200,
+                    )
+                ),
+                timeout=5.0
             )
 
             if not response or not response.text:
-                logger.warning("Gemini returned empty response for initial suggestion")
+                logger.warning("Coach: Gemini returned empty response for initial suggestion")
                 return None
 
             result = self._parse_response(response.text, is_streaming=False)
             if result:
                 self._record_suggestion(is_streaming=False)
-                logger.info(f"Initial suggestion generated: {result.title}")
+                logger.info(f"Coach: Initial suggestion generated: {result.title}")
             return result
 
+        except asyncio.TimeoutError:
+            logger.error("Coach: Initial suggestion timeout after 5s")
+            return None
         except Exception as e:
-            logger.warning(f"Initial suggestion generation failed: {e}")
+            logger.warning(f"Coach: Initial suggestion generation failed: {e}")
             return None
 
     def update_context(
@@ -335,23 +405,34 @@ Responda APENAS com JSON valido (sem markdown):
         self._suggestion_counter += 1
         return f"ai_sug_{self._suggestion_counter}"
 
-    def _can_send_suggestion(self, is_streaming: bool = False) -> bool:
-        """Check if we can send a suggestion (respects rate limits)."""
+    def _can_send_suggestion(self, is_streaming: bool = False, priority: int = 3) -> bool:
+        """Check if we can send a suggestion (respects rate limits based on intensity)."""
         now = time.time()
+        config = self._get_intensity_config()
 
-        # Check cooldown
-        cooldown = self.STREAMING_COOLDOWN if is_streaming else self.COOLDOWN_SECONDS
+        # Check cooldown based on intensity
+        cooldown = config["streaming_cooldown"] if is_streaming else config["cooldown_seconds"]
         last_time = self._last_streaming_time if is_streaming else self._last_suggestion_time
+        time_since_last = now - last_time
 
-        if now - last_time < cooldown:
+        if time_since_last < cooldown:
+            logger.debug(f"Coach rate limited: {cooldown - time_since_last:.1f}s remaining (streaming={is_streaming}, intensity={self._intensity.value})")
             return False
 
-        # Check rate limit (max per minute)
+        # Check rate limit (max per minute based on intensity)
+        max_hints = config["max_hints_per_minute"]
         self._suggestions_this_minute = [
             t for t in self._suggestions_this_minute
             if now - t < 60
         ]
-        if len(self._suggestions_this_minute) >= self.MAX_HINTS_PER_MINUTE:
+        if len(self._suggestions_this_minute) >= max_hints:
+            logger.warning(f"Coach hit max hints/minute limit: {max_hints} (intensity={self._intensity.value})")
+            return False
+
+        # Filter by priority based on intensity (low intensity only shows high priority)
+        min_priority = config["min_priority"]
+        if priority > min_priority:
+            logger.debug(f"Coach skipping low priority hint: {priority} > {min_priority} (intensity={self._intensity.value})")
             return False
 
         return True

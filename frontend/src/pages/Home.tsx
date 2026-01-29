@@ -1,16 +1,31 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useScenarios } from '../hooks/useScenarios';
-import { ScenarioList } from '../components/Scenarios';
-import type { Scenario } from '../types';
+import { ScenarioList, ModeSelectionModal } from '../components/Scenarios';
+import type { Scenario, SessionMode, CoachIntensity } from '../types';
 
 export function Home() {
   const navigate = useNavigate();
   const { accessCode, logout, isAdmin } = useAuth();
   const { scenarios, loading, error } = useScenarios();
+  const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
 
   const handleScenarioClick = (scenario: Scenario) => {
-    navigate(`/session/${scenario.id}`);
+    setSelectedScenario(scenario);
+  };
+
+  const handleModeStart = (mode: SessionMode, coachIntensity?: CoachIntensity) => {
+    if (selectedScenario) {
+      // Navigate with mode parameters via state
+      navigate(`/session/${selectedScenario.id}`, {
+        state: { sessionMode: mode, coachIntensity }
+      });
+    }
+  };
+
+  const handleModalCancel = () => {
+    setSelectedScenario(null);
   };
 
   const handleLogout = () => {
@@ -93,6 +108,15 @@ export function Home() {
           onScenarioClick={handleScenarioClick}
         />
       </main>
+
+      {/* Mode Selection Modal */}
+      {selectedScenario && (
+        <ModeSelectionModal
+          scenario={selectedScenario}
+          onStart={handleModeStart}
+          onCancel={handleModalCancel}
+        />
+      )}
     </div>
   );
 }

@@ -124,8 +124,8 @@ class CoachingEngine:
         state = engine.get_state()
     """
 
-    # Minimum seconds between hints of the same type
-    HINT_COOLDOWN = 15
+    # Minimum seconds between hints of the same type (reduced from 15 to 5)
+    HINT_COOLDOWN = 5
 
     def __init__(self):
         self._methodology = MethodologyProgress()

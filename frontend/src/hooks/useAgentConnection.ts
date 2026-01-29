@@ -35,13 +35,21 @@ export function useAgentConnection({
   serverUrl,
   agentTimeout = 30000,
 }: UseAgentConnectionOptions): UseAgentConnectionResult {
-  const [state, setState] = useState<AgentConnectionState>('idle');
+  const [state, setStateInternal] = useState<AgentConnectionState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const roomRef = useRef<Room | null>(null);
   const retryCountRef = useRef(0);
+  const stateRef = useRef<AgentConnectionState>('idle'); // Track state for closures
+
+  // Wrapper to update both state and ref (fixes closure issues)
+  const setState = useCallback((newState: AgentConnectionState) => {
+    console.log('[AgentConnection] State transition:', stateRef.current, '->', newState);
+    stateRef.current = newState;
+    setStateInternal(newState);
+  }, []);
 
   const clearConnectionTimeout = useCallback(() => {
     if (timeoutRef.current) {
@@ -51,24 +59,38 @@ export function useAgentConnection({
   }, []);
 
   const disconnect = useCallback(() => {
+    console.log('[AgentConnection] disconnect() called, current state:', stateRef.current);
+    console.trace('[AgentConnection] disconnect stack trace');
     clearConnectionTimeout();
     if (roomRef.current) {
+      console.log('[AgentConnection] Disconnecting room...');
       roomRef.current.disconnect();
       roomRef.current = null;
     }
     setRoom(null);
     setState('idle');
     setError(null);
-  }, [clearConnectionTimeout]);
+  }, [clearConnectionTimeout, setState]);
 
   const checkForAgent = useCallback((checkRoom: Room): boolean => {
     // Check if any remote participant is an agent
     // Agent identity contains "agent" or matches pattern
     const participants = Array.from(checkRoom.remoteParticipants.values());
-    return participants.some((p: RemoteParticipant) =>
+
+    // Debug logging
+    console.log('[AgentConnection] Checking for agent, found participants:', participants.map((p: RemoteParticipant) => ({
+      identity: p.identity,
+      name: p.name,
+      sid: p.sid,
+    })));
+
+    const hasAgent = participants.some((p: RemoteParticipant) =>
       p.identity.toLowerCase().includes('agent') ||
       p.identity.toLowerCase().includes('roleplay')
     );
+
+    console.log('[AgentConnection] Agent found:', hasAgent);
+    return hasAgent;
   }, []);
 
   const connect = useCallback(async () => {
@@ -132,10 +154,11 @@ export function useAgentConnection({
 
       newRoom.on(RoomEvent.ParticipantConnected, onParticipantConnected);
 
-      // Handle disconnection
+      // Handle disconnection (use ref to avoid stale closure)
       newRoom.on(RoomEvent.Disconnected, () => {
+        console.log('[AgentConnection] Room disconnected, current state:', stateRef.current);
         clearConnectionTimeout();
-        if (state !== 'ready') {
+        if (stateRef.current !== 'ready') {
           setState('error');
           setError('Conexao perdida. Por favor, tente novamente.');
         }
@@ -152,7 +175,7 @@ export function useAgentConnection({
       );
       newRoom.disconnect();
     }
-  }, [token, serverUrl, agentTimeout, checkForAgent, clearConnectionTimeout, state]);
+  }, [token, serverUrl, agentTimeout, checkForAgent, clearConnectionTimeout, setState]);
 
   const retry = useCallback(() => {
     retryCountRef.current += 1;
@@ -173,8 +196,10 @@ export function useAgentConnection({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      console.log('[AgentConnection] Cleanup effect running, state:', stateRef.current);
       clearConnectionTimeout();
       if (roomRef.current) {
+        console.log('[AgentConnection] Cleanup: disconnecting room');
         roomRef.current.disconnect();
       }
     };

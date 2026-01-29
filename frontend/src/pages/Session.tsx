@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useSession } from '../hooks/useSession';
 import { useAgentConnection } from '../hooks/useAgentConnection';
 import { SessionRoom, SessionLoading } from '../components/Session';
 import { Button } from '../components/ui';
 import { supabase } from '../lib/supabase';
+import type { SessionMode, CoachIntensity } from '../types';
 
 interface Scenario {
   id: string;
@@ -16,10 +17,21 @@ interface Scenario {
   persona_style: string;
 }
 
+interface LocationState {
+  sessionMode?: SessionMode;
+  coachIntensity?: CoachIntensity;
+}
+
 export function Session() {
   const { scenarioId } = useParams<{ scenarioId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { accessCode } = useAuth();
+
+  // Get session mode from navigation state (defaults to training)
+  const locationState = location.state as LocationState | null;
+  const sessionMode = locationState?.sessionMode || 'training';
+  const coachIntensity = locationState?.coachIntensity || 'medium';
   const {
     startSession,
     endSession,
@@ -74,7 +86,7 @@ export function Session() {
 
     const initSession = async () => {
       try {
-        await startSession(scenarioId, accessCode.code);
+        await startSession(scenarioId, accessCode.code, sessionMode, coachIntensity);
       } catch (err) {
         setInitError(
           err instanceof Error ? err.message : 'Falha ao iniciar sessao'
@@ -83,7 +95,7 @@ export function Session() {
     };
 
     initSession();
-  }, [scenarioId, accessCode, startSession, token]);
+  }, [scenarioId, accessCode, startSession, token, sessionMode, coachIntensity]);
 
   const handleSessionEnd = useCallback(
     async (durationSeconds: number) => {
@@ -155,7 +167,15 @@ export function Session() {
     );
   }
 
-  // Agent connected - render session room with the already connected room
+  // Agent connected - render session room
+  // Note: We disconnect the verification room and let SessionRoom create a fresh connection
+  // This avoids issues with LiveKitRoom trying to reconfigure an existing room
+  // The agent is already verified as present, so the new connection will work
+  if (connectedRoom) {
+    console.log('[Session] Disconnecting verification room before SessionRoom');
+    connectedRoom.disconnect();
+  }
+
   return (
     <SessionRoom
       token={token}
@@ -163,7 +183,7 @@ export function Session() {
       onSessionEnd={handleSessionEnd}
       scenarioTitle={scenario?.title}
       scenarioContext={scenario?.context}
-      existingRoom={connectedRoom}
+      existingRoom={null} // Let SessionRoom create fresh connection
     />
   );
 }

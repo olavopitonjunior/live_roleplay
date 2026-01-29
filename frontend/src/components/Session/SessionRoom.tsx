@@ -257,23 +257,28 @@ export function SessionRoom({
 }: SessionRoomProps) {
   // If we have an existing room from useAgentConnection, use it
   // Otherwise, let LiveKitRoom create a new connection
+  // Note: When using existing room, don't set audio/video as LiveKitRoom
+  // might try to re-enable tracks which can cause issues
   return (
     <LiveKitRoom
       room={existingRoom ?? undefined}
       token={existingRoom ? undefined : token}
       serverUrl={existingRoom ? undefined : serverUrl}
       connect={!existingRoom} // Don't auto-connect if room already exists
-      audio={true}
+      audio={existingRoom ? undefined : true} // Only enable audio on fresh connection
       video={false}
-      options={{
+      options={existingRoom ? undefined : {
         adaptiveStream: true,
         dynacast: true,
       }}
-      onDisconnected={() => {
-        console.log('Disconnected from room');
+      onDisconnected={(reason) => {
+        console.log('Disconnected from room, reason:', reason);
       }}
       onError={(error) => {
         console.error('LiveKit error:', error);
+      }}
+      onMediaDeviceFailure={(failure) => {
+        console.error('Media device failure:', failure);
       }}
     >
       <SessionContent

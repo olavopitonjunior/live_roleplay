@@ -23,18 +23,34 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Valid emotion states (ordered from positive to negative)
-EmotionState = Literal["happy", "receptive", "neutral", "hesitant", "frustrated"]
-VALID_EMOTIONS: list[EmotionState] = ["happy", "receptive", "neutral", "hesitant", "frustrated"]
+# Expanded from 5 to 8 states for more granular detection
+EmotionState = Literal[
+    "enthusiastic",  # NEW: Very interested, ready to act, excited
+    "happy",         # Satisfied, positive, ready to close
+    "receptive",     # Open, engaged, listening attentively
+    "curious",       # NEW: Asking questions, seeking info, interested
+    "neutral",       # Evaluating, no opinion formed yet
+    "hesitant",      # Uncertain, has doubts, needs more info
+    "skeptical",     # NEW: Doubting, challenging, questioning validity
+    "frustrated"     # Irritated, impatient, losing interest
+]
+VALID_EMOTIONS: list[EmotionState] = [
+    "enthusiastic", "happy", "receptive", "curious",
+    "neutral", "hesitant", "skeptical", "frustrated"
+]
 
 # Trend types
 TrendType = Literal["improving", "declining", "stable"]
 
 # Base intensity for each emotion state (0-100 scale)
 EMOTION_BASE_INTENSITY: dict[EmotionState, int] = {
-    "happy": 100,
+    "enthusiastic": 100,
+    "happy": 88,
     "receptive": 75,
+    "curious": 62,
     "neutral": 50,
-    "hesitant": 25,
+    "hesitant": 35,
+    "skeptical": 20,
     "frustrated": 0,
 }
 
@@ -47,7 +63,8 @@ class EmotionResult(TypedDict):
     reason: str | None  # Human-readable reason for emotion change
 
 # Emotion analysis prompt for Gemini Flash
-EMOTION_ANALYSIS_PROMPT = """Analise a emocao do CLIENTE (usuario) nesta fala de uma sessao de treinamento de vendas.
+# Enhanced with 8 states for more precise detection
+EMOTION_ANALYSIS_PROMPT = """Analise a emocao do CLIENTE nesta conversa de vendas.
 
 Contexto: O usuario esta praticando vendas/negociacao com um avatar AI. Voce deve avaliar como o CLIENTE (avatar) esta se sentindo, nao o vendedor.
 
@@ -56,16 +73,22 @@ Fala do cliente (avatar): "{text}"
 Historico recente da conversa (para contexto):
 {context}
 
-Baseado na fala E no contexto, qual e o estado emocional do CLIENTE?
+Indicadores a observar:
+- Tom: palavras intensificadoras (muito, demais, nunca), pausas, interjeicoes
+- Conteudo: perguntas (interesse), objecoes (resistencia), concordancia
+- Padrao: mudanca de comportamento vs falas anteriores
 
-Responda com APENAS uma palavra:
-- happy: Cliente satisfeito, interessado, pronto para fechar
-- receptive: Cliente aberto, ouvindo com atencao, engajado
-- neutral: Cliente neutro, ainda avaliando, sem opiniao formada
-- hesitant: Cliente com duvidas, incerto, precisa de mais informacoes
-- frustrated: Cliente irritado, impaciente, perdendo interesse
+Estados possiveis (do mais positivo ao mais negativo):
+- enthusiastic: Muito interessado, animado, frases como "adorei", "quando podemos comecar", "excelente"
+- happy: Satisfeito, "faz sentido", "gostei da proposta", pronto para fechar
+- receptive: Aberto, engajado, "entendo", "continue", "me conte mais"
+- curious: Questionador positivo, "como funciona?", "e se...", buscando informacao
+- neutral: Avaliando, sem opiniao clara ainda, tom profissional
+- hesitant: Incerto, "nao sei", "preciso pensar", "talvez", tem duvidas
+- skeptical: Duvidoso, "sera mesmo?", "outros dizem que...", "nao acredito", desafiando
+- frustrated: Irritado, "ja disse", "nao e isso", "olha...", perdendo paciencia
 
-Resposta (apenas uma palavra):"""
+Responda com APENAS uma palavra (o estado emocional):"""
 
 
 class EmotionAnalyzer:
@@ -184,30 +207,56 @@ class EmotionAnalyzer:
         if self._last_state is None or self._last_state == new_state:
             return None
 
-        # Reason based on transition
+        # Reason based on transition (expanded for 8 states)
         reasons: dict[tuple[EmotionState, EmotionState], str] = {
-            # Positive transitions
-            ("frustrated", "hesitant"): "Cliente menos resistente",
+            # Positive transitions (moving up the scale)
+            ("frustrated", "skeptical"): "Cliente menos resistente",
+            ("frustrated", "hesitant"): "Cliente considerando",
             ("frustrated", "neutral"): "Cliente mais aberto",
             ("frustrated", "receptive"): "Cliente engajou na conversa",
             ("frustrated", "happy"): "Cliente mudou de opiniao!",
-            ("hesitant", "neutral"): "Duvidas diminuindo",
+            ("frustrated", "enthusiastic"): "Transformacao completa!",
+            ("skeptical", "hesitant"): "Duvidas diminuindo",
+            ("skeptical", "neutral"): "Cliente mais aberto",
+            ("skeptical", "curious"): "Cliente interessado em saber mais",
+            ("skeptical", "receptive"): "Cliente convencido",
+            ("hesitant", "neutral"): "Incertezas diminuindo",
+            ("hesitant", "curious"): "Cliente quer entender melhor",
             ("hesitant", "receptive"): "Cliente mais interessado",
             ("hesitant", "happy"): "Cliente convencido!",
+            ("neutral", "curious"): "Despertou curiosidade",
             ("neutral", "receptive"): "Cliente demonstrou interesse",
             ("neutral", "happy"): "Cliente satisfeito",
+            ("curious", "receptive"): "Cliente engajado",
+            ("curious", "happy"): "Cliente muito satisfeito",
+            ("curious", "enthusiastic"): "Cliente muito animado!",
             ("receptive", "happy"): "Cliente pronto para fechar",
-            # Negative transitions
+            ("receptive", "enthusiastic"): "Cliente entusiasmado!",
+            ("happy", "enthusiastic"): "Cliente muito animado!",
+            # Negative transitions (moving down the scale)
+            ("enthusiastic", "happy"): "Cliente ainda satisfeito",
+            ("enthusiastic", "receptive"): "Entusiasmo diminuiu",
+            ("enthusiastic", "neutral"): "Cliente esfriou",
             ("happy", "receptive"): "Cliente ainda interessado",
+            ("happy", "curious"): "Surgiram perguntas",
             ("happy", "neutral"): "Cliente esfriou um pouco",
             ("happy", "hesitant"): "Surgiram duvidas",
+            ("happy", "skeptical"): "Cliente questionando",
             ("happy", "frustrated"): "Cliente ficou frustrado",
+            ("receptive", "curious"): "Cliente quer mais detalhes",
             ("receptive", "neutral"): "Interesse diminuiu",
             ("receptive", "hesitant"): "Cliente com duvidas",
+            ("receptive", "skeptical"): "Cliente duvidando",
             ("receptive", "frustrated"): "Cliente perdeu paciencia",
+            ("curious", "neutral"): "Curiosidade satisfeita",
+            ("curious", "hesitant"): "Respostas nao convenceram",
+            ("curious", "skeptical"): "Cliente duvidoso",
             ("neutral", "hesitant"): "Cliente com incertezas",
+            ("neutral", "skeptical"): "Cliente questionando",
             ("neutral", "frustrated"): "Cliente impaciente",
+            ("hesitant", "skeptical"): "Duvidas aumentando",
             ("hesitant", "frustrated"): "Cliente desistindo",
+            ("skeptical", "frustrated"): "Cliente perdeu paciencia",
         }
 
         return reasons.get((self._last_state, new_state))
@@ -287,7 +336,7 @@ class EmotionAnalyzer:
 
         # Generate response using new google-genai SDK
         response = await self._gemini_client.aio.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.0-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.1,  # Low temperature for consistent results
@@ -295,25 +344,55 @@ class EmotionAnalyzer:
             )
         )
 
-        # Extract and validate emotion
+        # Extract and validate emotion (handle empty responses)
+        if not response or not response.text:
+            logger.warning("Gemini returned empty response for emotion analysis")
+            raise ValueError("Empty response from Gemini")
+
         emotion = response.text.strip().lower()
 
-        # Handle potential variations
+        # Handle potential variations (expanded for 8 states)
         emotion_map = {
+            # Enthusiastic
+            "enthusiastic": "enthusiastic",
+            "entusiasmado": "enthusiastic",
+            "animado": "enthusiastic",
+            "empolgado": "enthusiastic",
+            "excitado": "enthusiastic",
+            # Happy
             "happy": "happy",
             "feliz": "happy",
             "satisfeito": "happy",
+            "contente": "happy",
+            # Receptive
             "receptive": "receptive",
             "receptivo": "receptive",
             "aberto": "receptive",
+            "engajado": "receptive",
+            # Curious
+            "curious": "curious",
+            "curioso": "curious",
+            "interessado": "curious",
+            "questionador": "curious",
+            # Neutral
             "neutral": "neutral",
             "neutro": "neutral",
+            "indiferente": "neutral",
+            # Hesitant
             "hesitant": "hesitant",
             "hesitante": "hesitant",
             "duvidoso": "hesitant",
+            "incerto": "hesitant",
+            # Skeptical
+            "skeptical": "skeptical",
+            "cetico": "skeptical",
+            "desconfiado": "skeptical",
+            "suspeitoso": "skeptical",
+            # Frustrated
             "frustrated": "frustrated",
             "frustrado": "frustrated",
             "irritado": "frustrated",
+            "impaciente": "frustrated",
         }
 
         return emotion_map.get(emotion, emotion)
@@ -324,43 +403,76 @@ class EmotionAnalyzer:
 
         This analyzes the AVATAR's response (client) to determine
         how satisfied they are with the user's (salesperson's) approach.
+        Expanded to support 8 emotion states.
         """
         text_lower = text.lower()
 
-        # Frustrated indicators (client losing patience)
+        # Frustrated indicators (client losing patience) - Priority 1
         frustrated_keywords = [
             "ja entendi", "nao estou interessado", "olha...", "voce nao esta",
             "nao e isso", "como eu disse", "pela ultima vez", "chega",
             "nao quero", "cansei", "vou desligar", "nao tenho tempo",
-            "isso nao funciona", "impossivel", "ridiculo"
+            "isso nao funciona", "impossivel", "ridiculo", "absurdo",
+            "nao me interessa", "tchau", "encerra"
         ]
         if any(kw in text_lower for kw in frustrated_keywords):
             return "frustrated"
 
-        # Hesitant indicators (client uncertain)
+        # Skeptical indicators (client doubting) - Priority 2
+        skeptical_keywords = [
+            "sera mesmo", "nao acredito", "duvido", "prove", "como posso ter certeza",
+            "outros dizem", "ja ouvi isso antes", "parece bom demais", "qual a garantia",
+            "nao confio", "fonte", "evidencia", "dados", "tem como provar",
+            "nao me convence", "sei nao", "acho dificil"
+        ]
+        if any(kw in text_lower for kw in skeptical_keywords):
+            return "skeptical"
+
+        # Hesitant indicators (client uncertain) - Priority 3
         hesitant_keywords = [
             "nao sei", "tenho duvidas", "preciso pensar", "talvez", "mas...",
             "porem", "ainda assim", "nao tenho certeza", "hmm", "sera que",
-            "deixa eu ver", "vou analisar", "preciso consultar", "nao posso decidir"
+            "deixa eu ver", "vou analisar", "preciso consultar", "nao posso decidir",
+            "vou pensar", "depois vejo", "quem sabe"
         ]
         if any(kw in text_lower for kw in hesitant_keywords):
             return "hesitant"
 
-        # Happy indicators (client satisfied/ready to close)
+        # Enthusiastic indicators (client very excited) - Priority 4
+        enthusiastic_keywords = [
+            "adorei", "incrivel", "fantastico", "maravilhoso", "quando comecamos",
+            "quero agora", "fecha", "manda o contrato", "estou muito animado",
+            "exatamente o que preciso", "perfeito", "sensacional", "uau",
+            "isso e demais", "preciso disso", "vamos em frente"
+        ]
+        if any(kw in text_lower for kw in enthusiastic_keywords):
+            return "enthusiastic"
+
+        # Happy indicators (client satisfied/ready to close) - Priority 5
         happy_keywords = [
-            "interessante", "faz sentido", "gostei", "otimo", "excelente",
-            "muito bom", "concordo", "voce tem razao", "fechado", "vamos la",
-            "perfeito", "adorei", "me convenceu", "pode mandar", "quando comecamos",
-            "ok vamos fechar", "estou convencido"
+            "faz sentido", "gostei", "otimo", "excelente", "muito bom",
+            "concordo", "voce tem razao", "fechado", "vamos la",
+            "me convenceu", "pode mandar", "estou convencido", "bom",
+            "legal", "bacana", "isso ai"
         ]
         if any(kw in text_lower for kw in happy_keywords):
             return "happy"
 
-        # Receptive indicators (client engaged/listening)
+        # Curious indicators (client seeking info) - Priority 6
+        curious_keywords = [
+            "como funciona", "me explica", "quero saber mais", "e se",
+            "por que", "qual a diferenca", "como seria", "poderia detalhar",
+            "interessante, mas", "quero entender", "fale mais sobre",
+            "como voces fazem", "qual o processo"
+        ]
+        if any(kw in text_lower for kw in curious_keywords):
+            return "curious"
+
+        # Receptive indicators (client engaged/listening) - Priority 7
         receptive_keywords = [
             "entendo", "continue", "me conte mais", "como assim", "explique",
             "ok", "certo", "ah sim", "uhum", "interessante", "e dai",
-            "pode falar", "estou ouvindo", "fale mais"
+            "pode falar", "estou ouvindo", "fale mais", "sim", "ta"
         ]
         if any(kw in text_lower for kw in receptive_keywords):
             return "receptive"
@@ -373,6 +485,42 @@ class EmotionAnalyzer:
         Synchronous keyword-only analysis for when async is not available.
         """
         return self._analyze_with_keywords(text)
+
+    async def analyze_streaming(
+        self,
+        partial_text: str,
+        full_history: list[str] | None = None,
+    ) -> EmotionResult:
+        """
+        Analyze emotion from partial transcript (streaming mode).
+        Uses lighter prompt for faster response (~50-100ms).
+        Returns lower confidence for partial results.
+        """
+        if not partial_text or len(partial_text) < 10:
+            return EmotionResult(
+                state="neutral",
+                intensity=50,
+                trend="stable",
+                reason=None
+            )
+
+        # Use keyword analysis for ultra-fast streaming (no API call)
+        # AI analysis is reserved for final transcripts to save latency
+        state = self._analyze_with_keywords(partial_text)
+
+        # Calculate intensity with reduced confidence
+        base = EMOTION_BASE_INTENSITY[state]
+        intensity = base  # No adjustment for streaming
+
+        # Don't update history for partial results
+        trend = self._calculate_trend() if self._intensity_history else "stable"
+
+        return EmotionResult(
+            state=state,
+            intensity=intensity,
+            trend=trend,
+            reason=None  # No reason for streaming results
+        )
 
 
 # Singleton instance for easy access
@@ -445,3 +593,22 @@ def reset_emotion_history():
     """Reset the emotion history (call at start of new session)."""
     analyzer = get_emotion_analyzer()
     analyzer.reset_history()
+
+
+async def analyze_emotion_streaming(
+    partial_text: str,
+    conversation_history: list[str] | None = None,
+) -> EmotionResult:
+    """
+    Analyze emotion from partial transcript (streaming mode).
+    Fast keyword-based analysis for real-time feedback.
+
+    Args:
+        partial_text: The partial transcript text
+        conversation_history: Recent conversation for context
+
+    Returns:
+        EmotionResult with state, intensity, and trend (lower confidence)
+    """
+    analyzer = get_emotion_analyzer()
+    return await analyzer.analyze_streaming(partial_text, conversation_history)
