@@ -19,6 +19,7 @@
   "devDependencies": {
     "dotenv": "^17.2.3",
     "livekit-server-sdk": "^2.15.0",
+    "pg": "^8.17.2",
     "playwright": "^1.58.0",
     "shadcn": "^3.7.0"
   }

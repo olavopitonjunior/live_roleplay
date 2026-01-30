@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useScenarios } from '../hooks/useScenarios';
+import { useDifficultyProfile } from '../hooks/useDifficultyProfile';
 import { ScenarioList, ModeSelectionModal } from '../components/Scenarios';
 import type { Scenario, SessionMode, CoachIntensity } from '../types';
 
@@ -9,6 +10,7 @@ export function Home() {
   const navigate = useNavigate();
   const { accessCode, logout, isAdmin } = useAuth();
   const { scenarios, loading, error } = useScenarios();
+  const { profile: difficultyProfile } = useDifficultyProfile();
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
 
   const handleScenarioClick = (scenario: Scenario) => {
@@ -49,6 +51,12 @@ export function Home() {
 
             {/* Navigation */}
             <nav className="flex items-center gap-4">
+              <button
+                onClick={() => navigate('/profile')}
+                className="text-sm font-medium text-gray-600 hover:text-black transition-colors"
+              >
+                Meu Perfil
+              </button>
               <button
                 onClick={() => navigate('/history')}
                 className="text-sm font-medium text-gray-600 hover:text-black transition-colors"
@@ -115,6 +123,7 @@ export function Home() {
           scenario={selectedScenario}
           onStart={handleModeStart}
           onCancel={handleModalCancel}
+          difficultyLevel={difficultyProfile?.current_level}
         />
       )}
     </div>

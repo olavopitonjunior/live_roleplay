@@ -7,12 +7,69 @@ import { TranscriptViewer } from './TranscriptViewer';
 import { ObjectionStatusCard } from './ObjectionStatusCard';
 import { KeyMomentsTimeline } from './KeyMomentsTimeline';
 
+// Session outcome types
+type SessionOutcome =
+  | 'sale_closed'
+  | 'meeting_scheduled'
+  | 'proposal_requested'
+  | 'needs_follow_up'
+  | 'rejected'
+  | 'abandoned'
+  | 'timeout';
+
+// Outcome display configuration
+const OUTCOME_CONFIG: Record<SessionOutcome, { label: string; emoji: string; color: string; bgColor: string }> = {
+  sale_closed: {
+    label: 'Venda Fechada',
+    emoji: '🎉',
+    color: 'text-green-700',
+    bgColor: 'bg-green-100',
+  },
+  meeting_scheduled: {
+    label: 'Reuniao Agendada',
+    emoji: '📅',
+    color: 'text-blue-700',
+    bgColor: 'bg-blue-100',
+  },
+  proposal_requested: {
+    label: 'Proposta Solicitada',
+    emoji: '📝',
+    color: 'text-indigo-700',
+    bgColor: 'bg-indigo-100',
+  },
+  needs_follow_up: {
+    label: 'Precisa Acompanhamento',
+    emoji: '⏳',
+    color: 'text-yellow-700',
+    bgColor: 'bg-yellow-100',
+  },
+  rejected: {
+    label: 'Proposta Rejeitada',
+    emoji: '❌',
+    color: 'text-red-700',
+    bgColor: 'bg-red-100',
+  },
+  abandoned: {
+    label: 'Sessao Abandonada',
+    emoji: '🚪',
+    color: 'text-gray-700',
+    bgColor: 'bg-gray-100',
+  },
+  timeout: {
+    label: 'Tempo Esgotado',
+    emoji: '⏰',
+    color: 'text-orange-700',
+    bgColor: 'bg-orange-100',
+  },
+};
+
 interface FeedbackViewProps {
   feedback: Feedback;
   scenario: Scenario;
   transcript?: string;
   evidences?: Evidence[];
   objectionStatuses?: SessionObjectionStatus[];
+  sessionOutcome?: SessionOutcome | null;
 }
 
 export function FeedbackView({
@@ -21,6 +78,7 @@ export function FeedbackView({
   transcript,
   evidences = [],
   objectionStatuses = [],
+  sessionOutcome,
 }: FeedbackViewProps) {
   const [highlightRange, setHighlightRange] = useState<{ start: number; end: number } | null>(null);
   const [activeTab, setActiveTab] = useState<'criteria' | 'transcript' | 'moments'>('criteria');
@@ -72,6 +130,21 @@ export function FeedbackView({
           </div>
         )}
       </div>
+
+      {/* Session Outcome Badge */}
+      {sessionOutcome && OUTCOME_CONFIG[sessionOutcome] && (
+        <div className={`rounded-lg p-4 border ${OUTCOME_CONFIG[sessionOutcome].bgColor} border-opacity-50`}>
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{OUTCOME_CONFIG[sessionOutcome].emoji}</span>
+            <div>
+              <p className="text-sm text-gray-600">Resultado da Negociacao</p>
+              <p className={`font-semibold ${OUTCOME_CONFIG[sessionOutcome].color}`}>
+                {OUTCOME_CONFIG[sessionOutcome].label}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Scenario Badge */}
       <div className="bg-white rounded-lg p-4 border border-gray-200">

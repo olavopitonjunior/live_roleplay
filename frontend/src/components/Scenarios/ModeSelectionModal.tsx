@@ -5,9 +5,21 @@ interface ModeSelectionModalProps {
   scenario: Scenario;
   onStart: (mode: SessionMode, coachIntensity?: CoachIntensity) => void;
   onCancel: () => void;
+  difficultyLevel?: number;
 }
 
-export function ModeSelectionModal({ scenario, onStart, onCancel }: ModeSelectionModalProps) {
+// Helper function to get difficulty label and color
+function getDifficultyInfo(level: number): { label: string; color: string; bgColor: string } {
+  if (level <= 3) {
+    return { label: 'Facil', color: 'text-green-700', bgColor: 'bg-green-100' };
+  } else if (level <= 6) {
+    return { label: 'Medio', color: 'text-yellow-700', bgColor: 'bg-yellow-100' };
+  } else {
+    return { label: 'Dificil', color: 'text-red-700', bgColor: 'bg-red-100' };
+  }
+}
+
+export function ModeSelectionModal({ scenario, onStart, onCancel, difficultyLevel = 3 }: ModeSelectionModalProps) {
   const [selectedMode, setSelectedMode] = useState<SessionMode>(
     scenario.default_session_mode || 'training'
   );
@@ -35,6 +47,45 @@ export function ModeSelectionModal({ scenario, onStart, onCancel }: ModeSelectio
 
         {/* Content */}
         <div className="px-6 py-5">
+          {/* Difficulty Level Indicator */}
+          {difficultyLevel && (
+            <div className="mb-5 p-4 rounded-xl bg-gray-50 border border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-gray-500 uppercase font-medium">Nivel de Dificuldade</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-2xl font-bold text-black">{difficultyLevel}</span>
+                    <span className="text-gray-400">/10</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${getDifficultyInfo(difficultyLevel).bgColor} ${getDifficultyInfo(difficultyLevel).color}`}>
+                      {getDifficultyInfo(difficultyLevel).label}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-0.5">
+                  {Array.from({ length: 10 }, (_, i) => (
+                    <div
+                      key={i}
+                      className={`w-2 h-6 rounded-sm ${
+                        i < difficultyLevel
+                          ? difficultyLevel <= 3
+                            ? 'bg-green-400'
+                            : difficultyLevel <= 6
+                            ? 'bg-yellow-400'
+                            : 'bg-red-400'
+                          : 'bg-gray-200'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {difficultyLevel <= 3 && 'O avatar sera mais receptivo e aceita argumentos facilmente.'}
+                {difficultyLevel > 3 && difficultyLevel <= 6 && 'O avatar fara perguntas e apresentara objecoes moderadas.'}
+                {difficultyLevel > 6 && 'O avatar sera exigente, pedindo provas e resistindo aos argumentos.'}
+              </p>
+            </div>
+          )}
+
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Selecione o modo</h3>
 
           {/* Mode Selection */}

@@ -62,13 +62,11 @@ type FieldType = 'avatar_profile' | 'objections' | 'evaluation_criteria' | 'idea
 
 // AI Field Button component - small icon next to labels
 function AIFieldButton({
-  field,
   disabled,
   isLoading,
   onClick,
   tooltip,
 }: {
-  field: FieldType;
   disabled: boolean;
   isLoading: boolean;
   onClick: () => void;
@@ -469,7 +467,6 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
             Perfil do Avatar *
             {accessCode && (
               <AIFieldButton
-                field="avatar_profile"
                 disabled={!canSuggest}
                 isLoading={generatingField === 'avatar_profile'}
                 onClick={() => handleFieldSuggestion('avatar_profile')}
@@ -583,7 +580,6 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
               Objecoes do Cliente *
               {accessCode && (
                 <AIFieldButton
-                  field="objections"
                   disabled={!canSuggest}
                   isLoading={generatingField === 'objections'}
                   onClick={() => handleFieldSuggestion('objections')}
@@ -631,7 +627,6 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
               Criterios de Avaliacao *
               {accessCode && (
                 <AIFieldButton
-                  field="evaluation_criteria"
                   disabled={!canSuggest}
                   isLoading={generatingField === 'evaluation_criteria'}
                   onClick={() => handleFieldSuggestion('evaluation_criteria')}
@@ -678,7 +673,6 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
             Resultado Ideal Esperado
             {accessCode && (
               <AIFieldButton
-                field="ideal_outcome"
                 disabled={!canSuggest}
                 isLoading={generatingField === 'ideal_outcome'}
                 onClick={() => handleFieldSuggestion('ideal_outcome')}

@@ -13,6 +13,7 @@ export function Feedback() {
     transcript,
     evidences,
     objectionStatuses,
+    sessionOutcome,
     loading,
     generating,
     error,
@@ -119,6 +120,7 @@ export function Feedback() {
           transcript={transcript || undefined}
           evidences={evidences}
           objectionStatuses={objectionStatuses}
+          sessionOutcome={sessionOutcome}
         />
       </main>
 

@@ -33,6 +33,14 @@ interface TokenResponse {
   token: string;
   room_name: string;
   session_id: string;
+  difficulty_level: number;
+}
+
+interface DifficultyProfile {
+  current_level: number;
+  sessions_at_level: number;
+  consecutive_high_scores: number;
+  consecutive_low_scores: number;
 }
 
 serve(async (req: Request) => {
@@ -82,11 +90,38 @@ serve(async (req: Request) => {
       return corsErrorResponse("Invalid or inactive scenario", 404, req);
     }
 
+    // Fetch user's difficulty profile
+    let difficultyLevel = 3; // Default level
+    const { data: profileData } = await supabase
+      .from("user_difficulty_profiles")
+      .select("current_level, sessions_at_level, consecutive_high_scores, consecutive_low_scores")
+      .eq("access_code_id", codeData.id)
+      .single();
+
+    if (profileData) {
+      difficultyLevel = profileData.current_level || 3;
+      console.log(`Found existing difficulty profile: level ${difficultyLevel}`);
+    } else {
+      // Create new profile with default level 3
+      const { error: profileError } = await supabase
+        .from("user_difficulty_profiles")
+        .insert({
+          access_code_id: codeData.id,
+          current_level: 3,
+        });
+
+      if (profileError) {
+        console.warn("Could not create difficulty profile:", profileError);
+      } else {
+        console.log("Created new difficulty profile with level 3");
+      }
+    }
+
     // Generate unique session ID and room name
     const sessionId = crypto.randomUUID();
     const roomName = `roleplay_${sessionId}`;
 
-    // Create session record in database with mode settings
+    // Create session record in database with mode settings and difficulty
     const { error: sessionError } = await supabase.from("sessions").insert({
       id: sessionId,
       access_code_id: codeData.id,
@@ -95,6 +130,7 @@ serve(async (req: Request) => {
       status: "active",
       session_mode: session_mode,
       coach_intensity: coach_intensity,
+      difficulty_level: difficultyLevel,
     });
 
     if (sessionError) {
@@ -122,9 +158,11 @@ serve(async (req: Request) => {
       // PRD 08: Session mode and coach intensity
       session_mode: session_mode,
       coach_intensity: coach_intensity,
+      // Difficulty level for adaptive difficulty
+      difficulty_level: difficultyLevel,
     });
 
-    console.log(`Session created, room: ${roomName}, agent: ${AGENT_NAME}, mode: ${session_mode}, intensity: ${coach_intensity}`);
+    console.log(`Session created, room: ${roomName}, agent: ${AGENT_NAME}, mode: ${session_mode}, intensity: ${coach_intensity}, difficulty: ${difficultyLevel}`);
 
     // Create LiveKit access token for the user with agent dispatch
     const at = new AccessToken(livekitApiKey, livekitApiSecret, {
@@ -164,6 +202,7 @@ serve(async (req: Request) => {
       token,
       room_name: roomName,
       session_id: sessionId,
+      difficulty_level: difficultyLevel,
     };
 
     return corsJsonResponse(response, 200, req);

@@ -4,6 +4,7 @@ import { Home } from './pages/Home';
 import { Session } from './pages/Session';
 import { Feedback } from './pages/Feedback';
 import { History } from './pages/History';
+import { Profile } from './pages/Profile';
 import { AdminScenarios } from './pages/Admin/Scenarios';
 import { ApiDashboard } from './pages/Admin/ApiDashboard';
 import { ProtectedRoute } from './components/Auth';
@@ -48,6 +49,15 @@ function App() {
           element={
             <ProtectedRoute>
               <History />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile />
             </ProtectedRoute>
           }
         />

@@ -231,6 +231,146 @@ async def fetch_scenario(scenario_id: str) -> dict[str, Any] | None:
     )
 
 
+async def _fetch_scenario_outcomes_impl(scenario_id: str) -> list[dict[str, Any]] | None:
+    """Internal implementation of fetch_scenario_outcomes."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        logger.error("Supabase credentials not configured")
+        return []
+
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    url = f"{SUPABASE_URL}/rest/v1/scenario_outcomes"
+    params = {"scenario_id": f"eq.{scenario_id}", "select": "*", "order": "display_order"}
+
+    try:
+        async with aiohttp.ClientSession() as http_session:
+            async with http_session.get(url, headers=headers, params=params) as response:
+                if response.status != 200:
+                    logger.warning(f"Failed to fetch scenario outcomes: {response.status}")
+                    return []
+                data = await response.json()
+                return data if data else []
+    except Exception as e:
+        logger.warning(f"Error fetching scenario outcomes: {e}")
+        return []
+
+
+async def fetch_scenario_outcomes(scenario_id: str) -> list[dict[str, Any]]:
+    """Fetch possible outcomes for a scenario from Supabase."""
+    result = await with_retry(
+        _fetch_scenario_outcomes_impl,
+        scenario_id,
+        max_retries=2,
+        delay=1.0,
+        operation_name="fetch_scenario_outcomes"
+    )
+    return result if result is not None else []
+
+
+async def _fetch_difficulty_profile_impl(access_code_id: str) -> dict[str, Any] | None:
+    """Internal implementation of fetch_difficulty_profile."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        logger.error("Supabase credentials not configured")
+        return None
+
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    # Use the RPC function to get or create profile
+    url = f"{SUPABASE_URL}/rest/v1/rpc/get_or_create_difficulty_profile"
+    payload = {"p_access_code_id": access_code_id}
+
+    try:
+        async with aiohttp.ClientSession() as http_session:
+            async with http_session.post(url, headers=headers, json=payload) as response:
+                if response.status != 200:
+                    # Fallback to direct query if RPC fails
+                    logger.warning(f"RPC failed ({response.status}), trying direct query")
+                    query_url = f"{SUPABASE_URL}/rest/v1/user_difficulty_profiles"
+                    params = {"access_code_id": f"eq.{access_code_id}", "select": "*"}
+                    async with http_session.get(query_url, headers=headers, params=params) as query_response:
+                        if query_response.status == 200:
+                            data = await query_response.json()
+                            if data and len(data) > 0:
+                                return data[0]
+                    return {"current_level": 3}  # Default
+
+                data = await response.json()
+                return data if data else {"current_level": 3}
+    except Exception as e:
+        logger.warning(f"Error fetching difficulty profile: {e}")
+        return {"current_level": 3}
+
+
+async def fetch_difficulty_profile(access_code_id: str) -> dict[str, Any]:
+    """Fetch difficulty profile for a user from Supabase."""
+    result = await with_retry(
+        _fetch_difficulty_profile_impl,
+        access_code_id,
+        max_retries=2,
+        delay=1.0,
+        operation_name="fetch_difficulty_profile"
+    )
+    return result if result else {"current_level": 3}
+
+
+async def _fetch_learning_profile_impl(access_code_id: str) -> dict[str, Any] | None:
+    """Internal implementation of fetch_learning_profile."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        logger.error("Supabase credentials not configured")
+        return None
+
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    # Query the learning profiles table directly
+    url = f"{SUPABASE_URL}/rest/v1/user_learning_profiles"
+    params = {
+        "access_code_id": f"eq.{access_code_id}",
+        "select": "recurring_weaknesses,recurring_strengths,spin_proficiency,average_score,total_sessions,objection_handling"
+    }
+
+    try:
+        async with aiohttp.ClientSession() as http_session:
+            async with http_session.get(url, headers=headers, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data and len(data) > 0:
+                        logger.info(f"Found learning profile for user: {data[0].get('total_sessions', 0)} sessions")
+                        return data[0]
+                    else:
+                        logger.info("No learning profile found for user (new user)")
+                        return {}
+                else:
+                    logger.warning(f"Failed to fetch learning profile: {response.status}")
+                    return {}
+    except Exception as e:
+        logger.warning(f"Error fetching learning profile: {e}")
+        return {}
+
+
+async def fetch_learning_profile(access_code_id: str) -> dict[str, Any]:
+    """Fetch learning profile for a user from Supabase."""
+    result = await with_retry(
+        _fetch_learning_profile_impl,
+        access_code_id,
+        max_retries=2,
+        delay=1.0,
+        operation_name="fetch_learning_profile"
+    )
+    return result if result else {}
+
+
 async def _update_session_transcript_impl(
     session_id: str,
     transcript: str,
@@ -471,6 +611,9 @@ async def entrypoint(ctx: JobContext):
     coach_intensity = session_data.get("coach_intensity", "medium")
     coaching_enabled = session_mode == "training"
 
+    # Get access_code_id for difficulty profile
+    access_code_id = session_data.get("access_code_id")
+
     logger.info(f"Session ID: {session_id}, Scenario ID: {scenario_id}")
     logger.info(f"Session mode: {session_mode}, Coach intensity: {coach_intensity}, Coaching enabled: {coaching_enabled}")
 
@@ -482,14 +625,37 @@ async def entrypoint(ctx: JobContext):
 
     logger.info(f"Loaded scenario: {scenario.get('title', 'Unknown')}")
 
+    # Fetch possible outcomes for this scenario
+    outcomes = await fetch_scenario_outcomes(scenario_id)
+    logger.info(f"Loaded {len(outcomes)} possible outcomes for scenario")
+
+    # Fetch difficulty level - from session or user profile
+    difficulty_level = session_data.get("difficulty_level")
+    if difficulty_level is None and access_code_id:
+        profile = await fetch_difficulty_profile(access_code_id)
+        difficulty_level = profile.get("current_level", 3)
+    elif difficulty_level is None:
+        difficulty_level = 3  # Default
+
+    logger.info(f"Difficulty level: {difficulty_level}/10")
+
+    # Fetch learning profile for AI coach (cross-session learning)
+    learning_profile = {}
+    if access_code_id and coaching_enabled:
+        learning_profile = await fetch_learning_profile(access_code_id)
+        if learning_profile.get("recurring_weaknesses"):
+            logger.info(f"Learning profile loaded with weaknesses: {learning_profile.get('recurring_weaknesses')}")
+        else:
+            logger.info("Learning profile empty or new user")
+
     # Get voice setting from scenario (with fallback)
     voice = scenario.get('gemini_voice') or 'Puck'
     avatar_provider = scenario.get('avatar_provider', 'simli')
 
     logger.info(f"Using voice: {voice}, avatar_provider: {avatar_provider}")
 
-    # Build dynamic instructions
-    instructions = build_agent_instructions(scenario)
+    # Build dynamic instructions with outcomes and difficulty
+    instructions = build_agent_instructions(scenario, outcomes, difficulty_level)
 
     # Add greeting instruction to make agent start conversation
     greeting_instruction = "\n\nIMPORTANTE: Ao iniciar a conversa, cumprimente o usuario de forma breve e natural, como 'Ola! Em que posso ajudar?' Seja direto e amigavel."
@@ -949,7 +1115,7 @@ async def entrypoint(ctx: JobContext):
             coaching = get_coaching_engine()
             coaching.start_session(scenario)
 
-            # Initialize AI coach with scenario context and intensity
+            # Initialize AI coach with scenario context, intensity, and learning profile
             reset_ai_coach()
             ai_coach = get_ai_coach()
             ai_coach.start_session(
@@ -958,9 +1124,10 @@ async def entrypoint(ctx: JobContext):
                 avatar_profile=scenario.get('avatar_profile', scenario.get('avatar_persona', '')),
                 expected_objections=scenario.get('expected_objections', ['preco', 'timing', 'necessidade']),
                 objectives=scenario.get('coaching_objectives', []),
-                intensity=coach_intensity  # PRD 08, US-11
+                intensity=coach_intensity,  # PRD 08, US-11
+                learning_profile=learning_profile  # Cross-session learning
             )
-            logger.info(f"AI Coach initialized with scenario context, intensity: {coach_intensity}")
+            logger.info(f"AI Coach initialized with scenario context, intensity: {coach_intensity}, learning profile: {'loaded' if learning_profile else 'empty'}")
         else:
             logger.info("Evaluation mode - coaching disabled")
 
