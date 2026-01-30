@@ -2,12 +2,23 @@ import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Feedback, Scenario, Evidence, SessionObjectionStatus } from '../types';
 
+// Session outcome types
+export type SessionOutcome =
+  | 'sale_closed'
+  | 'meeting_scheduled'
+  | 'proposal_requested'
+  | 'needs_follow_up'
+  | 'rejected'
+  | 'abandoned'
+  | 'timeout';
+
 interface FeedbackState {
   feedback: Feedback | null;
   scenario: Scenario | null;
   transcript: string | null;
   evidences: Evidence[];
   objectionStatuses: SessionObjectionStatus[];
+  sessionOutcome: SessionOutcome | null;
   loading: boolean;
   generating: boolean;
   waitingForTranscript: boolean;
@@ -51,6 +62,7 @@ export function useFeedback() {
     transcript: null,
     evidences: [],
     objectionStatuses: [],
+    sessionOutcome: null,
     loading: false,
     generating: false,
     waitingForTranscript: false,
@@ -153,21 +165,20 @@ export function useFeedback() {
         }));
       }
 
-      // Fetch session data including transcript
+      // Fetch session data including transcript and outcome
       const { data: sessionData } = await supabase
         .from('sessions')
-        .select('scenario_id, transcript')
+        .select('scenario_id, transcript, outcome')
         .eq('id', sessionId)
         .single();
 
       if (sessionData) {
-        // Set transcript
-        if (sessionData.transcript) {
-          setState((prev) => ({
-            ...prev,
-            transcript: sessionData.transcript,
-          }));
-        }
+        // Set transcript and outcome
+        setState((prev) => ({
+          ...prev,
+          transcript: sessionData.transcript || null,
+          sessionOutcome: (sessionData.outcome as SessionOutcome) || null,
+        }));
 
         // Fetch scenario
         if (sessionData.scenario_id) {

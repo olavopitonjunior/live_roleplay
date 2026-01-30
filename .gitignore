@@ -50,3 +50,13 @@ tests/*.png
 
 # MCP config (may contain tokens)
 .mcp.json
+
+# Agent logs
+agent/*.err
+agent/*.out
+
+# Test results
+test-results/
+
+# Windows temp
+nul

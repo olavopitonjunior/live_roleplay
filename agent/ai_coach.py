@@ -81,6 +81,31 @@ class AISuggestion:
 
 
 @dataclass
+class LearningProfile:
+    """User's cross-session learning profile."""
+    recurring_weaknesses: list[str] = field(default_factory=list)
+    recurring_strengths: list[str] = field(default_factory=list)
+    spin_proficiency: dict[str, float] = field(default_factory=lambda: {
+        "situation": 0, "problem": 0, "implication": 0, "need_payoff": 0
+    })
+    average_score: float = 0
+    total_sessions: int = 0
+    objection_handling: dict[str, dict] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "LearningProfile":
+        """Create LearningProfile from dictionary."""
+        return cls(
+            recurring_weaknesses=data.get("recurring_weaknesses", []) or [],
+            recurring_strengths=data.get("recurring_strengths", []) or [],
+            spin_proficiency=data.get("spin_proficiency", {}) or {},
+            average_score=float(data.get("average_score", 0) or 0),
+            total_sessions=int(data.get("total_sessions", 0) or 0),
+            objection_handling=data.get("objection_handling", {}) or {},
+        )
+
+
+@dataclass
 class ConversationContext:
     """Context for AI analysis."""
     scenario_name: str
@@ -91,6 +116,7 @@ class ConversationContext:
     methodology_progress: dict[str, bool]
     pending_objections: list[str]
     talk_ratio: int
+    learning_profile: Optional[LearningProfile] = None
 
 
 @dataclass
@@ -121,6 +147,9 @@ Descricao: {scenario_context}
 Perfil do cliente: {avatar_profile}
 Objecoes esperadas: {objections}
 
+## Perfil de Aprendizado do Vendedor
+{learning_profile_section}
+
 ## Conversa Ate Agora
 {conversation_history}
 
@@ -150,6 +179,7 @@ REGRAS:
 3. Siga o SPIN - sugira o proximo passo logico da metodologia
 4. Se houver objecao pendente, priorize responde-la
 5. Mantenha o tom profissional mas conversacional
+6. PRIORIZE ajudar nos PONTOS FRACOS RECORRENTES do vendedor (se houver)
 
 EXEMPLOS DE BOAS SUGESTOES:
 - "Pergunte: 'Voce mencionou que perde tempo com X. Quantas horas por semana isso representa?'"
@@ -170,6 +200,7 @@ Conversa recente:
 Fala atual ({speaker}, em andamento): "{text}"
 
 Progresso SPIN: S:{spin_s} P:{spin_p} I:{spin_i} N:{spin_n}
+{weakness_reminder}
 
 Se houver uma sugestao URGENTE (objecao detectada, oportunidade clara), responda com JSON.
 Se nao houver nada urgente, responda apenas: {{"skip": true}}
@@ -279,11 +310,18 @@ class AICoachEngine:
         avatar_profile: str = "",
         expected_objections: list[str] = None,
         objectives: list[dict] = None,
-        intensity: str = "medium"
+        intensity: str = "medium",
+        learning_profile: dict = None
     ):
-        """Initialize a new coaching session with context and intensity."""
+        """Initialize a new coaching session with context, intensity, and learning profile."""
         # Set intensity first
         self.intensity = intensity
+
+        # Parse learning profile if provided
+        profile_obj = None
+        if learning_profile:
+            profile_obj = LearningProfile.from_dict(learning_profile)
+            logger.info(f"Learning profile loaded: {profile_obj.total_sessions} sessions, weaknesses: {profile_obj.recurring_weaknesses}")
 
         self._context = ConversationContext(
             scenario_name=scenario_name or "Cenario de vendas",
@@ -299,6 +337,7 @@ class AICoachEngine:
             },
             pending_objections=[],
             talk_ratio=50,
+            learning_profile=profile_obj,
         )
 
         # Load objectives
@@ -459,6 +498,66 @@ Responda APENAS com JSON valido (sem markdown):
 
         return "\n".join(lines)
 
+    def _format_learning_profile_section(self) -> str:
+        """Format learning profile data for the main prompt."""
+        if not self._context or not self._context.learning_profile:
+            return "Primeiro treinamento do vendedor (sem historico)"
+
+        profile = self._context.learning_profile
+        lines = []
+
+        # Basic stats
+        if profile.total_sessions > 0:
+            lines.append(f"Sessoes anteriores: {profile.total_sessions}")
+            lines.append(f"Score medio: {profile.average_score:.0f}%")
+
+        # Recurring weaknesses (most important for coaching!)
+        if profile.recurring_weaknesses:
+            lines.append(f"PONTOS FRACOS RECORRENTES (PRIORIZE AJUDAR AQUI):")
+            for weakness in profile.recurring_weaknesses[:3]:  # Top 3
+                lines.append(f"  - {weakness}")
+
+        # Recurring strengths
+        if profile.recurring_strengths:
+            lines.append(f"Pontos fortes: {', '.join(profile.recurring_strengths[:3])}")
+
+        # SPIN proficiency
+        if profile.spin_proficiency:
+            spin_weak = []
+            for step, score in profile.spin_proficiency.items():
+                if score < 0.5:  # Less than 50% proficiency
+                    step_name = {
+                        "situation": "Situacao",
+                        "problem": "Problema",
+                        "implication": "Implicacao",
+                        "need_payoff": "Necessidade"
+                    }.get(step, step)
+                    spin_weak.append(f"{step_name} ({score*100:.0f}%)")
+            if spin_weak:
+                lines.append(f"SPIN a melhorar: {', '.join(spin_weak)}")
+
+        # Objection handling weaknesses
+        if profile.objection_handling:
+            weak_objections = []
+            for obj_type, data in profile.objection_handling.items():
+                if isinstance(data, dict) and data.get("success_rate", 1) < 0.5:
+                    weak_objections.append(obj_type)
+            if weak_objections:
+                lines.append(f"Objecoes com dificuldade: {', '.join(weak_objections)}")
+
+        return "\n".join(lines) if lines else "Primeiro treinamento do vendedor"
+
+    def _format_weakness_reminder(self) -> str:
+        """Format a short weakness reminder for streaming prompt."""
+        if not self._context or not self._context.learning_profile:
+            return ""
+
+        profile = self._context.learning_profile
+        if profile.recurring_weaknesses:
+            top_weakness = profile.recurring_weaknesses[0]
+            return f"LEMBRE: Vendedor tem dificuldade com: {top_weakness}"
+        return ""
+
     async def analyze_streaming(
         self,
         text: str,
@@ -486,6 +585,7 @@ Responda APENAS com JSON valido (sem markdown):
                 spin_p="OK" if self._context.methodology_progress.get("problem") else "-",
                 spin_i="OK" if self._context.methodology_progress.get("implication") else "-",
                 spin_n="OK" if self._context.methodology_progress.get("need_payoff") else "-",
+                weakness_reminder=self._format_weakness_reminder(),
             )
 
             response = await self._gemini_client.aio.models.generate_content(
@@ -539,6 +639,7 @@ Responda APENAS com JSON valido (sem markdown):
                 scenario_context=self._context.scenario_context,
                 avatar_profile=self._context.avatar_profile,
                 objections=", ".join(self._context.expected_objections),
+                learning_profile_section=self._format_learning_profile_section(),
                 conversation_history=self._format_conversation_history(limit=10),
                 speaker="vendedor" if speaker == "user" else "cliente",
                 text=text,

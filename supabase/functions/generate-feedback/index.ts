@@ -63,6 +63,29 @@ interface KeyMoment {
   transcript_index?: number;
 }
 
+// Session outcome types
+type SessionOutcome =
+  | "sale_closed"
+  | "meeting_scheduled"
+  | "proposal_requested"
+  | "needs_follow_up"
+  | "rejected"
+  | "abandoned"
+  | "timeout";
+
+interface ScenarioOutcome {
+  id: string;
+  outcome_type: SessionOutcome;
+  description: string;
+  is_positive: boolean;
+  trigger_condition: {
+    min_score?: number;
+    objections_handled_ratio?: number;
+  };
+  avatar_closing_line: string;
+  display_order: number;
+}
+
 interface FeedbackResponse {
   criteria_scores: CriteriaScore[];
   objection_statuses: ObjectionStatusResult[];
@@ -70,6 +93,8 @@ interface FeedbackResponse {
   summary: string;
   confidence_level: "low" | "medium" | "high";
   transcript_coverage: number;
+  outcome?: SessionOutcome;
+  outcome_reasoning?: string;
 }
 
 // Criterion with rubric from database
@@ -126,7 +151,8 @@ function findQuoteIndex(transcript: string, quote: string): number {
  */
 function buildRubricEvaluationPrompt(
   scenario: ScenarioWithRubrics,
-  transcript: string
+  transcript: string,
+  outcomes: ScenarioOutcome[] = []
 ): string {
   const criteriaSection = scenario.criteria_with_rubrics
     .map(
@@ -164,6 +190,18 @@ RESULTADO IDEAL ESPERADO:
 ${scenario.ideal_outcome}
 `
     : "";
+
+  // Build outcomes section for session result determination
+  const outcomesSection = outcomes.length > 0
+    ? outcomes
+        .sort((a, b) => a.display_order - b.display_order)
+        .map((o) => `- ${o.outcome_type}: ${o.description} (score minimo: ${o.trigger_condition?.min_score || 0}%)`)
+        .join("\n")
+    : `- sale_closed: Venda fechada (score >= 80%)
+- meeting_scheduled: Reuniao agendada (score >= 70%)
+- proposal_requested: Proposta solicitada (score >= 60%)
+- needs_follow_up: Precisa acompanhamento (score >= 50%)
+- rejected: Rejeitado (score < 50%)`;
 
   return `Voce e um avaliador especializado em treinamentos de vendas e negociacao.
 Analise a transcricao abaixo e avalie o desempenho do participante usando RUBRICAS DE 4 NIVEIS.
@@ -209,6 +247,11 @@ OBJECOES OBRIGATORIAS (verifique se foram tratadas):
 ${objectionsSection}
 
 ═══════════════════════════════════════════════════════════════
+POSSIVEIS RESULTADOS DA SESSAO (determine um baseado no desempenho):
+═══════════════════════════════════════════════════════════════
+${outcomesSection}
+
+═══════════════════════════════════════════════════════════════
 TRANSCRICAO DA CONVERSA:
 ═══════════════════════════════════════════════════════════════
 ${transcript}
@@ -239,6 +282,11 @@ INSTRUCOES PARA SUA AVALIACAO:
 
 5. COBERTURA:
    - Estime qual % do audio foi transcrito (0.0 a 1.0)
+
+6. RESULTADO (outcome):
+   - Determine o resultado da sessao baseado no score e no tratamento de objecoes
+   - Se o avatar encerrou com uma frase de fechamento/rejeicao, considere isso
+   - Explique brevemente o motivo da determinacao em "outcome_reasoning"
 
 Retorne APENAS um JSON valido com esta estrutura:
 
@@ -276,7 +324,9 @@ Retorne APENAS um JSON valido com esta estrutura:
   ],
   "summary": "Resumo geral do desempenho em 2-3 frases",
   "confidence_level": "high",
-  "transcript_coverage": 0.95
+  "transcript_coverage": 0.95,
+  "outcome": "sale_closed",
+  "outcome_reasoning": "O usuario tratou bem as objecoes e o avatar indicou fechamento"
 }`;
 }
 
@@ -407,7 +457,9 @@ serve(async (req: Request) => {
         status,
         session_mode,
         has_avatar_fallback,
-        duration_seconds
+        duration_seconds,
+        access_code_id,
+        difficulty_level
       `
       )
       .eq("id", session_id)
@@ -502,8 +554,27 @@ serve(async (req: Request) => {
       duration_max_seconds: scenario.duration_max_seconds,
     };
 
-    // Build prompt with rubrics
-    const prompt = buildRubricEvaluationPrompt(scenarioWithRubrics, session.transcript);
+    // Fetch possible outcomes for this scenario
+    const { data: scenarioOutcomes } = await supabase
+      .from("scenario_outcomes")
+      .select("*")
+      .eq("scenario_id", session.scenario_id)
+      .order("display_order");
+
+    const outcomes: ScenarioOutcome[] = (scenarioOutcomes || []).map((o) => ({
+      id: o.id,
+      outcome_type: o.outcome_type as SessionOutcome,
+      description: o.description || "",
+      is_positive: o.is_positive || false,
+      trigger_condition: o.trigger_condition || {},
+      avatar_closing_line: o.avatar_closing_line || "",
+      display_order: o.display_order || 0,
+    }));
+
+    console.log(`Loaded ${outcomes.length} possible outcomes for scenario`);
+
+    // Build prompt with rubrics and outcomes
+    const prompt = buildRubricEvaluationPrompt(scenarioWithRubrics, session.transcript, outcomes);
 
     // Initialize Anthropic client
     const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -713,16 +784,110 @@ serve(async (req: Request) => {
       scenario.duration_max_seconds || 600   // From scenario or default 10 min
     );
 
-    // Update session with validation result
+    // Determine outcome from Claude's response or fallback based on score
+    let sessionOutcome: SessionOutcome | null = null;
+    const outcomeReasoning = feedbackData.outcome_reasoning || null;
+
+    if (feedbackData.outcome) {
+      sessionOutcome = feedbackData.outcome;
+    } else {
+      // Fallback: determine outcome based on weighted score
+      if (weightedScore >= 80) {
+        sessionOutcome = "sale_closed";
+      } else if (weightedScore >= 70) {
+        sessionOutcome = "meeting_scheduled";
+      } else if (weightedScore >= 60) {
+        sessionOutcome = "proposal_requested";
+      } else if (weightedScore >= 50) {
+        sessionOutcome = "needs_follow_up";
+      } else {
+        sessionOutcome = "rejected";
+      }
+    }
+
+    // Update session with validation result and outcome
     await supabase
       .from("sessions")
       .update({
         is_valid: validation.is_valid,
         validation_reasons: validation.validation_reasons,
+        outcome: sessionOutcome,
+        outcome_determined_by: feedbackData.outcome ? "ai" : "score_fallback",
       })
       .eq("id", session_id);
 
     console.log(`Session validation: is_valid=${validation.is_valid}, reasons=${JSON.stringify(validation.validation_reasons)}`);
+    console.log(`Session outcome: ${sessionOutcome} (determined by: ${feedbackData.outcome ? "ai" : "score_fallback"})`);
+
+    // Adjust difficulty level based on session score (only for valid sessions)
+    let difficultyAdjustment: { new_level: number; level_changed: boolean; adjustment_reason: string } | null = null;
+
+    if (validation.is_valid && session.access_code_id) {
+      try {
+        // Call the adjust_difficulty_level function
+        const { data: adjustmentData, error: adjustmentError } = await supabase
+          .rpc("adjust_difficulty_level", {
+            p_access_code_id: session.access_code_id,
+            p_session_score: Math.round(weightedScore),
+          });
+
+        if (adjustmentError) {
+          console.warn("Failed to adjust difficulty level:", adjustmentError);
+        } else if (adjustmentData && adjustmentData.length > 0) {
+          difficultyAdjustment = adjustmentData[0];
+          console.log(`Difficulty adjustment: level=${difficultyAdjustment?.new_level}, changed=${difficultyAdjustment?.level_changed}, reason=${difficultyAdjustment?.adjustment_reason}`);
+        }
+      } catch (e) {
+        console.warn("Error adjusting difficulty:", e);
+      }
+    }
+
+    // Update learning profile with session results
+    if (session.access_code_id) {
+      try {
+        // Prepare criteria scores for the learning profile
+        const criteriaScoresForProfile = normalizedScores.map((score) => ({
+          criterion_id: score.criterion_id,
+          level: score.level,
+        }));
+
+        // Prepare objection statuses for the learning profile
+        const objectionStatusesForProfile = objectionStatuses.map((os) => ({
+          objection_id: os.objection_id,
+          status: os.status,
+        }));
+
+        const { error: profileError } = await supabase.rpc(
+          "update_learning_profile_after_session",
+          {
+            p_access_code_id: session.access_code_id,
+            p_session_score: weightedScore,
+            p_is_valid: validation.is_valid,
+            p_criteria_scores: criteriaScoresForProfile,
+            p_objection_statuses: objectionStatusesForProfile,
+            p_outcome: sessionOutcome,
+          }
+        );
+
+        if (profileError) {
+          console.warn("Failed to update learning profile:", profileError);
+        } else {
+          console.log("Learning profile updated successfully");
+
+          // Analyze recurring patterns after a few sessions
+          const { error: patternError } = await supabase.rpc(
+            "analyze_recurring_patterns",
+            { p_access_code_id: session.access_code_id }
+          );
+
+          if (patternError) {
+            console.warn("Failed to analyze patterns:", patternError);
+          }
+        }
+      } catch (e) {
+        console.warn("Error updating learning profile:", e);
+      }
+    }
 
     // Return success response
     return corsJsonResponse(
@@ -739,6 +904,17 @@ serve(async (req: Request) => {
         key_moments: feedbackData.key_moments || [],
         objection_statuses: objectionStatuses,
         summary: feedbackData.summary,
+        // Session outcome
+        outcome: sessionOutcome,
+        outcome_reasoning: outcomeReasoning,
+        // Difficulty adjustment
+        difficulty_adjustment: difficultyAdjustment
+          ? {
+              current_level: difficultyAdjustment.new_level,
+              level_changed: difficultyAdjustment.level_changed,
+              adjustment_reason: difficultyAdjustment.adjustment_reason,
+            }
+          : null,
       },
       200,
       req
