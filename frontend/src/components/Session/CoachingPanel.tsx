@@ -1,62 +1,12 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
-import { useRoomContext } from '@livekit/components-react';
-import { RoomEvent } from 'livekit-client';
-
-interface CoachingHint {
-  id: string;
-  type: 'encouragement' | 'warning' | 'suggestion' | 'reminder' | 'objection';
-  title: string;
-  message: string;
-  priority: number;
-  methodology_step?: string;
-  timestamp: string;
-}
-
-interface AISuggestion {
-  id: string;
-  type: 'question' | 'statement' | 'technique' | 'objection_response' | 'encouragement';
-  title: string;
-  message: string;
-  context: string;
-  priority: number;
-  methodology_step?: string;
-  is_streaming: boolean;
-  confidence: number;
-  timestamp: string;
-}
-
-interface MethodologyProgress {
-  situation: boolean;
-  problem: boolean;
-  implication: boolean;
-  need_payoff: boolean;
-  completion_percentage: number;
-}
-
-interface Objection {
-  id: string;
-  text: string;
-  category: string;
-  addressed: boolean;
-  timestamp: string;
-}
-
-interface CoachingState {
-  methodology: MethodologyProgress;
-  objections: Objection[];
-  addressed_objections: Objection[];
-  recent_hints: CoachingHint[];
-  talk_ratio: number;
-  user_word_count: number;
-  avatar_word_count: number;
-}
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { useTranscript } from '../../hooks/useTranscript';
 
 const HINT_ICONS: Record<string, string> = {
-  encouragement: '🎯',
-  warning: '⚠️',
-  suggestion: '💡',
-  reminder: '📋',
-  objection: '🚨',
+  encouragement: '',
+  warning: '',
+  suggestion: '',
+  reminder: '',
+  objection: '',
 };
 
 const HINT_COLORS: Record<string, string> = {
@@ -68,11 +18,11 @@ const HINT_COLORS: Record<string, string> = {
 };
 
 const AI_SUGGESTION_ICONS: Record<string, string> = {
-  question: '❓',
-  statement: '💬',
-  technique: '🎯',
-  objection_response: '🛡️',
-  encouragement: '✨',
+  question: '',
+  statement: '',
+  technique: '',
+  objection_response: '',
+  encouragement: '',
 };
 
 const METHODOLOGY_LABELS: Record<string, string> = {
@@ -90,13 +40,20 @@ const OBJECTION_LABELS: Record<string, string> = {
   trust: 'Confianca',
 };
 
+/**
+ * CoachingPanel displays real-time coaching hints and AI suggestions.
+ * Uses useTranscript hook to get data from shared context.
+ * This ensures coaching data persists when switching tabs.
+ */
 export function CoachingPanel() {
-  const room = useRoomContext();
-  const [hints, setHints] = useState<CoachingHint[]>([]);
-  const [state, setState] = useState<CoachingState | null>(null);
-  const [latestHint, setLatestHint] = useState<CoachingHint | null>(null);
-  const [aiSuggestion, setAiSuggestion] = useState<AISuggestion | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const {
+    hints,
+    latestHint,
+    aiSuggestion,
+    coachingState,
+    isProcessing,
+  } = useTranscript();
+
   const [copied, setCopied] = useState(false);
   const hintsRef = useRef<HTMLDivElement>(null);
 
@@ -109,94 +66,6 @@ export function CoachingPanel() {
     }
   }, [aiSuggestion]);
 
-  // Listen for coaching data
-  useEffect(() => {
-    if (!room) return;
-
-    const handleDataReceived = (payload: Uint8Array) => {
-      try {
-        const decoder = new TextDecoder();
-        const text = decoder.decode(payload);
-        const data = JSON.parse(text);
-
-        // Handle AI suggestion (new feature)
-        if (data.type === 'ai_suggestion') {
-          // suggestionType contains the actual type (question, statement, etc.)
-          const suggestionType = data.suggestionType || 'question';
-
-          const suggestion: AISuggestion = {
-            id: data.id,
-            type: suggestionType,
-            title: data.title,
-            message: data.message,
-            context: data.context || '',
-            priority: data.priority,
-            methodology_step: data.methodology_step,
-            is_streaming: data.is_streaming || false,
-            confidence: data.confidence || 1.0,
-            timestamp: data.timestamp,
-          };
-
-          setAiSuggestion(suggestion);
-          setIsProcessing(false);
-
-          // Auto-clear after 8 seconds (longer for AI suggestions)
-          setTimeout(() => setAiSuggestion(null), 8000);
-        }
-
-        // Handle processing state
-        if (data.type === 'coaching_processing') {
-          setIsProcessing(true);
-        }
-
-        // Handle new coaching hint (keyword-based)
-        if (data.type === 'coaching_hint') {
-          // hintType contains the actual type (encouragement, warning, etc.)
-          const hintType = data.hintType || 'suggestion';
-
-          const hint: CoachingHint = {
-            id: data.id,
-            type: hintType,
-            title: data.title,
-            message: data.message,
-            priority: data.priority,
-            methodology_step: data.methodology_step,
-            timestamp: data.timestamp,
-          };
-
-          setHints(prev => {
-            const newHints = [...prev, hint];
-            return newHints.slice(-10); // Keep last 10 hints
-          });
-          setLatestHint(hint);
-
-          // Auto-clear latest hint after 3 seconds (reduced from 5s)
-          setTimeout(() => setLatestHint(null), 3000);
-        }
-
-        // Handle full coaching state update
-        if (data.type === 'coaching_state') {
-          setState({
-            methodology: data.methodology,
-            objections: data.objections || [],
-            addressed_objections: data.addressed_objections || [],
-            recent_hints: data.recent_hints || [],
-            talk_ratio: data.talk_ratio || 50,
-            user_word_count: data.user_word_count || 0,
-            avatar_word_count: data.avatar_word_count || 0,
-          });
-        }
-      } catch {
-        // Ignore non-JSON data
-      }
-    };
-
-    room.on(RoomEvent.DataReceived, handleDataReceived);
-    return () => {
-      room.off(RoomEvent.DataReceived, handleDataReceived);
-    };
-  }, [room]);
-
   // Auto-scroll hints
   useEffect(() => {
     if (hintsRef.current) {
@@ -204,9 +73,9 @@ export function CoachingPanel() {
     }
   }, [hints]);
 
-  const talkRatio = state?.talk_ratio ?? 50;
-  const methodology = state?.methodology;
-  const objections = state?.objections ?? [];
+  const talkRatio = coachingState?.talk_ratio ?? 50;
+  const methodology = coachingState?.methodology;
+  const objections = coachingState?.objections ?? [];
 
   return (
     <div className="h-full flex flex-col bg-neutral-900 text-white overflow-hidden">
@@ -216,7 +85,7 @@ export function CoachingPanel() {
           aiSuggestion.is_streaming ? 'opacity-80' : ''
         }`}>
           <div className="flex items-start gap-2">
-            <span className="text-xl">{AI_SUGGESTION_ICONS[aiSuggestion.type] || '💡'}</span>
+            <span className="text-xl">{AI_SUGGESTION_ICONS[aiSuggestion.type] || ''}</span>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <p className="font-semibold text-sm text-primary-300">
@@ -331,13 +200,13 @@ export function CoachingPanel() {
         {objections.length > 0 && (
           <div className="bg-neutral-800/50 rounded-lg p-3 border border-red-500/30">
             <h3 className="text-xs font-semibold text-red-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-              <span>🚨</span>
+              <span></span>
               Objecoes Pendentes ({objections.length})
             </h3>
             <ul className="space-y-2">
               {objections.map((obj) => (
                 <li key={obj.id} className="text-sm text-neutral-300 flex items-start gap-2">
-                  <span className="text-red-400 mt-0.5">•</span>
+                  <span className="text-red-400 mt-0.5">*</span>
                   <div>
                     <span className="text-xs text-red-400 font-medium">
                       {OBJECTION_LABELS[obj.category] || obj.category}:
@@ -390,7 +259,7 @@ export function CoachingPanel() {
             <div ref={hintsRef} className="space-y-2 max-h-40 overflow-y-auto">
               {hints.map((hint) => (
                 <div key={hint.id} className="flex items-start gap-2 text-xs">
-                  <span>{HINT_ICONS[hint.type] || '💡'}</span>
+                  <span>{HINT_ICONS[hint.type] || ''}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-neutral-300 font-medium">{hint.title}</p>
                     <p className="text-neutral-500 text-[10px] mt-0.5 line-clamp-1">{hint.message}</p>

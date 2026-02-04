@@ -243,6 +243,9 @@ class AICoachEngine:
     AI-powered coaching engine that generates specific, contextual suggestions.
     Uses Gemini Flash for fast inference (~100-200ms).
     Supports intensity control (low/medium/high) per PRD 08, US-11.
+
+    Rate limiting: Gemini Flash-Lite free tier has 20 requests/minute limit.
+    We enforce a global rate limit to avoid 429 errors.
     """
 
     # Default configuration (medium intensity)
@@ -251,6 +254,11 @@ class AICoachEngine:
     MAX_HINTS_PER_MINUTE = 12  # Increased from 6 to 12
     MIN_TEXT_LENGTH_STREAMING = 15
     MIN_TEXT_LENGTH_FINAL = 5
+
+    # API rate limiting (Gemini Flash-Lite free tier = 20/min)
+    API_RATE_LIMIT = 15  # Stay under 20 to be safe
+    API_RATE_WINDOW = 60  # seconds
+    MIN_REQUEST_INTERVAL = 3.0  # Minimum seconds between requests
 
     def __init__(self):
         self._gemini_client = None
@@ -261,6 +269,10 @@ class AICoachEngine:
         self._context: Optional[ConversationContext] = None
         self._objectives: list[SessionObjective] = []
         self._intensity: CoachIntensity = CoachIntensity.MEDIUM
+        # API rate limiting
+        self._api_request_times: list[float] = []
+        self._last_api_request: float = 0
+        self._rate_limited_until: float = 0  # Track 429 backoff
         self._setup_gemini()
 
     @property
@@ -302,6 +314,68 @@ class AICoachEngine:
         except Exception as e:
             logger.error(f"Failed to initialize Gemini for coaching: {e}")
             self._gemini_client = None
+
+    async def _wait_for_rate_limit(self) -> bool:
+        """
+        Wait if needed to respect API rate limits.
+        Returns True if we can proceed, False if we should skip.
+        """
+        now = time.time()
+
+        # Check if we're in a backoff period from a 429 error
+        if now < self._rate_limited_until:
+            wait_time = self._rate_limited_until - now
+            if wait_time > 10:  # Don't wait more than 10 seconds
+                logger.debug(f"Coach: Skipping due to rate limit backoff ({wait_time:.1f}s remaining)")
+                return False
+            logger.debug(f"Coach: Waiting {wait_time:.1f}s for rate limit backoff")
+            await asyncio.sleep(wait_time)
+            now = time.time()
+
+        # Enforce minimum interval between requests
+        time_since_last = now - self._last_api_request
+        if time_since_last < self.MIN_REQUEST_INTERVAL:
+            wait_time = self.MIN_REQUEST_INTERVAL - time_since_last
+            logger.debug(f"Coach: Waiting {wait_time:.1f}s for min request interval")
+            await asyncio.sleep(wait_time)
+            now = time.time()
+
+        # Clean old request timestamps
+        self._api_request_times = [
+            t for t in self._api_request_times
+            if now - t < self.API_RATE_WINDOW
+        ]
+
+        # Check if we've hit the rate limit
+        if len(self._api_request_times) >= self.API_RATE_LIMIT:
+            oldest = min(self._api_request_times)
+            wait_time = (oldest + self.API_RATE_WINDOW) - now
+            if wait_time > 10:  # Don't wait more than 10 seconds
+                logger.debug(f"Coach: Skipping due to API rate limit ({wait_time:.1f}s until window resets)")
+                return False
+            logger.debug(f"Coach: Waiting {wait_time:.1f}s for API rate window")
+            await asyncio.sleep(wait_time)
+
+        return True
+
+    def _record_api_request(self):
+        """Record that an API request was made."""
+        now = time.time()
+        self._api_request_times.append(now)
+        self._last_api_request = now
+
+    def _handle_rate_limit_error(self, error_msg: str):
+        """Handle 429 rate limit error by setting backoff period."""
+        # Try to extract retry delay from error message
+        import re
+        match = re.search(r'retry in (\d+(?:\.\d+)?)', error_msg.lower())
+        if match:
+            retry_delay = float(match.group(1))
+        else:
+            retry_delay = 30.0  # Default to 30 seconds if not specified
+
+        self._rate_limited_until = time.time() + retry_delay
+        logger.warning(f"Coach: Rate limited, backing off for {retry_delay:.1f}s")
 
     def start_session(
         self,
@@ -367,6 +441,10 @@ class AICoachEngine:
             logger.warning("Coach: No context available for initial suggestion")
             return None
 
+        # Check API rate limit before making request
+        if not await self._wait_for_rate_limit():
+            return None
+
         try:
             prompt = f"""Voce e um coach de vendas experiente. Uma sessao de treinamento acabou de comecar.
 
@@ -383,6 +461,9 @@ REGRAS:
 
 Responda APENAS com JSON valido (sem markdown):
 {{"type": "question", "title": "Abertura", "message": "Sugestao especifica para iniciar a conversa", "context": "Dica de abertura para engajar o cliente", "priority": 1, "methodology_step": "situation"}}"""
+
+            # Record request before making it
+            self._record_api_request()
 
             # Add timeout to prevent blocking
             response = await asyncio.wait_for(
@@ -411,7 +492,11 @@ Responda APENAS com JSON valido (sem markdown):
             logger.error("Coach: Initial suggestion timeout after 5s")
             return None
         except Exception as e:
-            logger.warning(f"Coach: Initial suggestion generation failed: {e}")
+            error_str = str(e)
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                self._handle_rate_limit_error(error_str)
+            else:
+                logger.warning(f"Coach: Initial suggestion generation failed: {e}")
             return None
 
     def update_context(
@@ -576,6 +661,10 @@ Responda APENAS com JSON valido (sem markdown):
         if not self._can_send_suggestion(is_streaming=True):
             return None
 
+        # Check API rate limit before making request
+        if not await self._wait_for_rate_limit():
+            return None
+
         try:
             prompt = STREAMING_COACHING_PROMPT.format(
                 recent_history=self._format_conversation_history(limit=4),
@@ -587,6 +676,9 @@ Responda APENAS com JSON valido (sem markdown):
                 spin_n="OK" if self._context.methodology_progress.get("need_payoff") else "-",
                 weakness_reminder=self._format_weakness_reminder(),
             )
+
+            # Record request before making it
+            self._record_api_request()
 
             response = await self._gemini_client.aio.models.generate_content(
                 model="gemini-2.5-flash-lite",
@@ -610,7 +702,11 @@ Responda APENAS com JSON valido (sem markdown):
             return result
 
         except Exception as e:
-            logger.warning(f"Streaming analysis failed: {e}")
+            error_str = str(e)
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                self._handle_rate_limit_error(error_str)
+            else:
+                logger.warning(f"Streaming analysis failed: {e}")
             return None
 
     async def analyze_final(
@@ -628,6 +724,10 @@ Responda APENAS com JSON valido (sem markdown):
             return None
 
         if not self._can_send_suggestion(is_streaming=False):
+            return None
+
+        # Check API rate limit before making request
+        if not await self._wait_for_rate_limit():
             return None
 
         # Add to history
@@ -650,6 +750,9 @@ Responda APENAS com JSON valido (sem markdown):
                 pending_objections=", ".join(self._context.pending_objections) if self._context.pending_objections else "Nenhuma",
                 talk_ratio=self._context.talk_ratio,
             )
+
+            # Record request before making it
+            self._record_api_request()
 
             response = await self._gemini_client.aio.models.generate_content(
                 model="gemini-2.5-flash-lite",
@@ -676,7 +779,11 @@ Responda APENAS com JSON valido (sem markdown):
             return result
 
         except Exception as e:
-            logger.warning(f"Final analysis failed: {e}")
+            error_str = str(e)
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                self._handle_rate_limit_error(error_str)
+            else:
+                logger.warning(f"Final analysis failed: {e}")
             return None
 
     def _parse_response(

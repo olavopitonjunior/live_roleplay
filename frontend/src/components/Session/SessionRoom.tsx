@@ -11,6 +11,7 @@ import { SidePanel } from './SidePanel';
 import { EmotionMeter } from './EmotionMeter';
 import { MobileSessionLayout } from './MobileSessionLayout';
 import { useIsMobile } from '../../hooks/useMediaQuery';
+import { TranscriptProvider } from '../../hooks/useTranscript';
 
 interface SessionRoomProps {
   token: string;
@@ -288,12 +289,14 @@ export function SessionRoom({
         console.error('Media device failure:', failure);
       }}
     >
-      <SessionContent
-        onSessionEnd={onSessionEnd}
-        scenarioTitle={scenarioTitle}
-        scenarioContext={scenarioContext}
-        maxDuration={maxDuration}
-      />
+      <TranscriptProvider>
+        <SessionContent
+          onSessionEnd={onSessionEnd}
+          scenarioTitle={scenarioTitle}
+          scenarioContext={scenarioContext}
+          maxDuration={maxDuration}
+        />
+      </TranscriptProvider>
     </LiveKitRoom>
   );
 }
