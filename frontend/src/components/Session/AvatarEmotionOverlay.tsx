@@ -2,7 +2,15 @@ import { useEffect, useState } from 'react';
 import { useRoomContext } from '@livekit/components-react';
 import { RoomEvent } from 'livekit-client';
 
-type EmotionState = 'happy' | 'receptive' | 'neutral' | 'hesitant' | 'frustrated';
+type EmotionState =
+  | 'enthusiastic'
+  | 'happy'
+  | 'receptive'
+  | 'curious'
+  | 'neutral'
+  | 'hesitant'
+  | 'skeptical'
+  | 'frustrated';
 
 interface EmotionVisuals {
   borderColor: string;
@@ -12,6 +20,12 @@ interface EmotionVisuals {
 }
 
 const EMOTION_VISUALS: Record<EmotionState, EmotionVisuals> = {
+  enthusiastic: {
+    borderColor: 'border-green-300',
+    glowColor: 'shadow-green-400/40',
+    icon: '🤩',
+    pulseColor: 'bg-green-300',
+  },
   happy: {
     borderColor: 'border-green-400',
     glowColor: 'shadow-green-500/30',
@@ -23,6 +37,12 @@ const EMOTION_VISUALS: Record<EmotionState, EmotionVisuals> = {
     glowColor: 'shadow-emerald-500/30',
     icon: '🙂',
     pulseColor: 'bg-emerald-400',
+  },
+  curious: {
+    borderColor: 'border-cyan-400',
+    glowColor: 'shadow-cyan-500/30',
+    icon: '🤔',
+    pulseColor: 'bg-cyan-400',
   },
   neutral: {
     borderColor: 'border-yellow-400',
@@ -36,6 +56,12 @@ const EMOTION_VISUALS: Record<EmotionState, EmotionVisuals> = {
     icon: '😕',
     pulseColor: 'bg-orange-400',
   },
+  skeptical: {
+    borderColor: 'border-orange-500',
+    glowColor: 'shadow-orange-600/30',
+    icon: '🤨',
+    pulseColor: 'bg-orange-500',
+  },
   frustrated: {
     borderColor: 'border-red-400',
     glowColor: 'shadow-red-500/40',
@@ -44,12 +70,15 @@ const EMOTION_VISUALS: Record<EmotionState, EmotionVisuals> = {
   },
 };
 
-// Get emotion from intensity
+// Get emotion from intensity (matches backend emotion_analyzer.py thresholds)
 function getEmotionFromIntensity(intensity: number): EmotionState {
-  if (intensity >= 88) return 'happy';
-  if (intensity >= 63) return 'receptive';
-  if (intensity >= 38) return 'neutral';
-  if (intensity >= 13) return 'hesitant';
+  if (intensity >= 95) return 'enthusiastic';
+  if (intensity >= 82) return 'happy';
+  if (intensity >= 68) return 'receptive';
+  if (intensity >= 55) return 'curious';
+  if (intensity >= 42) return 'neutral';
+  if (intensity >= 28) return 'hesitant';
+  if (intensity >= 12) return 'skeptical';
   return 'frustrated';
 }
 
@@ -161,9 +190,10 @@ export function AvatarEmotionOverlay({
       )}
 
       {/* Edge glow effect for strong emotions */}
-      {(emotion === 'happy' || emotion === 'frustrated') && (
+      {(emotion === 'enthusiastic' || emotion === 'happy' || emotion === 'frustrated') && (
         <div
           className={`absolute inset-0 pointer-events-none rounded-lg transition-opacity duration-500
+                      ${emotion === 'enthusiastic' ? 'bg-gradient-to-t from-green-400/15 to-transparent' : ''}
                       ${emotion === 'happy' ? 'bg-gradient-to-t from-green-500/10 to-transparent' : ''}
                       ${emotion === 'frustrated' ? 'bg-gradient-to-t from-red-500/15 to-transparent' : ''}
                       ${isChanging ? 'opacity-100' : 'opacity-50'}`}
