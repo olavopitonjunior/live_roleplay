@@ -9,6 +9,7 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { AccessToken } from "https://esm.sh/livekit-server-sdk@2.15.0";
+import { RoomAgentDispatch, RoomConfiguration } from "https://esm.sh/@livekit/protocol";
 import {
   getCorsHeaders,
   handleCorsPreflightRequest,
@@ -181,18 +182,17 @@ serve(async (req: Request) => {
       canPublishData: true,
     });
 
-    // Configure token-based agent dispatch
+    // Configure token-based agent dispatch using proper LiveKit classes
     // This automatically dispatches the named agent when user joins
-    // @ts-ignore - roomConfig is available in newer SDK versions
-    at.roomConfig = {
+    at.roomConfig = new RoomConfiguration({
       agents: [
-        {
+        new RoomAgentDispatch({
           agentName: AGENT_NAME,
           // Note: metadata in dispatch may cause issues per GitHub #3898
           // The agent can read metadata from participant instead
-        },
+        }),
       ],
-    };
+    });
 
     // Generate JWT token
     const token = await at.toJwt();
