@@ -30,10 +30,17 @@ COSTS = {
     # Claude Sonnet: $3/1M input, $15/1M output tokens
     "claude_input_per_1m": 300,  # cents
     "claude_output_per_1m": 1500,  # cents
-    # Simli: ~$0.02/minute
-    "simli_per_minute": 2.0,  # cents
     # LiveKit: ~$0.004/minute
     "livekit_per_minute": 0.4,  # cents
+}
+
+# Avatar provider costs (USD cents per minute)
+# Update with actual pricing as providers change rates
+AVATAR_COSTS = {
+    "simli": 2.0,       # ~$0.02/min - Simli API
+    "hedra": 1.5,       # ~$0.015/min - Hedra (estimate, verify actual pricing)
+    "liveavatar": 1.0,  # ~$0.01/min - LiveAvatar (estimate, verify actual pricing)
+    "unknown": 2.0,     # Fallback to Simli pricing
 }
 
 
@@ -66,7 +73,11 @@ class MetricsCollector:
     gemini_flash_input_tokens: int = 0
     gemini_flash_output_tokens: int = 0
 
-    # Simli metrics
+    # Avatar metrics (generic - supports Simli/Hedra/LiveAvatar)
+    avatar_start_time: Optional[datetime] = None
+    avatar_provider: str = "unknown"
+
+    # Legacy alias for backwards compatibility
     simli_start_time: Optional[datetime] = None
 
     # LiveKit metrics
@@ -79,10 +90,14 @@ class MetricsCollector:
         self.livekit_start_time = now
         logger.info(f"Metrics collection started for session {self.session_id}")
 
-    def start_avatar(self) -> None:
-        """Mark when the Simli avatar starts."""
-        self.simli_start_time = datetime.now(timezone.utc)
-        logger.debug("Avatar metrics tracking started")
+    def start_avatar(self, provider: str = "simli") -> None:
+        """Mark when the avatar starts and record the provider."""
+        now = datetime.now(timezone.utc)
+        self.avatar_start_time = now
+        self.avatar_provider = provider
+        # Keep simli_start_time for backwards compatibility
+        self.simli_start_time = now
+        logger.debug(f"Avatar metrics tracking started: provider={provider}")
 
     def add_gemini_live_tokens(self, input_tokens: int = 0, output_tokens: int = 0) -> None:
         """Add tokens from Gemini Live API usage."""
@@ -114,12 +129,16 @@ class MetricsCollector:
         now = datetime.now(timezone.utc)
         return (now - self.gemini_live_start_time).total_seconds()
 
-    def get_simli_duration(self) -> float:
-        """Get Simli avatar duration in seconds."""
-        if not self.simli_start_time:
+    def get_avatar_duration(self) -> float:
+        """Get avatar duration in seconds (generic for any provider)."""
+        if not self.avatar_start_time:
             return 0.0
         now = datetime.now(timezone.utc)
-        return (now - self.simli_start_time).total_seconds()
+        return (now - self.avatar_start_time).total_seconds()
+
+    def get_simli_duration(self) -> float:
+        """Get avatar duration in seconds (legacy alias for backwards compatibility)."""
+        return self.get_avatar_duration()
 
     def get_livekit_minutes(self) -> float:
         """Get LiveKit usage in participant-minutes (2 participants)."""
@@ -142,9 +161,10 @@ class MetricsCollector:
         cost += (self.gemini_flash_input_tokens / 1000) * COSTS["gemini_flash_input_per_1k"]
         cost += (self.gemini_flash_output_tokens / 1000) * COSTS["gemini_flash_output_per_1k"]
 
-        # Simli cost (duration-based)
-        simli_minutes = self.get_simli_duration() / 60
-        cost += simli_minutes * COSTS["simli_per_minute"]
+        # Avatar cost (provider-specific pricing)
+        avatar_minutes = self.get_avatar_duration() / 60
+        avatar_rate = AVATAR_COSTS.get(self.avatar_provider, AVATAR_COSTS["unknown"])
+        cost += avatar_minutes * avatar_rate
 
         # LiveKit cost (participant-minutes)
         cost += self.get_livekit_minutes() * COSTS["livekit_per_minute"]
@@ -153,6 +173,7 @@ class MetricsCollector:
 
     def get_metrics_summary(self) -> dict:
         """Get a summary of all collected metrics."""
+        avatar_duration = round(self.get_avatar_duration(), 2)
         return {
             "session_id": self.session_id,
             "gemini_live_input_tokens": self.gemini_live_input_tokens,
@@ -161,7 +182,11 @@ class MetricsCollector:
             "gemini_flash_calls": self.gemini_flash_calls,
             "gemini_flash_input_tokens": self.gemini_flash_input_tokens,
             "gemini_flash_output_tokens": self.gemini_flash_output_tokens,
-            "simli_duration_seconds": round(self.get_simli_duration(), 2),
+            # New generic avatar fields
+            "avatar_duration_seconds": avatar_duration,
+            "avatar_provider": self.avatar_provider,
+            # Legacy field for backwards compatibility
+            "simli_duration_seconds": avatar_duration,
             "livekit_participant_minutes": round(self.get_livekit_minutes(), 2),
             "estimated_cost_cents": self.calculate_cost_cents(),
         }

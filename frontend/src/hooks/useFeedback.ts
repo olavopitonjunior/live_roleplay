@@ -134,30 +134,78 @@ export function useFeedback() {
       }
 
       if (!existingFeedback) {
-        // No feedback yet, need to generate
-        setState((prev) => ({ ...prev, loading: false, generating: true }));
-        const success = await generateFeedback(sessionId);
-
-        if (!success) {
-          return;
+        // Check if backend already requested feedback generation
+        // Use try/catch as fallback if migration 017 hasn't been applied yet
+        let backendRequested = false;
+        try {
+          const { data: sessionCheckData } = await supabase
+            .from('sessions')
+            .select('feedback_requested')
+            .eq('id', sessionId)
+            .single();
+          backendRequested = sessionCheckData?.feedback_requested ?? false;
+        } catch {
+          // Column may not exist yet if migration not applied - assume false
+          backendRequested = false;
         }
 
-        // Now fetch the generated feedback
-        const { data: newFeedback, error: newFbError } = await supabase
-          .from('feedbacks')
-          .select('*')
-          .eq('session_id', sessionId)
-          .single();
+        if (backendRequested) {
+          // Backend already triggered feedback - poll and wait for it
+          setState((prev) => ({ ...prev, loading: false, waitingForTranscript: true }));
 
-        if (newFbError || !newFeedback) {
-          throw new Error('Feedback gerado mas nao encontrado');
+          const maxPolls = 30; // 30 * 2s = 60s max wait
+          let foundFeedback = null;
+
+          for (let i = 0; i < maxPolls; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+
+            const { data: polledFeedback } = await supabase
+              .from('feedbacks')
+              .select('*')
+              .eq('session_id', sessionId)
+              .single();
+
+            if (polledFeedback) {
+              foundFeedback = polledFeedback;
+              break;
+            }
+          }
+
+          if (foundFeedback) {
+            setState((prev) => ({
+              ...prev,
+              feedback: foundFeedback as Feedback,
+              waitingForTranscript: false,
+            }));
+          } else {
+            throw new Error('Timeout aguardando feedback do servidor');
+          }
+        } else {
+          // No feedback and backend didn't request - generate ourselves
+          setState((prev) => ({ ...prev, loading: false, generating: true }));
+          const success = await generateFeedback(sessionId);
+
+          if (!success) {
+            return;
+          }
+
+          // Now fetch the generated feedback
+          const { data: newFeedback, error: newFbError } = await supabase
+            .from('feedbacks')
+            .select('*')
+            .eq('session_id', sessionId)
+            .single();
+
+          if (newFbError || !newFeedback) {
+            throw new Error('Feedback gerado mas nao encontrado');
+          }
+
+          setState((prev) => ({
+            ...prev,
+            feedback: newFeedback as Feedback,
+            generating: false,
+          }));
         }
-
-        setState((prev) => ({
-          ...prev,
-          feedback: newFeedback as Feedback,
-          generating: false,
-        }));
       } else {
         setState((prev) => ({
           ...prev,

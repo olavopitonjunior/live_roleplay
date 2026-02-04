@@ -326,7 +326,7 @@ class AICoachEngine:
         if now < self._rate_limited_until:
             wait_time = self._rate_limited_until - now
             if wait_time > 10:  # Don't wait more than 10 seconds
-                logger.debug(f"Coach: Skipping due to rate limit backoff ({wait_time:.1f}s remaining)")
+                logger.warning(f"Coach: Skipping due to rate limit backoff ({wait_time:.1f}s remaining)")
                 return False
             logger.debug(f"Coach: Waiting {wait_time:.1f}s for rate limit backoff")
             await asyncio.sleep(wait_time)
@@ -351,7 +351,7 @@ class AICoachEngine:
             oldest = min(self._api_request_times)
             wait_time = (oldest + self.API_RATE_WINDOW) - now
             if wait_time > 10:  # Don't wait more than 10 seconds
-                logger.debug(f"Coach: Skipping due to API rate limit ({wait_time:.1f}s until window resets)")
+                logger.warning(f"Coach: Skipping due to API rate limit ({len(self._api_request_times)}/{self.API_RATE_LIMIT} requests, {wait_time:.1f}s until reset)")
                 return False
             logger.debug(f"Coach: Waiting {wait_time:.1f}s for API rate window")
             await asyncio.sleep(wait_time)
@@ -430,6 +430,12 @@ class AICoachEngine:
         self._suggestions_this_minute = []
 
         logger.info(f"AI Coach session started: {scenario_name}")
+
+        # Log Gemini client status for debugging
+        if self._gemini_client:
+            logger.info("AI Coach Gemini client ready - suggestions enabled")
+        else:
+            logger.error("AI Coach Gemini client NOT initialized - suggestions will be disabled")
 
     async def generate_initial_suggestion(self) -> Optional[AISuggestion]:
         """Generate proactive suggestion at session start."""
@@ -540,7 +546,7 @@ Responda APENAS com JSON valido (sem markdown):
         time_since_last = now - last_time
 
         if time_since_last < cooldown:
-            logger.debug(f"Coach rate limited: {cooldown - time_since_last:.1f}s remaining (streaming={is_streaming}, intensity={self._intensity.value})")
+            logger.warning(f"Coach rate limited: {cooldown - time_since_last:.1f}s remaining (streaming={is_streaming}, intensity={self._intensity.value})")
             return False
 
         # Check rate limit (max per minute based on intensity)

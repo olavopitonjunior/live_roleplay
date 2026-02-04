@@ -394,7 +394,7 @@ async def _update_session_transcript_impl(
     payload = {
         "transcript": transcript,
         "status": status,
-        "ended_at": "now()",
+        "ended_at": datetime.now(timezone.utc).isoformat(),
         "has_avatar_fallback": has_avatar_fallback,
     }
 
@@ -430,6 +430,50 @@ async def update_session_transcript(
     return result if result is not None else False
 
 
+async def save_intermediate_transcript(
+    session_id: str,
+    transcript_lines: list[str],
+    status: str = "active"
+) -> bool:
+    """
+    Save intermediate transcript during session to prevent data loss on crash.
+    Uses 'active' status to indicate session is still in progress.
+    """
+    if not session_id or not transcript_lines:
+        return True  # Nothing to save
+
+    full_transcript = "\n".join(transcript_lines)
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+
+    url = f"{SUPABASE_URL}/rest/v1/sessions"
+    params = {"id": f"eq.{session_id}"}
+    payload = {
+        "transcript": full_transcript,
+        "status": status,
+        "last_transcript_update": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        async with aiohttp.ClientSession() as http_session:
+            async with http_session.patch(url, headers=headers, params=params, json=payload) as response:
+                if response.status in (200, 204):
+                    logger.debug(f"Intermediate transcript saved: {len(transcript_lines)} lines")
+                    return True
+                return False
+    except Exception as e:
+        logger.warning(f"Failed to save intermediate transcript: {e}")
+        return False
+
+
 async def _trigger_feedback_impl(session_id: str) -> bool:
     """Internal implementation of trigger_feedback_generation."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
@@ -463,6 +507,37 @@ async def trigger_feedback_generation(session_id: str) -> bool:
         operation_name="trigger_feedback_generation"
     )
     return result if result is not None else False
+
+
+async def set_feedback_requested(session_id: str) -> bool:
+    """
+    Mark that feedback generation has been requested by the agent.
+    This prevents the frontend from triggering a duplicate request.
+    """
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+
+    url = f"{SUPABASE_URL}/rest/v1/sessions"
+    params = {"id": f"eq.{session_id}"}
+    payload = {"feedback_requested": True}
+
+    try:
+        async with aiohttp.ClientSession() as http_session:
+            async with http_session.patch(url, headers=headers, params=params, json=payload) as response:
+                if response.status in (200, 204):
+                    logger.debug(f"Feedback requested flag set for session {session_id}")
+                    return True
+                return False
+    except Exception as e:
+        logger.warning(f"Failed to set feedback_requested flag: {e}")
+        return False
 
 
 def detect_session_end(text: str) -> bool:
@@ -923,6 +998,8 @@ async def entrypoint(ctx: JobContext):
                                 await send_ai_suggestion(suggestion)
                                 # Track Gemini Flash call for AI coaching
                                 metrics.record_gemini_flash_call(input_tokens=200, output_tokens=50)
+                            else:
+                                logger.warning(f"AI Coach returned None for user input: {text[:50]}...")
                         except Exception as e:
                             logger.warning(f"AI coach analysis failed: {e}")
 
@@ -955,6 +1032,10 @@ async def entrypoint(ctx: JobContext):
                 # Add timestamped line to transcript
                 transcript_lines.append(format_transcript_line("Avatar", text))
                 logger.info(f"Avatar said: {text[:100]}... (added to transcript, total lines: {len(transcript_lines)})")
+
+                # Save transcript incrementally every 3 messages to minimize data loss
+                if len(transcript_lines) % 3 == 0:
+                    asyncio.create_task(save_intermediate_transcript(session_id, transcript_lines))
 
                 # Track output tokens for metrics
                 output_tokens = metrics.estimate_tokens(text)
@@ -1017,6 +1098,8 @@ async def entrypoint(ctx: JobContext):
                                 await send_ai_suggestion(suggestion)
                                 # Track Gemini Flash call
                                 metrics.record_gemini_flash_call(input_tokens=200, output_tokens=50)
+                            else:
+                                logger.warning(f"AI Coach returned None for avatar response: {text[:50]}...")
                         except Exception as e:
                             logger.warning(f"AI coach avatar analysis failed: {e}")
 
@@ -1062,6 +1145,8 @@ async def entrypoint(ctx: JobContext):
             else:
                 logger.warning("Failed to save metrics")
 
+            # Set flag to prevent frontend from triggering duplicate feedback
+            await set_feedback_requested(session_id)
             await trigger_feedback_generation(session_id)
             logger.info("Feedback generation triggered")
         else:
@@ -1109,6 +1194,14 @@ async def entrypoint(ctx: JobContext):
         # Reset emotion history for fresh session
         reset_emotion_history()
 
+        # Verify GOOGLE_API_KEY for AI Coach (early warning)
+        if coaching_enabled:
+            google_key = os.getenv("GOOGLE_API_KEY")
+            if not google_key:
+                logger.error("GOOGLE_API_KEY not set - AI Coach suggestions will be disabled")
+            else:
+                logger.info(f"GOOGLE_API_KEY configured (length: {len(google_key)} chars)")
+
         # Initialize coaching engine (keyword-based) - only in training mode
         if coaching_enabled:
             reset_coaching_engine()
@@ -1128,6 +1221,10 @@ async def entrypoint(ctx: JobContext):
                 learning_profile=learning_profile  # Cross-session learning
             )
             logger.info(f"AI Coach initialized with scenario context, intensity: {coach_intensity}, learning profile: {'loaded' if learning_profile else 'empty'}")
+
+            # Send initial coaching state to frontend
+            await send_coaching_state()
+            logger.info("Initial coaching state sent to frontend")
         else:
             logger.info("Evaluation mode - coaching disabled")
 
@@ -1203,7 +1300,7 @@ async def entrypoint(ctx: JobContext):
             await send_status_to_room("Iniciando avatar...")
             avatar_result = await start_avatar_with_timeout(avatar, session, ctx.room)
             if avatar_result:
-                metrics.start_avatar()
+                metrics.start_avatar(provider=avatar_provider)
             else:
                 avatar = None  # Disable avatar if failed
                 avatar_failed = True  # PRD 08: Track avatar failure
@@ -1214,6 +1311,24 @@ async def entrypoint(ctx: JobContext):
         # Start the session timeout timer
         timeout_task = asyncio.create_task(session_timeout())
         logger.info(f"Session timeout started: {session_timeout_seconds} seconds")
+
+        # Start periodic transcript save task (prevents data loss on crash)
+        transcript_save_task: asyncio.Task | None = None
+
+        async def periodic_transcript_save():
+            """Save transcript every 30 seconds to prevent data loss on crash."""
+            while not shutdown_event.is_set():
+                try:
+                    await asyncio.sleep(30)  # Save every 30 seconds
+                    if transcript_lines and session_id:
+                        await save_intermediate_transcript(session_id, transcript_lines)
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.warning(f"Periodic transcript save failed: {e}")
+
+        transcript_save_task = asyncio.create_task(periodic_transcript_save())
+        logger.info("Periodic transcript save enabled (every 30s)")
 
         # Trigger greeting immediately (no delay needed)
         try:
