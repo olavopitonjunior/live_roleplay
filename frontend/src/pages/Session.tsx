@@ -169,14 +169,8 @@ export function Session() {
   }
 
   // Agent connected - render session room
-  // Note: We disconnect the verification room and let SessionRoom create a fresh connection
-  // This avoids issues with LiveKitRoom trying to reconfigure an existing room
-  // The agent is already verified as present, so the new connection will work
-  if (connectedRoom) {
-    console.log('[Session] Disconnecting verification room before SessionRoom');
-    connectedRoom.disconnect();
-  }
-
+  // IMPORTANT: Pass the existing room to SessionRoom instead of creating a new connection
+  // Disconnecting the verification room causes the agent to shut down!
   return (
     <SessionRoom
       token={token}
@@ -185,7 +179,7 @@ export function Session() {
       scenarioTitle={scenario?.title}
       scenarioContext={scenario?.context}
       maxDuration={scenario?.duration_max_seconds || 180}
-      existingRoom={null} // Let SessionRoom create fresh connection
+      existingRoom={connectedRoom} // Pass existing room to avoid agent disconnect
     />
   );
 }
