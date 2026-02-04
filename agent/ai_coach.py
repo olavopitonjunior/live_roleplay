@@ -387,7 +387,7 @@ Responda APENAS com JSON valido (sem markdown):
             # Add timeout to prevent blocking
             response = await asyncio.wait_for(
                 self._gemini_client.aio.models.generate_content(
-                    model="gemini-2.0-flash",
+                    model="gemini-1.5-flash",
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         temperature=0.4,
@@ -589,7 +589,7 @@ Responda APENAS com JSON valido (sem markdown):
             )
 
             response = await self._gemini_client.aio.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-1.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.3,
@@ -652,7 +652,7 @@ Responda APENAS com JSON valido (sem markdown):
             )
 
             response = await self._gemini_client.aio.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-1.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.4,

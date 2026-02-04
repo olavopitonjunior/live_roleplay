@@ -336,7 +336,7 @@ class EmotionAnalyzer:
 
         # Generate response using new google-genai SDK
         response = await self._gemini_client.aio.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-1.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.1,  # Low temperature for consistent results
