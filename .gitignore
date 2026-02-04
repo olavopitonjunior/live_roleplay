@@ -47,6 +47,8 @@ coverage/
 .coverage
 .pytest_cache/
 tests/*.png
+tests/qa-screenshots/
+tests/screenshots/
 
 # MCP config (may contain tokens)
 .mcp.json
