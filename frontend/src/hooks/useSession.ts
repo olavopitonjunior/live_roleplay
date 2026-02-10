@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { createSessionToken, endSessionInDatabase, LIVEKIT_URL } from '../lib/livekit';
+import { recordLatencyGlobal } from './useLatency';
 import type { SessionMode, CoachIntensity } from '../types';
 
 interface SessionState {
@@ -30,12 +31,14 @@ export function useSession() {
     setState((prev) => ({ ...prev, isConnecting: true, error: null }));
 
     try {
+      const _tokenStart = performance.now();
       const { token, room_name, session_id } = await createSessionToken(
         scenarioId,
         accessCode,
         sessionMode,
         coachIntensity
       );
+      recordLatencyGlobal('token_fetch', performance.now() - _tokenStart, 'Token Fetch', `session: ${session_id?.slice(0, 8)}`);
 
       setState({
         sessionId: session_id,

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Room, RoomEvent, ConnectionState, RemoteParticipant } from 'livekit-client';
+import { recordLatencyGlobal } from './useLatency';
 
 export type AgentConnectionState =
   | 'idle'
@@ -113,6 +114,9 @@ export function useAgentConnection({
     });
     roomRef.current = newRoom;
 
+    const _connectStart = performance.now();
+    const _agentWaitStart = { current: 0 };
+
     try {
       // Connect to room
       await newRoom.connect(serverUrl, token);
@@ -122,10 +126,14 @@ export function useAgentConnection({
         throw new Error('Falha ao conectar com a sala');
       }
 
+      recordLatencyGlobal('livekit_connect', performance.now() - _connectStart, 'LiveKit Connect');
+
       setState('waiting_agent');
+      _agentWaitStart.current = performance.now();
 
       // Check if agent already connected
       if (checkForAgent(newRoom)) {
+        recordLatencyGlobal('agent_join', performance.now() - _agentWaitStart.current, 'Agent Join', 'already present');
         setState('ready');
         setRoom(newRoom);
         return;
@@ -146,6 +154,9 @@ export function useAgentConnection({
           participant.identity.toLowerCase().includes('agent') ||
           participant.identity.toLowerCase().includes('roleplay')
         ) {
+          if (_agentWaitStart.current > 0) {
+            recordLatencyGlobal('agent_join', performance.now() - _agentWaitStart.current, 'Agent Join', participant.identity);
+          }
           clearConnectionTimeout();
           setState('ready');
           setRoom(newRoom);
