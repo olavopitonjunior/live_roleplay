@@ -59,6 +59,7 @@ agent/*.out
 
 # Test results
 test-results/
+scripts/test_audio_samples/
 
 # Windows temp
 nul

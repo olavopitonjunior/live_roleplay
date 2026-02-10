@@ -4,7 +4,7 @@ import {
   useRoomContext,
   useConnectionState,
 } from '@livekit/components-react';
-import { ConnectionState, Room } from 'livekit-client';
+import { ConnectionState, Room, RoomEvent } from 'livekit-client';
 import { AvatarView } from './AvatarView';
 import { MicrophoneIndicator } from './MicrophoneIndicator';
 import { SidePanel } from './SidePanel';
@@ -85,6 +85,49 @@ function DesktopSessionLayout({
   const startTimeRef = useRef(Date.now());
   const [elapsed, setElapsed] = useState(0);
   const [isEnding, setIsEnding] = useState(false);
+  const [agentAlive, setAgentAlive] = useState(true);
+  const lastHeartbeatRef = useRef(Date.now());
+
+  // Ensure microphone is enabled (critical for existingRoom flow)
+  useEffect(() => {
+    if (room.localParticipant && !room.localParticipant.isMicrophoneEnabled) {
+      console.log('[SessionRoom] Mic not enabled, enabling now...');
+      room.localParticipant.setMicrophoneEnabled(true).catch(err => {
+        console.error('[SessionRoom] Failed to enable microphone:', err);
+      });
+    }
+  }, [room]);
+
+  // Heartbeat monitor: detect if agent dies
+  useEffect(() => {
+    const onData = (payload: Uint8Array) => {
+      try {
+        const msg = JSON.parse(new TextDecoder().decode(payload));
+        if (msg.type === 'heartbeat') {
+          lastHeartbeatRef.current = Date.now();
+          setAgentAlive(true);
+        }
+      } catch { /* ignore non-JSON */ }
+    };
+
+    room.on(RoomEvent.DataReceived, onData);
+
+    const checker = setInterval(() => {
+      const sinceLastHb = Date.now() - lastHeartbeatRef.current;
+      setAgentAlive((prev) => {
+        if (sinceLastHb > 15000 && prev) {
+          console.warn('[SessionRoom] No heartbeat for 15s - agent may be dead');
+          return false;
+        }
+        return prev;
+      });
+    }, 5000);
+
+    return () => {
+      room.off(RoomEvent.DataReceived, onData);
+      clearInterval(checker);
+    };
+  }, [room]);
 
   // Timer
   useEffect(() => {
@@ -155,6 +198,13 @@ function DesktopSessionLayout({
     <div className="w-full h-screen bg-neutral-950 flex flex-col overflow-hidden">
       {/* Latency Monitor (debug only) */}
       <LatencyOverlay />
+
+      {/* Agent heartbeat warning */}
+      {!agentAlive && (
+        <div className="bg-yellow-500/20 text-yellow-400 text-xs text-center py-1 px-2">
+          Sem sinal do agente - verificando conexao...
+        </div>
+      )}
 
       {/* Top Bar */}
       <header className="flex items-center justify-between px-4 py-3 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800">
@@ -270,15 +320,13 @@ export function SessionRoom({
 }: SessionRoomProps) {
   // If we have an existing room from useAgentConnection, use it
   // Otherwise, let LiveKitRoom create a new connection
-  // Note: When using existing room, don't set audio/video as LiveKitRoom
-  // might try to re-enable tracks which can cause issues
   return (
     <LiveKitRoom
       room={existingRoom ?? undefined}
       token={existingRoom ? undefined : token}
       serverUrl={existingRoom ? undefined : serverUrl}
-      connect={!existingRoom} // Don't auto-connect if room already exists
-      audio={existingRoom ? undefined : true} // Only enable audio on fresh connection
+      connect={!existingRoom}
+      audio={true} // Always enable audio - user needs microphone
       video={false}
       options={existingRoom ? undefined : {
         adaptiveStream: true,
