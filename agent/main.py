@@ -12,6 +12,7 @@ Improvements:
 """
 
 import os
+import re
 import asyncio
 import logging
 import random
@@ -87,6 +88,19 @@ HEDRA_AVATAR_IDS = [
     "f47a3167-01f8-45a3-b72e-7c36fa097e98",
     "0a1c73e8-887d-4cfe-84f4-4ec11d087e45",
 ]
+
+
+# Regex to extract emotion tags from Gemini output (e.g., "[receptivo] Que interessante...")
+EMOTION_TAG_PATTERN = re.compile(
+    r'^\[(neutro|receptivo|curioso|entusiasmado|satisfeito|hesitante|cetico|frustrado)\]\s*',
+    re.IGNORECASE
+)
+
+# Map emotion tag to intensity (0-100) for EmotionMeter
+EMOTION_TAG_INTENSITY = {
+    "entusiasmado": 95, "satisfeito": 80, "receptivo": 70, "curioso": 60,
+    "neutro": 50, "hesitante": 35, "cetico": 20, "frustrado": 5,
+}
 
 
 def format_transcript_line(speaker: str, text: str) -> str:
@@ -752,6 +766,64 @@ async def entrypoint(ctx: JobContext):
     # Transcript collection
     transcript_lines: list[str] = []
 
+    # Debounced transcript save - saves at most every 5 seconds
+    import time as _time_mod
+    _last_transcript_save_time: float = 0.0
+
+    async def save_transcript_debounced():
+        """Save transcript if at least 5s since last save (prevents DB overload)."""
+        nonlocal _last_transcript_save_time
+        now = _time_mod.time()
+        if now - _last_transcript_save_time < 5:
+            return  # debounce
+        if not transcript_lines or not session_id:
+            return
+        _last_transcript_save_time = now
+        try:
+            _save_start = _time_mod.time()
+            await save_intermediate_transcript(session_id, transcript_lines)
+            _save_ms = (_time_mod.time() - _save_start) * 1000
+            asyncio.create_task(send_latency_event("transcript_save", _save_ms, "Transcript Save", f"{len(transcript_lines)} lines"))
+        except Exception as e:
+            logger.warning(f"Debounced transcript save failed: {e}")
+
+    # Evidence saving for session_evidences table
+    _last_evidence_save: dict[str, float] = {}
+
+    async def _save_evidence_to_db(sid: str, evidence_type: str, data: dict):
+        """Fire-and-forget save to session_evidences table."""
+        try:
+            import json
+            url = f"{SUPABASE_URL}/rest/v1/session_evidences"
+            headers = {
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "session_id": sid,
+                "evidence_type": evidence_type,
+                "evidence_data": data,
+                "turn_number": len(transcript_lines),
+            }
+            async with aiohttp.ClientSession() as http:
+                async with http.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status in (200, 201):
+                        logger.debug(f"Evidence saved: {evidence_type}")
+                    else:
+                        logger.warning(f"Evidence save failed: {resp.status}")
+        except Exception as e:
+            logger.warning(f"Evidence save error: {e}")
+
+    async def save_evidence_if_needed(evidence_type: str, data: dict):
+        """Save evidence with debounce of 5s per type."""
+        now = _time_mod.time()
+        if now - _last_evidence_save.get(evidence_type, 0) < 5:
+            return  # debounce
+        _last_evidence_save[evidence_type] = now
+        if session_id:
+            asyncio.create_task(_save_evidence_to_db(session_id, evidence_type, data))
+
     async def send_transcription_to_room(speaker: str, text: str, is_final: bool = True) -> bool:
         """Send transcription data to the frontend via data channel with retry."""
         if not text.strip():
@@ -890,6 +962,30 @@ async def entrypoint(ctx: JobContext):
         except Exception as e:
             logger.warning(f"Failed to send coaching processing: {e}")
 
+    # Latency measurement helper
+    async def send_latency_event(event: str, duration_ms: float, label: str, details: str = ""):
+        """Send latency measurement to frontend via data channel."""
+        try:
+            import json
+            data = json.dumps({
+                "type": "latency_event",
+                "event": event,
+                "duration_ms": round(duration_ms, 1),
+                "label": label,
+                "details": details,
+                "timestamp": int(_time_mod.time() * 1000)
+            })
+            await ctx.room.local_participant.publish_data(data.encode('utf-8'))
+            logger.info(f"[Latency] {event}: {duration_ms:.0f}ms {details}")
+        except Exception:
+            pass
+
+    # Latency tracking state
+    _last_user_speech_end_time: float = 0.0
+    _greeting_trigger_time: float = 0.0
+    _greeting_received: bool = False
+    _response_turn_counter: int = 0
+
     # Streaming analysis tracking
     import time
     last_partial_analysis_time = {"user": 0.0, "avatar": 0.0}
@@ -901,8 +997,11 @@ async def entrypoint(ctx: JobContext):
         await asyncio.sleep(5)
         logger.info("Ending session early due to user request")
         await send_status_to_room("Encerrando sessao...")
-        await asyncio.sleep(1)
-        shutdown_event.set()
+        try:
+            session.shutdown(drain=True)
+        except Exception as e:
+            logger.warning(f"Failed to drain session on early end: {e}")
+            shutdown_event.set()
 
     # Flag to track if early end was triggered
     early_end_triggered = False
@@ -957,9 +1056,15 @@ async def entrypoint(ctx: JobContext):
                     asyncio.create_task(analyze_streaming_emotion())
 
             if is_final:
+                # Record timestamp for response latency measurement
+                nonlocal _last_user_speech_end_time
+                _last_user_speech_end_time = time.time()
+
                 # Add timestamped line to transcript
                 transcript_lines.append(format_transcript_line("Usuario", text))
                 logger.info(f"Added user line to transcript, total lines: {len(transcript_lines)}")
+                # Save transcript immediately (debounced to prevent DB overload)
+                asyncio.create_task(save_transcript_debounced())
                 # Check for early session end
                 if detect_session_end(text) and not early_end_triggered:
                     early_end_triggered = True
@@ -970,10 +1075,26 @@ async def entrypoint(ctx: JobContext):
                 if coaching_enabled:
                     async def analyze_user_coaching():
                         try:
+                            _coach_kw_start = time.time()
                             coaching = get_coaching_engine()
                             hints = coaching.analyze_user_message(text)
+                            _coach_kw_ms = (time.time() - _coach_kw_start) * 1000
+                            asyncio.create_task(send_latency_event("coach_keyword", _coach_kw_ms, "Coach Keyword", f"{len(hints)} hints"))
                             for hint in hints:
                                 await send_coaching_hint(hint)
+                                # Save evidence for each detected hint
+                                await save_evidence_if_needed(
+                                    f"coaching_hint_{hint.hint_type}",
+                                    {"type": hint.hint_type, "text": hint.text, "speaker": "user"}
+                                )
+                            # Save SPIN progress as evidence
+                            methodology = coaching._methodology.to_dict()
+                            completed_steps = [k for k, v in methodology.items() if v]
+                            if completed_steps:
+                                await save_evidence_if_needed(
+                                    "spin_progress",
+                                    {"completed": completed_steps, "speaker": "user"}
+                                )
                             # Send updated state periodically
                             await send_coaching_state()
                         except Exception as e:
@@ -984,6 +1105,7 @@ async def entrypoint(ctx: JobContext):
                     # AI Coach final analysis for specific suggestions
                     async def analyze_user_ai_coach():
                         try:
+                            _coach_ai_start = time.time()
                             await send_coaching_processing()
                             ai_coach = get_ai_coach()
                             # Update AI coach context from keyword engine
@@ -994,11 +1116,14 @@ async def entrypoint(ctx: JobContext):
                                 talk_ratio=coaching.get_talk_ratio()
                             )
                             suggestion = await ai_coach.analyze_final(text, "user")
+                            _coach_ai_ms = (time.time() - _coach_ai_start) * 1000
                             if suggestion:
                                 await send_ai_suggestion(suggestion)
                                 # Track Gemini Flash call for AI coaching
                                 metrics.record_gemini_flash_call(input_tokens=200, output_tokens=50)
+                                asyncio.create_task(send_latency_event("coach_ai", _coach_ai_ms, "Coach AI", f"suggestion: {suggestion.title[:30]}"))
                             else:
+                                asyncio.create_task(send_latency_event("coach_ai", _coach_ai_ms, "Coach AI", "skipped/no suggestion"))
                                 logger.warning(f"AI Coach returned None for user input: {text[:50]}...")
                         except Exception as e:
                             logger.warning(f"AI coach analysis failed: {e}")
@@ -1029,41 +1154,71 @@ async def entrypoint(ctx: JobContext):
             # Only process assistant messages (agent/avatar responses)
             # The avatar represents the CLIENT in the roleplay scenario
             if role == "assistant" and text:
-                # Add timestamped line to transcript
-                transcript_lines.append(format_transcript_line("Avatar", text))
-                logger.info(f"Avatar said: {text[:100]}... (added to transcript, total lines: {len(transcript_lines)})")
+                # Latency: measure greeting or response time
+                nonlocal _greeting_received, _last_user_speech_end_time, _response_turn_counter
+                _now = time.time()
+                if not _greeting_received:
+                    _greeting_received = True
+                    if _greeting_trigger_time > 0:
+                        _greeting_ms = (_now - _greeting_trigger_time) * 1000
+                        asyncio.create_task(send_latency_event("greeting", _greeting_ms, "Greeting", f"{len(text)} chars"))
+                elif _last_user_speech_end_time > 0:
+                    _response_ms = (_now - _last_user_speech_end_time) * 1000
+                    _response_turn_counter += 1
+                    asyncio.create_task(send_latency_event("response_time", _response_ms, "Response Time", f"turn {_response_turn_counter}"))
+                    _last_user_speech_end_time = 0.0  # Reset for next turn
+
+                # Extract emotion tag from Gemini output (e.g., "[receptivo] Texto...")
+                clean_text = text
+                emotion_tag_match = EMOTION_TAG_PATTERN.match(text)
+                if emotion_tag_match:
+                    emotion_tag = emotion_tag_match.group(1).lower()
+                    clean_text = text[emotion_tag_match.end():]  # Remove tag from text
+                    # Send emotion INSTANTLY (no wait for Gemini Flash analysis)
+                    tag_intensity = EMOTION_TAG_INTENSITY.get(emotion_tag, 50)
+                    asyncio.create_task(send_emotion_to_room(
+                        emotion_tag, tag_intensity, None, f"Avatar: {emotion_tag}"
+                    ))
+                    logger.debug(f"Emotion tag extracted: [{emotion_tag}] -> intensity {tag_intensity}")
+
+                # Add timestamped line to transcript (WITHOUT emotion tag)
+                transcript_lines.append(format_transcript_line("Avatar", clean_text))
+                logger.info(f"Avatar said: {clean_text[:100]}... (added to transcript, total lines: {len(transcript_lines)})")
 
                 # Save transcript incrementally every 3 messages to minimize data loss
                 if len(transcript_lines) % 3 == 0:
                     asyncio.create_task(save_intermediate_transcript(session_id, transcript_lines))
 
                 # Track output tokens for metrics
-                output_tokens = metrics.estimate_tokens(text)
+                output_tokens = metrics.estimate_tokens(clean_text)
                 metrics.add_gemini_live_tokens(output_tokens=output_tokens)
 
-                # Send to frontend
-                asyncio.create_task(send_transcription_to_room("avatar", text))
+                # Send to frontend (clean text without emotion tag)
+                asyncio.create_task(send_transcription_to_room("avatar", clean_text))
                 asyncio.create_task(send_status_to_room("Ouvindo..."))
 
-                # Analyze CLIENT (avatar) emotion using AI with fallback
-                # This reflects how satisfied the client is with the user's approach
-                # Now includes intensity (0-100) and trend for smoother UI updates
+                # Background emotion analysis via Gemini Flash (calibration, runs even if tag was extracted)
                 async def analyze_and_send_emotion():
                     try:
-                        result = await analyze_emotion_with_intensity(text, transcript_lines)
-                        await send_emotion_to_room(
-                            result["state"],
-                            result["intensity"],
-                            result["trend"],
-                            result.get("reason")  # Include reason if state changed
-                        )
+                        _emo_start = time.time()
+                        result = await analyze_emotion_with_intensity(clean_text, transcript_lines)
+                        _emo_ms = (time.time() - _emo_start) * 1000
+                        asyncio.create_task(send_latency_event("emotion_analysis", _emo_ms, "Emotion AI", result.get("state", "?")))
+                        # Only send if no tag was already extracted (avoid overriding instant update)
+                        if not emotion_tag_match:
+                            await send_emotion_to_room(
+                                result["state"],
+                                result["intensity"],
+                                result["trend"],
+                                result.get("reason")
+                            )
                         # Track Gemini Flash call for emotion analysis
-                        # Estimate: prompt ~100 tokens, response ~5 tokens
                         metrics.record_gemini_flash_call(input_tokens=100, output_tokens=5)
                     except Exception as e:
                         logger.warning(f"AI emotion analysis failed, using fallback: {e}")
-                        emotion = analyze_emotion_sync(text)
-                        await send_emotion_to_room(emotion)
+                        if not emotion_tag_match:
+                            emotion = analyze_emotion_sync(clean_text)
+                            await send_emotion_to_room(emotion)
 
                 asyncio.create_task(analyze_and_send_emotion())
 
@@ -1072,9 +1227,14 @@ async def entrypoint(ctx: JobContext):
                     async def analyze_avatar_coaching():
                         try:
                             coaching = get_coaching_engine()
-                            hints = coaching.analyze_avatar_message(text)
+                            hints = coaching.analyze_avatar_message(clean_text)
                             for hint in hints:
                                 await send_coaching_hint(hint)
+                                # Save evidence for detected objections
+                                await save_evidence_if_needed(
+                                    f"coaching_hint_{hint.hint_type}",
+                                    {"type": hint.hint_type, "text": hint.text, "speaker": "avatar"}
+                                )
                             # Send updated state with objections
                             await send_coaching_state()
                         except Exception as e:
@@ -1093,13 +1253,13 @@ async def entrypoint(ctx: JobContext):
                                 pending_objections=[obj.text for obj in coaching._objections if not obj.addressed],
                                 talk_ratio=coaching.get_talk_ratio()
                             )
-                            suggestion = await ai_coach.analyze_final(text, "avatar")
+                            suggestion = await ai_coach.analyze_final(clean_text, "avatar")
                             if suggestion:
                                 await send_ai_suggestion(suggestion)
                                 # Track Gemini Flash call
                                 metrics.record_gemini_flash_call(input_tokens=200, output_tokens=50)
                             else:
-                                logger.warning(f"AI Coach returned None for avatar response: {text[:50]}...")
+                                logger.warning(f"AI Coach returned None for avatar response: {clean_text[:50]}...")
                         except Exception as e:
                             logger.warning(f"AI coach avatar analysis failed: {e}")
 
@@ -1145,10 +1305,20 @@ async def entrypoint(ctx: JobContext):
             else:
                 logger.warning("Failed to save metrics")
 
-            # Set flag to prevent frontend from triggering duplicate feedback
-            await set_feedback_requested(session_id)
-            await trigger_feedback_generation(session_id)
-            logger.info("Feedback generation triggered")
+            # Validate transcript before triggering feedback (avoids wasting Claude API calls)
+            user_lines = [l for l in transcript_lines if "Usuario:" in l]
+            avatar_lines = [l for l in transcript_lines if "Avatar:" in l]
+            if len(user_lines) >= 3 and len(avatar_lines) >= 3 and len(full_transcript) >= 500:
+                # Set flag to prevent frontend from triggering duplicate feedback
+                await set_feedback_requested(session_id)
+                await trigger_feedback_generation(session_id)
+                logger.info("Feedback generation triggered")
+            else:
+                logger.warning(
+                    f"Transcript too short for feedback: "
+                    f"{len(user_lines)} user lines, {len(avatar_lines)} avatar lines, "
+                    f"{len(full_transcript)} chars - skipping feedback generation"
+                )
         else:
             logger.error("Failed to save transcript")
 
@@ -1168,14 +1338,29 @@ async def entrypoint(ctx: JobContext):
     timeout_task: asyncio.Task | None = None
 
     async def session_timeout():
-        """End session after timeout period."""
+        """End session after timeout period with 30s warning and farewell."""
         try:
-            await asyncio.sleep(session_timeout_seconds)
+            # Wait until 30s before timeout, then warn user
+            if session_timeout_seconds > 30:
+                await asyncio.sleep(session_timeout_seconds - 30)
+                await send_status_to_room("30 segundos restantes!")
+                await asyncio.sleep(30)
+            else:
+                await asyncio.sleep(session_timeout_seconds)
+
             logger.info(f"Session timeout reached ({session_timeout_seconds}s)")
             await send_status_to_room("Tempo esgotado! Encerrando sessao...")
-            # Give time for the message to be sent
-            await asyncio.sleep(1)
-            shutdown_event.set()
+            # Farewell message before shutting down
+            try:
+                session.say("Foi otimo conversar com voce! Obrigado pelo seu tempo.")
+            except Exception as e:
+                logger.warning(f"Failed to say farewell: {e}")
+            # Drain pending speech then shutdown
+            try:
+                session.shutdown(drain=True)
+            except Exception as e:
+                logger.warning(f"Failed to drain session on timeout: {e}")
+                shutdown_event.set()
         except asyncio.CancelledError:
             logger.debug("Timeout task cancelled")
 
@@ -1250,6 +1435,7 @@ async def entrypoint(ctx: JobContext):
 
             max_attempts = 3
             base_timeout = 5.0  # Start with 5s, increase each attempt
+            _avatar_load_start = _time_mod.time()
 
             await send_avatar_status("connecting")
 
@@ -1258,7 +1444,9 @@ async def entrypoint(ctx: JobContext):
                 try:
                     await asyncio.wait_for(av.start(sess, room=room), timeout=timeout)
                     logger.info(f"Avatar started successfully on attempt {attempt + 1}")
+                    _avatar_load_ms = (_time_mod.time() - _avatar_load_start) * 1000
                     await send_avatar_status("ready")
+                    asyncio.create_task(send_latency_event("avatar_load", _avatar_load_ms, "Avatar Load", f"{avatar_provider}, attempt {attempt + 1}/{max_attempts}"))
                     return av
                 except asyncio.TimeoutError:
                     logger.warning(f"Avatar timeout attempt {attempt + 1}/{max_attempts} (timeout={timeout}s)")
@@ -1308,10 +1496,6 @@ async def entrypoint(ctx: JobContext):
 
         await send_status_to_room("Conectado! Aguardando...")
 
-        # Start the session timeout timer
-        timeout_task = asyncio.create_task(session_timeout())
-        logger.info(f"Session timeout started: {session_timeout_seconds} seconds")
-
         # Start periodic transcript save task (prevents data loss on crash)
         transcript_save_task: asyncio.Task | None = None
 
@@ -1334,10 +1518,15 @@ async def entrypoint(ctx: JobContext):
         try:
             logger.info("Triggering greeting...")
             await send_status_to_room("Avatar iniciando...")
+            _greeting_trigger_time = _time_mod.time()
             session.generate_reply(user_input="Ola, estou pronto para comecar")
             logger.info("Greeting triggered successfully")
         except Exception as e:
             logger.warning(f"Failed to trigger greeting: {e}")
+
+        # Start timeout AFTER greeting (so greeting doesn't eat into conversation time)
+        timeout_task = asyncio.create_task(session_timeout())
+        logger.info(f"Session timeout started: {session_timeout_seconds}s (after greeting)")
 
         # Generate initial coach suggestion proactively (no delay) - only in training mode
         if coaching_enabled:
@@ -1359,6 +1548,13 @@ async def entrypoint(ctx: JobContext):
         await send_status_to_room("Ouvindo...")
         logger.info("Session ready and listening")
 
+        # When session.shutdown(drain=True) finishes, resolve shutdown_event
+        @session.on("close")
+        def on_session_close():
+            logger.info("Session closed (drain complete)")
+            if not shutdown_event.is_set():
+                shutdown_event.set()
+
         # Keep the session running until room disconnects
         await shutdown_event.wait()
 
@@ -1374,4 +1570,5 @@ if __name__ == "__main__":
     cli.run_app(WorkerOptions(
         entrypoint_fnc=entrypoint,
         agent_name="roleplay-agent",  # Named agent for explicit dispatch
+        shutdown_process_timeout=90,  # Extra time for farewell + drain + transcript save
     ))

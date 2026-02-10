@@ -9,6 +9,7 @@ import { AvatarView } from './AvatarView';
 import { MicrophoneIndicator } from './MicrophoneIndicator';
 import { SidePanel } from './SidePanel';
 import { EmotionMeter } from './EmotionMeter';
+import { LatencyOverlay } from './LatencyOverlay';
 
 interface MobileSessionLayoutProps {
   onSessionEnd: (durationSeconds: number) => void;
@@ -102,6 +103,9 @@ export function MobileSessionLayout({
 
   return (
     <div className="w-full h-screen bg-neutral-950 flex flex-col overflow-hidden">
+      {/* Latency Monitor (debug only) */}
+      <LatencyOverlay />
+
       {/* Compact Header */}
       <header className="flex items-center justify-between px-3 py-2 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800 safe-area-top">
         {/* Timer */}

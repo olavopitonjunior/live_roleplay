@@ -1,31 +1,34 @@
 /**
- * Automated Verification Script for Live Roleplay
+ * Automated Full Session Verification for Live Roleplay
  *
- * Runs headless browser tests and outputs JSON results.
- * Designed for Claude to execute and parse results automatically.
+ * Runs a COMPLETE session from login to feedback with real data.
+ * Stays in the session until timeout (~3 min) and verifies all features.
  *
- * Usage: node tests/automated-verify.js [--json] [--headed]
+ * Usage: node tests/automated-verify.js [--json] [--headed] [--production]
  */
 
 const { chromium } = require('playwright');
 const path = require('path');
+const fs = require('fs');
+
+const isProduction = process.argv.includes('--production');
 
 const CONFIG = {
-  APP_URL: process.env.APP_URL || 'http://localhost:5173',
+  APP_URL: process.env.APP_URL || (isProduction ? 'https://liveroleplay.vercel.app' : 'http://localhost:5173'),
   ACCESS_CODE: process.env.ACCESS_CODE || 'ADMIN001',
   HEADLESS: !process.argv.includes('--headed'),
   JSON_OUTPUT: process.argv.includes('--json'),
   SCREENSHOT_DIR: path.join(__dirname, 'screenshots'),
   TIMEOUTS: {
-    page_load: 10000,
-    login: 5000,
-    scenarios: 5000,
+    page_load: 15000,
+    login: 8000,
+    scenarios: 8000,
     session_connect: 30000,
-    agent_ready: 30000,
+    agent_ready: 45000,
     avatar_video: 15000,
-    transcription: 20000,
-    coach: 20000,
-    session_duration: 15000  // How long to observe the session
+    session_full: 240000,    // 4 min max for full session (3 min timeout + buffer)
+    feedback_load: 90000,    // 1.5 min for feedback generation
+    observation_interval: 15000  // Check features every 15s
   }
 };
 
@@ -38,6 +41,7 @@ const results = {
     headless: CONFIG.HEADLESS
   },
   steps: [],
+  observations: [],
   screenshots: [],
   console_logs: [],
   errors: []
@@ -58,16 +62,21 @@ function addStep(name, status, time_ms, details = null) {
   log(`${icon} ${name}: ${status} (${time_ms}ms)${details ? ' - ' + details : ''}`);
 }
 
+function addObservation(time_s, observation) {
+  results.observations.push({ time_s, observation, timestamp: new Date().toISOString() });
+  log(`   🔍 [${time_s}s] ${observation}`);
+}
+
 async function takeScreenshot(page, name) {
   try {
     const filename = `verify-${name}-${Date.now()}.png`;
     const filepath = path.join(CONFIG.SCREENSHOT_DIR, filename);
     await page.screenshot({ path: filepath, fullPage: true });
     results.screenshots.push(filepath);
-    log(`📸 Screenshot: ${filename}`);
+    log(`   📸 Screenshot: ${filename}`);
     return filepath;
   } catch (e) {
-    log(`⚠️ Screenshot failed: ${e.message}`);
+    log(`   ⚠️ Screenshot failed: ${e.message}`);
     return null;
   }
 }
@@ -92,9 +101,10 @@ async function runStep(name, fn, timeout) {
 
 async function runVerification() {
   const startTime = Date.now();
-  log('\n🚀 Starting automated verification...\n');
+  log('\n🚀 LIVE ROLEPLAY - Full Session Verification\n');
   log(`📍 App URL: ${CONFIG.APP_URL}`);
-  log(`🖥️ Headless: ${CONFIG.HEADLESS}\n`);
+  log(`🖥️  Headless: ${CONFIG.HEADLESS}`);
+  log(`⏱️  Session timeout: ~3 min (will stay until end)\n`);
 
   let browser, context, page;
 
@@ -102,7 +112,7 @@ async function runVerification() {
     // Launch browser
     browser = await chromium.launch({
       headless: CONFIG.HEADLESS,
-      slowMo: CONFIG.HEADLESS ? 0 : 100
+      slowMo: CONFIG.HEADLESS ? 0 : 50
     });
 
     context = await browser.newContext({
@@ -118,16 +128,22 @@ async function runVerification() {
       if (msg.type() === 'error' ||
           text.includes('Agent') ||
           text.includes('LiveKit') ||
-          text.includes('transcription') ||
-          text.includes('coach')) {
+          text.includes('transcript') ||
+          text.includes('coach') ||
+          text.includes('emotion') ||
+          text.includes('feedback')) {
         results.console_logs.push({
           type: msg.type(),
-          text: text.substring(0, 200)
+          text: text.substring(0, 300)
         });
       }
     });
 
-    // Step 1: Load app
+    // ═══════════════════════════════════════════════
+    // STEP 1: Load app
+    // ═══════════════════════════════════════════════
+    log('\n📍 STEP 1: Loading app\n');
+
     const loadResult = await runStep('page_load', async () => {
       await page.goto(CONFIG.APP_URL);
       await page.waitForLoadState('networkidle');
@@ -145,7 +161,11 @@ async function runVerification() {
       sessionStorage.clear();
     });
 
-    // Step 2: Login
+    // ═══════════════════════════════════════════════
+    // STEP 2: Login
+    // ═══════════════════════════════════════════════
+    log('\n📍 STEP 2: Login\n');
+
     const loginResult = await runStep('login', async () => {
       const input = await page.waitForSelector(
         'input[placeholder*="codigo" i], input[placeholder*="code" i], input[type="text"]',
@@ -155,24 +175,23 @@ async function runVerification() {
 
       const submitBtn = await page.waitForSelector(
         'button[type="submit"], button:has-text("Entrar"), button:has-text("Enter")',
-        { timeout: 2000 }
+        { timeout: 3000 }
       );
       await submitBtn.click();
 
-      // Wait for navigation or scenarios to appear
       await page.waitForTimeout(2000);
-      return `Logged in with code ${CONFIG.ACCESS_CODE}`;
+      return `Logged in with ${CONFIG.ACCESS_CODE}`;
     }, CONFIG.TIMEOUTS.login);
 
     await takeScreenshot(page, 'after-login');
+    if (!loginResult.success) throw new Error('Login failed');
 
-    if (!loginResult.success) {
-      throw new Error('Login failed');
-    }
+    // ═══════════════════════════════════════════════
+    // STEP 3: Select scenario
+    // ═══════════════════════════════════════════════
+    log('\n📍 STEP 3: Select scenario\n');
 
-    // Step 3: Find and click scenario
     const scenarioResult = await runStep('scenario_select', async () => {
-      // Try multiple selectors - ScenarioCard uses button, not anchor
       const selectors = [
         'button:has-text("Comecar treino")',
         'button:has-text("Começar treino")',
@@ -187,7 +206,7 @@ async function runVerification() {
           if (el) {
             const text = await el.textContent();
             await el.click();
-            return `Selected scenario: ${text?.substring(0, 50)}`;
+            return `Selected: ${text?.substring(0, 50)}`;
           }
         } catch {
           continue;
@@ -197,197 +216,319 @@ async function runVerification() {
     }, CONFIG.TIMEOUTS.scenarios);
 
     await takeScreenshot(page, 'scenario-selected');
+    if (!scenarioResult.success) throw new Error('Scenario selection failed');
 
-    if (!scenarioResult.success) {
-      throw new Error('Scenario selection failed');
-    }
-
-    // Step 3b: Handle mode selection modal (PRD-08 feature)
-    const modeSelectResult = await runStep('mode_select', async () => {
-      // Wait for modal to appear
-      const modal = await page.waitForSelector('button:has-text("Iniciar Sessao")', { timeout: 5000 });
+    // ═══════════════════════════════════════════════
+    // STEP 3b: Mode selection modal
+    // ═══════════════════════════════════════════════
+    const modeResult = await runStep('mode_select', async () => {
+      const modal = await page.waitForSelector(
+        'button:has-text("Iniciar Sessao"), button:has-text("Iniciar Sessão")',
+        { timeout: 5000 }
+      );
       if (modal) {
-        // Take screenshot of modal
         await takeScreenshot(page, 'mode-modal');
-
-        // Click "Iniciar Sessao" button (training mode is selected by default)
         await modal.click();
-        return 'Clicked Iniciar Sessao (training mode with medium intensity)';
+        return 'Training mode selected';
       }
-      throw new Error('Mode selection modal not found');
+      throw new Error('Mode modal not found');
     }, CONFIG.TIMEOUTS.scenarios);
 
-    if (!modeSelectResult.success) {
-      // Maybe old flow without modal - continue anyway
-      log('   ℹ️ No mode selection modal found, continuing...');
+    if (!modeResult.success) {
+      log('   ℹ️ No mode modal, continuing...');
     }
 
-    // Wait for session page to load
     await page.waitForTimeout(3000);
 
-    // Step 4: Wait for session connection (LiveKit)
-    const connectionResult = await runStep('session_connect', async () => {
-      // Check for loading states or connection indicators
-      const currentUrl = page.url();
+    // ═══════════════════════════════════════════════
+    // STEP 4: Session connection
+    // ═══════════════════════════════════════════════
+    log('\n📍 STEP 4: Session connection\n');
 
+    const connectResult = await runStep('session_connect', async () => {
+      const currentUrl = page.url();
       if (!currentUrl.includes('session')) {
         throw new Error(`Not on session page: ${currentUrl}`);
       }
-
-      // Wait for either video element or connection status
       await page.waitForSelector(
         'video, [class*="loading"], [class*="connecting"], [class*="session"]',
         { timeout: CONFIG.TIMEOUTS.session_connect }
       );
-
-      return `Session page loaded: ${currentUrl}`;
+      return `Session page: ${currentUrl}`;
     }, CONFIG.TIMEOUTS.session_connect);
 
     await takeScreenshot(page, 'session-loading');
 
-    // Step 5: Wait for agent to be ready
+    // ═══════════════════════════════════════════════
+    // STEP 5: Wait for agent
+    // ═══════════════════════════════════════════════
+    log('\n📍 STEP 5: Waiting for agent\n');
+
     const agentResult = await runStep('agent_ready', async () => {
-      // Look for indicators that agent is connected and session is live
-      // Based on actual UI: "Ao vivo" badge, timer, video element
-
-      const indicators = [
-        'text="Ao vivo"',           // Live indicator
-        'text="AO VIVO"',           // Live indicator uppercase
-        ':has-text("Encerrar")',    // End session button (only shows when ready)
-        'video',                     // Video element present
-        '[class*="timer"]',          // Session timer
-        ':has-text(":")'             // Timer format like "2:07"
-      ];
-
-      for (let i = 0; i < 30; i++) {
-        // Check for "Ao vivo" text which indicates session is live
-        const aoVivoEl = await page.$('text="Ao vivo"');
-        if (aoVivoEl) {
-          return 'Session is live (Ao vivo indicator found)';
+      for (let i = 0; i < 45; i++) {
+        const encerrarBtn = await page.$('button:has-text("Encerrar")');
+        if (encerrarBtn) {
+          return 'Agent ready (Encerrar button found)';
         }
 
-        // Check for video element with content
         const video = await page.$('video');
         if (video) {
           const readyState = await video.evaluate(v => v.readyState);
-          if (readyState >= 2) {  // HAVE_CURRENT_DATA or better
+          if (readyState >= 2) {
             return `Video ready (readyState: ${readyState})`;
           }
         }
 
-        // Check for session timer (format like "2:07")
-        const timerMatch = await page.$(':has-text(":")');
-        const encerrarBtn = await page.$('button:has-text("Encerrar")');
-        if (encerrarBtn) {
-          return 'Session ready (Encerrar button found)';
-        }
-
         await page.waitForTimeout(1000);
       }
-
-      // Check if still in loading state
-      const loadingEl = await page.$('[class*="loading"]');
-      if (loadingEl) {
-        const loadingText = await loadingEl.textContent();
-        throw new Error(`Still loading: ${loadingText?.substring(0, 50)}`);
-      }
-
       throw new Error('Agent not detected within timeout');
     }, CONFIG.TIMEOUTS.agent_ready);
 
-    await takeScreenshot(page, 'agent-status');
+    await takeScreenshot(page, 'agent-ready');
 
-    // Step 6: Check for avatar video
+    // ═══════════════════════════════════════════════
+    // STEP 6: Avatar video check
+    // ═══════════════════════════════════════════════
     const avatarResult = await runStep('avatar_video', async () => {
       const video = await page.$('video');
       if (video) {
-        const src = await video.getAttribute('src');
         const readyState = await video.evaluate(v => v.readyState);
-        return `Video found (readyState: ${readyState}, src: ${src ? 'yes' : 'no'})`;
+        return `Video element present (readyState: ${readyState})`;
       }
-      return 'No video element found (may be audio-only mode)';
+      return 'No video element (audio-only mode)';
     }, CONFIG.TIMEOUTS.avatar_video);
 
-    // Step 7: Observe session for a while to check features
-    log('\n🔍 Observing session for features...\n');
-    await page.waitForTimeout(CONFIG.TIMEOUTS.session_duration);
+    // ═══════════════════════════════════════════════
+    // STEP 7: FULL SESSION OBSERVATION (~3 min)
+    // ═══════════════════════════════════════════════
+    log('\n📍 STEP 7: Full session observation (staying until end)\n');
 
-    await takeScreenshot(page, 'session-active');
+    const sessionStartTime = Date.now();
+    let sessionEnded = false;
+    let greetingDetected = false;
+    let emotionDetected = false;
+    let timerDetected = false;
+    let coachDetected = false;
+    let warningDetected = false;
+    let observationCount = 0;
 
-    // Step 8: Check for transcription/chat panel
-    const transcriptResult = await runStep('transcription', async () => {
-      // Check for Chat tab and content
-      const chatTab = await page.$('button:has-text("Chat")');
-      if (chatTab) {
-        await chatTab.click();
-        await page.waitForTimeout(500);
-      }
+    const sessionResult = await runStep('full_session', async () => {
+      while (!sessionEnded && (Date.now() - sessionStartTime) < CONFIG.TIMEOUTS.session_full) {
+        observationCount++;
+        const elapsed = Math.round((Date.now() - sessionStartTime) / 1000);
 
-      const transcriptSelectors = [
-        '[class*="transcript"]',
-        '[class*="message"]',
-        '[class*="chat"]',
-        '[data-type="transcription"]'
-      ];
+        // Check if we left the session page (redirect to feedback)
+        const currentUrl = page.url();
+        if (currentUrl.includes('/feedback/')) {
+          sessionEnded = true;
+          addObservation(elapsed, 'Session ended - redirected to feedback page');
+          break;
+        }
 
-      for (const selector of transcriptSelectors) {
-        const elements = await page.$$(selector);
-        if (elements.length > 0) {
-          const texts = await Promise.all(
-            elements.slice(0, 3).map(el => el.textContent())
-          );
-          const nonEmpty = texts.filter(t => t && t.trim().length > 0);
-          if (nonEmpty.length > 0) {
-            return `Found ${elements.length} transcript elements`;
+        // Check if session page shows "ended" state or loading state
+        const loadingEl = await page.$('div:has-text("Carregando feedback"), div:has-text("Salvando transcricao")');
+        if (loadingEl) {
+          sessionEnded = true;
+          addObservation(elapsed, 'Session ended - feedback loading detected');
+          break;
+        }
+
+        // Check for agent greeting in transcript
+        if (!greetingDetected) {
+          const messages = await page.$$('[class*="message"], [class*="transcript"] p, [class*="chat"] div');
+          for (const msg of messages) {
+            const text = await msg.textContent();
+            if (text && text.trim().length > 10) {
+              greetingDetected = true;
+              addObservation(elapsed, `Agent greeting detected: "${text.substring(0, 80)}..."`);
+              break;
+            }
+          }
+
+          // Also check Chat tab if not found
+          if (!greetingDetected) {
+            const chatTab = await page.$('button:has-text("Chat")');
+            if (chatTab) {
+              await chatTab.click();
+              await page.waitForTimeout(500);
+              const msgs = await page.$$('[class*="message"], [class*="transcript"] p');
+              for (const msg of msgs) {
+                const text = await msg.textContent();
+                if (text && text.trim().length > 10) {
+                  greetingDetected = true;
+                  addObservation(elapsed, `Agent greeting (Chat tab): "${text.substring(0, 80)}..."`);
+                  break;
+                }
+              }
+            }
           }
         }
-      }
-      return 'Chat panel present (no messages yet - mic disabled in headless)';
-    }, CONFIG.TIMEOUTS.transcription);
 
-    // Step 9: Check for coach panel
-    const coachResult = await runStep('coach_suggestion', async () => {
-      // Check for Coach tab and content
-      const coachTab = await page.$('button:has-text("Coach")');
-      if (coachTab) {
-        await coachTab.click();
-        await page.waitForTimeout(500);
-      }
-
-      // Check for coach panel elements
-      const coachPanel = await page.$(':has-text("Dicas de coaching")');
-      if (coachPanel) {
-        return 'Coach panel present (waiting for suggestions)';
-      }
-
-      const coachSelectors = [
-        '[class*="coach"]',
-        '[class*="suggestion"]',
-        '[class*="hint"]',
-        'text="TALK RATIO"'
-      ];
-
-      for (const selector of coachSelectors) {
-        const el = await page.$(selector);
-        if (el) {
-          const visible = await el.isVisible();
-          if (visible) {
-            const text = await el.textContent();
-            return `Coach element found: ${text?.substring(0, 50)}...`;
+        // Check for EmotionMeter
+        if (!emotionDetected) {
+          const emotionEl = await page.$('[class*="emotion"], [class*="Emotion"]');
+          if (emotionEl) {
+            const text = await emotionEl.textContent();
+            emotionDetected = true;
+            addObservation(elapsed, `EmotionMeter detected: ${text?.substring(0, 50)}`);
           }
+        }
+
+        // Check for timer
+        if (!timerDetected) {
+          const timerEl = await page.$('[class*="timer"], [class*="Timer"]');
+          if (timerEl) {
+            const text = await timerEl.textContent();
+            timerDetected = true;
+            addObservation(elapsed, `Timer detected: ${text}`);
+          }
+        }
+
+        // Check for coaching hints
+        if (!coachDetected) {
+          const coachTab = await page.$('button:has-text("Coach")');
+          if (coachTab) {
+            await coachTab.click();
+            await page.waitForTimeout(500);
+          }
+          const hints = await page.$$('[class*="hint"], [class*="suggestion"], [class*="coach"]');
+          for (const hint of hints) {
+            const text = await hint.textContent();
+            if (text && text.trim().length > 5) {
+              coachDetected = true;
+              addObservation(elapsed, `Coach hint detected: "${text.substring(0, 80)}..."`);
+              break;
+            }
+          }
+        }
+
+        // Check for 30s warning (appears near end of session ~2:30)
+        if (!warningDetected && elapsed > 120) {
+          const warningEl = await page.$(':has-text("30 segundos"), :has-text("encerrar em breve")');
+          if (warningEl) {
+            warningDetected = true;
+            addObservation(elapsed, '30s timeout warning detected');
+          }
+        }
+
+        // Periodic screenshot
+        if (observationCount % 4 === 0) {  // Every ~60s
+          await takeScreenshot(page, `session-${elapsed}s`);
+        }
+
+        log(`   ⏱️  Session: ${elapsed}s elapsed | greeting:${greetingDetected ? '✓' : '...'} emotion:${emotionDetected ? '✓' : '...'} timer:${timerDetected ? '✓' : '...'} coach:${coachDetected ? '✓' : '...'}`);
+
+        await page.waitForTimeout(CONFIG.TIMEOUTS.observation_interval);
+      }
+
+      // If session didn't end naturally, check if Encerrar button exists
+      if (!sessionEnded) {
+        const encerrarBtn = await page.$('button:has-text("Encerrar")');
+        if (encerrarBtn) {
+          addObservation(Math.round((Date.now() - sessionStartTime) / 1000), 'Session still active after timeout - clicking Encerrar');
+          await encerrarBtn.click();
+          await page.waitForTimeout(3000);
+          sessionEnded = true;
         }
       }
 
-      // Check for Talk Ratio which indicates coach panel is active
-      const talkRatio = await page.$(':has-text("TALK RATIO")');
-      if (talkRatio) {
-        return 'Coach panel present (Talk Ratio visible)';
-      }
+      const totalTime = Math.round((Date.now() - sessionStartTime) / 1000);
+      const features = [
+        greetingDetected ? 'greeting' : null,
+        emotionDetected ? 'emotion' : null,
+        timerDetected ? 'timer' : null,
+        coachDetected ? 'coach' : null,
+        warningDetected ? '30s-warning' : null
+      ].filter(Boolean);
 
-      return 'Coach panel not found';
-    }, CONFIG.TIMEOUTS.coach);
+      return `Session lasted ${totalTime}s. Features detected: [${features.join(', ')}]`;
+    }, CONFIG.TIMEOUTS.session_full + 10000);
 
-    await takeScreenshot(page, 'final-state');
+    await takeScreenshot(page, 'session-ended');
+
+    // ═══════════════════════════════════════════════
+    // STEP 8: Feedback page
+    // ═══════════════════════════════════════════════
+    log('\n📍 STEP 8: Feedback verification\n');
+
+    // Wait for redirect to feedback if not already there
+    const feedbackResult = await runStep('feedback_page', async () => {
+      // Wait for feedback URL
+      await page.waitForURL('**/feedback/**', { timeout: 30000 });
+      return `On feedback page: ${page.url()}`;
+    }, 30000);
+
+    if (feedbackResult.success) {
+      await takeScreenshot(page, 'feedback-loading');
+
+      // Check for progressive loading steps
+      const loadingResult = await runStep('feedback_progressive_loading', async () => {
+        const loadingMessages = [];
+        for (let i = 0; i < 10; i++) {
+          const loadingText = await page.$('h2');
+          if (loadingText) {
+            const text = await loadingText.textContent();
+            if (text && !loadingMessages.includes(text) && !text.includes('Resultado')) {
+              loadingMessages.push(text);
+            }
+            // If we see "Resultado" header, feedback loaded
+            if (text && text.includes('Resultado')) {
+              return `Feedback loaded! Progressive steps seen: [${loadingMessages.join(' → ')}]`;
+            }
+          }
+          await page.waitForTimeout(5000);
+        }
+        // Check if feedback loaded even if we missed the transition
+        const resultHeader = await page.$('h1:has-text("Resultado"), h2:has-text("Resultado")');
+        if (resultHeader) {
+          return `Feedback loaded. Steps: [${loadingMessages.join(' → ')}]`;
+        }
+        throw new Error(`Feedback still loading after 50s. Steps seen: [${loadingMessages.join(' → ')}]`);
+      }, CONFIG.TIMEOUTS.feedback_load);
+
+      await takeScreenshot(page, 'feedback-loaded');
+
+      // Verify feedback content
+      const contentResult = await runStep('feedback_content', async () => {
+        const checks = [];
+
+        // Check for score
+        const scoreEl = await page.$('[class*="score"], [class*="Score"], :has-text("Score"), :has-text("Pontuação")');
+        if (scoreEl) {
+          const text = await scoreEl.textContent();
+          checks.push(`score: ${text?.substring(0, 30)}`);
+        }
+
+        // Check for criteria/rubric
+        const criteriaEls = await page.$$('[class*="criteria"], [class*="rubric"], [class*="Criteria"]');
+        if (criteriaEls.length > 0) {
+          checks.push(`criteria: ${criteriaEls.length} elements`);
+        }
+
+        // Check for summary text
+        const summaryEl = await page.$('[class*="summary"], p');
+        if (summaryEl) {
+          const text = await summaryEl.textContent();
+          if (text && text.length > 30) {
+            checks.push(`summary: "${text.substring(0, 60)}..."`);
+          }
+        }
+
+        // Check for action buttons
+        const novoTreino = await page.$('button:has-text("Novo Treino")');
+        const verHistorico = await page.$('button:has-text("Ver Historico"), button:has-text("Ver Histórico")');
+        if (novoTreino) checks.push('btn:Novo Treino');
+        if (verHistorico) checks.push('btn:Ver Historico');
+
+        if (checks.length === 0) {
+          throw new Error('No feedback content found');
+        }
+
+        return `Feedback content: [${checks.join(', ')}]`;
+      }, 15000);
+
+      await takeScreenshot(page, 'feedback-final');
+    }
 
   } catch (error) {
     results.errors.push({ step: 'execution', error: error.message });
@@ -402,20 +543,41 @@ async function runVerification() {
 
     results.duration_ms = Date.now() - startTime;
     results.success = results.errors.length === 0 &&
-                      results.steps.filter(s => s.status === 'pass').length >= 4;
+                      results.steps.filter(s => s.status === 'pass').length >= 6;
 
     if (CONFIG.JSON_OUTPUT) {
       console.log(JSON.stringify(results, null, 2));
     } else {
-      log('\n' + '='.repeat(50));
+      log('\n' + '='.repeat(60));
+      log('📊 VERIFICATION REPORT');
+      log('='.repeat(60));
+
+      const passed = results.steps.filter(s => s.status === 'pass').length;
+      const failed = results.steps.filter(s => s.status === 'fail').length;
+
       log(`\n${results.success ? '✅ VERIFICATION PASSED' : '❌ VERIFICATION FAILED'}`);
-      log(`Duration: ${results.duration_ms}ms`);
-      log(`Steps passed: ${results.steps.filter(s => s.status === 'pass').length}/${results.steps.length}`);
+      log(`Duration: ${Math.round(results.duration_ms / 1000)}s`);
+      log(`Steps: ${passed} passed, ${failed} failed (${results.steps.length} total)`);
+
+      if (results.observations.length > 0) {
+        log(`\nSession observations:`);
+        results.observations.forEach(o => log(`  [${o.time_s}s] ${o.observation}`));
+      }
+
       if (results.errors.length > 0) {
         log(`\nErrors:`);
         results.errors.forEach(e => log(`  - ${e.step}: ${e.error}`));
       }
-      log(`\nScreenshots saved to: ${CONFIG.SCREENSHOT_DIR}`);
+
+      if (results.console_logs.length > 0) {
+        log(`\nRelevant console logs (${results.console_logs.length}):`);
+        results.console_logs.slice(0, 10).forEach(l =>
+          log(`  [${l.type}] ${l.text.substring(0, 100)}`)
+        );
+      }
+
+      log(`\nScreenshots (${results.screenshots.length}): ${CONFIG.SCREENSHOT_DIR}`);
+      log('='.repeat(60));
     }
   }
 
@@ -423,7 +585,6 @@ async function runVerification() {
 }
 
 // Ensure screenshot directory exists
-const fs = require('fs');
 if (!fs.existsSync(CONFIG.SCREENSHOT_DIR)) {
   fs.mkdirSync(CONFIG.SCREENSHOT_DIR, { recursive: true });
 }

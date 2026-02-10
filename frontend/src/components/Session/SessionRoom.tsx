@@ -9,9 +9,11 @@ import { AvatarView } from './AvatarView';
 import { MicrophoneIndicator } from './MicrophoneIndicator';
 import { SidePanel } from './SidePanel';
 import { EmotionMeter } from './EmotionMeter';
+import { LatencyOverlay } from './LatencyOverlay';
 import { MobileSessionLayout } from './MobileSessionLayout';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { TranscriptProvider } from '../../hooks/useTranscript';
+import { LatencyProvider } from '../../hooks/useLatency';
 
 interface SessionRoomProps {
   token: string;
@@ -151,6 +153,9 @@ function DesktopSessionLayout({
 
   return (
     <div className="w-full h-screen bg-neutral-950 flex flex-col overflow-hidden">
+      {/* Latency Monitor (debug only) */}
+      <LatencyOverlay />
+
       {/* Top Bar */}
       <header className="flex items-center justify-between px-4 py-3 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800">
         {/* Timer */}
@@ -290,12 +295,14 @@ export function SessionRoom({
       }}
     >
       <TranscriptProvider>
-        <SessionContent
-          onSessionEnd={onSessionEnd}
-          scenarioTitle={scenarioTitle}
-          scenarioContext={scenarioContext}
-          maxDuration={maxDuration}
-        />
+        <LatencyProvider>
+          <SessionContent
+            onSessionEnd={onSessionEnd}
+            scenarioTitle={scenarioTitle}
+            scenarioContext={scenarioContext}
+            maxDuration={maxDuration}
+          />
+        </LatencyProvider>
       </TranscriptProvider>
     </LiveKitRoom>
   );

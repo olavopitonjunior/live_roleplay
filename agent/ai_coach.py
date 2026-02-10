@@ -269,6 +269,8 @@ class AICoachEngine:
         self._context: Optional[ConversationContext] = None
         self._objectives: list[SessionObjective] = []
         self._intensity: CoachIntensity = CoachIntensity.MEDIUM
+        # Turn counter: Gemini AI only called every 2 turns to save rate limit
+        self._turn_counter: int = 0
         # API rate limiting
         self._api_request_times: list[float] = []
         self._last_api_request: float = 0
@@ -729,6 +731,15 @@ Responda APENAS com JSON valido (sem markdown):
         if len(text) < self.MIN_TEXT_LENGTH_FINAL:
             return None
 
+        # Turn counter: only call Gemini AI every 2 turns to save API rate limit
+        # Keywords (in coaching.py) still run every turn at zero cost
+        self._turn_counter += 1
+        if self._turn_counter % 2 != 0:
+            logger.debug(f"Coach: Skipping AI analysis on turn {self._turn_counter} (runs every 2 turns)")
+            # Still add to history even if skipping AI
+            self.add_to_history(speaker, text)
+            return None
+
         if not self._can_send_suggestion(is_streaming=False):
             return None
 
@@ -760,6 +771,7 @@ Responda APENAS com JSON valido (sem markdown):
             # Record request before making it
             self._record_api_request()
 
+            _gemini_start = time.time()
             response = await self._gemini_client.aio.models.generate_content(
                 model="gemini-2.5-flash-lite",
                 contents=prompt,
@@ -768,6 +780,8 @@ Responda APENAS com JSON valido (sem markdown):
                     max_output_tokens=300,
                 )
             )
+            _gemini_ms = (time.time() - _gemini_start) * 1000
+            logger.info(f"[Latency] AI Coach Gemini call: {_gemini_ms:.0f}ms")
 
             # Handle empty responses
             if not response or not response.text:
@@ -777,7 +791,7 @@ Responda APENAS com JSON valido (sem markdown):
             result = self._parse_response(response.text, is_streaming=False)
             if result:
                 self._record_suggestion(is_streaming=False)
-                logger.debug(f"Final suggestion generated: {result.title}")
+                logger.debug(f"Final suggestion generated: {result.title} (gemini: {_gemini_ms:.0f}ms)")
 
                 # Check if this completes any objectives
                 await self._check_objectives(text, speaker)
