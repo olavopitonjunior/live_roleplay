@@ -668,6 +668,8 @@ async def entrypoint(ctx: JobContext):
     needs to join and start the conversation session.
     """
     logger.info(f"Agent starting for room: {ctx.room.name}")
+    import time as _time_mod_early
+    _session_start_time = _time_mod_early.time()
 
     # Connect to the room
     await ctx.connect()
@@ -1001,6 +1003,13 @@ async def entrypoint(ctx: JobContext):
             session.shutdown(drain=True)
         except Exception as e:
             logger.warning(f"Failed to drain session on early end: {e}")
+            logger.warning(
+                f"SHUTDOWN_TRIGGER: source='early_end_drain_fail', "
+                f"elapsed={time.time() - _session_start_time:.1f}s, "
+                f"lines={len(transcript_lines)}, "
+                f"greeting={_greeting_received}, "
+                f"participants={len(ctx.room.remote_participants)}"
+            )
             shutdown_event.set()
 
     # Flag to track if early end was triggered
@@ -1360,6 +1369,13 @@ async def entrypoint(ctx: JobContext):
                 session.shutdown(drain=True)
             except Exception as e:
                 logger.warning(f"Failed to drain session on timeout: {e}")
+                logger.warning(
+                    f"SHUTDOWN_TRIGGER: source='timeout_drain_fail', "
+                    f"elapsed={time.time() - _session_start_time:.1f}s, "
+                    f"lines={len(transcript_lines)}, "
+                    f"greeting={_greeting_received}, "
+                    f"participants={len(ctx.room.remote_participants)}"
+                )
                 shutdown_event.set()
         except asyncio.CancelledError:
             logger.debug("Timeout task cancelled")
@@ -1367,10 +1383,25 @@ async def entrypoint(ctx: JobContext):
     # Listen for room disconnect
     @ctx.room.on("disconnected")
     def on_room_disconnected():
-        logger.info("Room disconnected, shutting down")
+        logger.warning(
+            f"SHUTDOWN_TRIGGER: source='room_disconnected', "
+            f"elapsed={time.time() - _session_start_time:.1f}s, "
+            f"lines={len(transcript_lines)}, "
+            f"greeting={_greeting_received}, "
+            f"participants={len(ctx.room.remote_participants)}"
+        )
         if timeout_task and not timeout_task.done():
             timeout_task.cancel()
         shutdown_event.set()
+
+    # Diagnostic: track participant disconnections
+    @ctx.room.on("participant_disconnected")
+    def on_participant_left(participant):
+        logger.warning(
+            f"DIAG: Participant left: {participant.identity}, "
+            f"remaining={len(ctx.room.remote_participants)}, "
+            f"elapsed={time.time() - _session_start_time:.1f}s"
+        )
 
     try:
         # Send initial status
@@ -1514,6 +1545,32 @@ async def entrypoint(ctx: JobContext):
         transcript_save_task = asyncio.create_task(periodic_transcript_save())
         logger.info("Periodic transcript save enabled (every 30s)")
 
+        # Heartbeat loop for diagnostics (frontend/test script can detect agent death)
+        async def heartbeat_loop():
+            """Send periodic heartbeat via data channel."""
+            import json as _hb_json
+            _hb_failures = 0
+            while not shutdown_event.is_set():
+                try:
+                    hb_data = _hb_json.dumps({
+                        "type": "heartbeat",
+                        "ts": time.time(),
+                        "elapsed": round(time.time() - _session_start_time, 1),
+                        "lines": len(transcript_lines),
+                        "greeting": _greeting_received
+                    })
+                    await ctx.room.local_participant.publish_data(hb_data.encode('utf-8'))
+                    _hb_failures = 0
+                except Exception as e:
+                    _hb_failures += 1
+                    if _hb_failures >= 3:
+                        logger.warning(f"Heartbeat stopping after 3 failures: {e}")
+                        break
+                await asyncio.sleep(5)
+
+        asyncio.create_task(heartbeat_loop())
+        logger.info("Heartbeat loop started (every 5s)")
+
         # Trigger greeting immediately (no delay needed)
         try:
             logger.info("Triggering greeting...")
@@ -1551,15 +1608,36 @@ async def entrypoint(ctx: JobContext):
         # When session.shutdown(drain=True) finishes, resolve shutdown_event
         @session.on("close")
         def on_session_close():
-            logger.info("Session closed (drain complete)")
+            logger.warning(
+                f"SHUTDOWN_TRIGGER: source='session_close', "
+                f"elapsed={time.time() - _session_start_time:.1f}s, "
+                f"lines={len(transcript_lines)}, "
+                f"greeting={_greeting_received}, "
+                f"participants={len(ctx.room.remote_participants)}"
+            )
             if not shutdown_event.is_set():
                 shutdown_event.set()
+
+        # Diagnostic: session error handler
+        @session.on("error")
+        def on_session_error(ev):
+            logger.error(
+                f"DIAG: Session error: {ev}, "
+                f"elapsed={time.time() - _session_start_time:.1f}s, "
+                f"lines={len(transcript_lines)}"
+            )
 
         # Keep the session running until room disconnects
         await shutdown_event.wait()
 
     except Exception as e:
-        logger.error(f"Session error: {e}")
+        logger.error(
+            f"SHUTDOWN_TRIGGER: source='exception', error='{e}', "
+            f"elapsed={time.time() - _session_start_time:.1f}s, "
+            f"lines={len(transcript_lines)}, "
+            f"greeting={_greeting_received}",
+            exc_info=True
+        )
         await send_status_to_room(f"Erro: {str(e)}")
         raise
 

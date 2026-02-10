@@ -39,6 +39,16 @@ export function MobileSessionLayout({
   const [isEnding, setIsEnding] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>('video');
 
+  // Ensure microphone is enabled (critical for existingRoom flow)
+  useEffect(() => {
+    if (room.localParticipant && !room.localParticipant.isMicrophoneEnabled) {
+      console.log('[MobileSession] Mic not enabled, enabling now...');
+      room.localParticipant.setMicrophoneEnabled(true).catch(err => {
+        console.error('[MobileSession] Failed to enable microphone:', err);
+      });
+    }
+  }, [room]);
+
   // Timer
   useEffect(() => {
     const interval = setInterval(() => {

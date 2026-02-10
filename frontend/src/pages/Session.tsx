@@ -59,6 +59,25 @@ export function Session() {
     agentTimeout: 30000, // 30 seconds
   });
 
+  // Diagnostic: track component lifecycle
+  useEffect(() => {
+    console.log('[Session] MOUNTED, scenarioId:', scenarioId, 'sessionMode:', sessionMode);
+    const mountTime = Date.now();
+    return () => {
+      const lifetime = Date.now() - mountTime;
+      if (lifetime < 5000) {
+        console.error('[Session] UNMOUNTED after only', lifetime, 'ms - possible re-render or navigation bug');
+      } else {
+        console.log('[Session] UNMOUNTED after', Math.round(lifetime / 1000), 's');
+      }
+    };
+  }, []);
+
+  // Diagnostic: track state transitions
+  useEffect(() => {
+    console.log('[Session] agentState changed:', agentState, 'token:', !!token, 'sessionId:', sessionId);
+  }, [agentState, token, sessionId]);
+
   // Fetch scenario data
   useEffect(() => {
     if (!scenarioId) return;
