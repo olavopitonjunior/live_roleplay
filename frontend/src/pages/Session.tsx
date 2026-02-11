@@ -120,8 +120,12 @@ export function Session() {
   const handleSessionEnd = useCallback(
     async (durationSeconds: number) => {
       if (sessionId) {
-        disconnect(); // Clean up the room connection
-        await endSession(sessionId, durationSeconds);
+        disconnect(); // Single disconnect point for the room
+        try {
+          await endSession(sessionId, durationSeconds);
+        } catch (err) {
+          console.error('[Session] Error ending session:', err);
+        }
         navigate(`/feedback/${sessionId}`);
       }
     },
