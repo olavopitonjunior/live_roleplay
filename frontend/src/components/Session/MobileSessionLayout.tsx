@@ -38,6 +38,7 @@ export function MobileSessionLayout({
   const [elapsed, setElapsed] = useState(0);
   const [isEnding, setIsEnding] = useState(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>('video');
+  const handleEndRef = useRef<() => void>(() => {});
 
   // Ensure microphone is enabled (critical for existingRoom flow)
   useEffect(() => {
@@ -49,14 +50,35 @@ export function MobileSessionLayout({
     }
   }, [room]);
 
-  // Timer
+  // handleEnd: single path for ending session (no room.disconnect here - Session.tsx handles it)
+  const handleEnd = useCallback(() => {
+    if (isEnding) return;
+    setIsEnding(true);
+    const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
+    onSessionEnd(duration);
+  }, [onSessionEnd, isEnding]);
+
+  // Keep ref updated so timer/effects always call latest version
+  useEffect(() => {
+    handleEndRef.current = handleEnd;
+  }, [handleEnd]);
+
+  // Auto-handle unexpected disconnect (agent died, network lost)
+  useEffect(() => {
+    if (connectionState === ConnectionState.Disconnected && !isEnding) {
+      console.warn('[MobileSession] Unexpected disconnect, ending session...');
+      handleEndRef.current();
+    }
+  }, [connectionState, isEnding]);
+
+  // Timer (uses ref to avoid stale closure)
   useEffect(() => {
     const interval = setInterval(() => {
       setElapsed((prev) => {
         const next = prev + 1;
         if (next >= maxDuration) {
           clearInterval(interval);
-          handleEnd();
+          handleEndRef.current();
           return prev;
         }
         return next;
@@ -64,15 +86,7 @@ export function MobileSessionLayout({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, []);
-
-  const handleEnd = useCallback(() => {
-    if (isEnding) return;
-    setIsEnding(true);
-    const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
-    room.disconnect();
-    onSessionEnd(duration);
-  }, [room, onSessionEnd, isEnding]);
+  }, [maxDuration]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);

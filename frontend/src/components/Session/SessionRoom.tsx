@@ -87,6 +87,7 @@ function DesktopSessionLayout({
   const [isEnding, setIsEnding] = useState(false);
   const [agentAlive, setAgentAlive] = useState(true);
   const lastHeartbeatRef = useRef(Date.now());
+  const handleEndRef = useRef<() => void>(() => {});
 
   // Ensure microphone is enabled (critical for existingRoom flow)
   useEffect(() => {
@@ -129,14 +130,35 @@ function DesktopSessionLayout({
     };
   }, [room]);
 
-  // Timer
+  // handleEnd: single path for ending session (no room.disconnect here - Session.tsx handles it)
+  const handleEnd = useCallback(() => {
+    if (isEnding) return;
+    setIsEnding(true);
+    const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
+    onSessionEnd(duration);
+  }, [onSessionEnd, isEnding]);
+
+  // Keep ref updated so timer/effects always call latest version
+  useEffect(() => {
+    handleEndRef.current = handleEnd;
+  }, [handleEnd]);
+
+  // Auto-handle unexpected disconnect (agent died, network lost)
+  useEffect(() => {
+    if (connectionState === ConnectionState.Disconnected && !isEnding) {
+      console.warn('[SessionRoom] Unexpected disconnect, ending session...');
+      handleEndRef.current();
+    }
+  }, [connectionState, isEnding]);
+
+  // Timer (uses ref to avoid stale closure)
   useEffect(() => {
     const interval = setInterval(() => {
       setElapsed((prev) => {
         const next = prev + 1;
         if (next >= maxDuration) {
           clearInterval(interval);
-          handleEnd();
+          handleEndRef.current();
           return prev;
         }
         return next;
@@ -144,15 +166,7 @@ function DesktopSessionLayout({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, []);
-
-  const handleEnd = useCallback(() => {
-    if (isEnding) return;
-    setIsEnding(true);
-    const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
-    room.disconnect();
-    onSessionEnd(duration);
-  }, [room, onSessionEnd, isEnding]);
+  }, [maxDuration]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -326,7 +340,7 @@ export function SessionRoom({
       token={existingRoom ? undefined : token}
       serverUrl={existingRoom ? undefined : serverUrl}
       connect={!existingRoom}
-      audio={true} // Always enable audio - user needs microphone
+      audio={existingRoom ? false : true} // Let explicit setMicrophoneEnabled handle mic for existingRoom
       video={false}
       options={existingRoom ? undefined : {
         adaptiveStream: true,
