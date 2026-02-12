@@ -87,7 +87,7 @@ export function useFeedback() {
     setState((prev) => ({ ...prev, waitingForTranscript: false, generating: true }));
 
     try {
-      const { error: fnError } = await supabase.functions.invoke(
+      const { data, error: fnError } = await supabase.functions.invoke(
         'generate-feedback',
         {
           body: { session_id: sessionId },
@@ -100,7 +100,11 @@ export function useFeedback() {
             fnError.message?.includes('409')) {
           return true;
         }
-        throw new Error(fnError.message || 'Falha ao gerar feedback');
+        // Read detailed error from Edge Function response body
+        const detailMsg = (data as Record<string, unknown>)?.error as string
+          || fnError.message
+          || 'Falha ao gerar feedback';
+        throw new Error(detailMsg);
       }
 
       // Feedback generated, now fetch it

@@ -25,11 +25,13 @@ from livekit.agents import (
     Agent,
     AgentSession,
     JobContext,
+    UserStateChangedEvent,
     WorkerOptions,
     cli,
     room_io,
 )
-from livekit.plugins import google, silero, simli
+from google.genai.types import Modality
+from livekit.plugins import google, silero, simli, elevenlabs
 
 # Optional avatar providers - import with fallback
 try:
@@ -60,8 +62,9 @@ from emotion_analyzer import (
     EmotionResult,
 )
 from metrics_collector import get_metrics_collector, remove_metrics_collector, MetricsCollector
-from coaching import get_coaching_engine, reset_coaching_engine, CoachingHint
+from coaching import get_coaching_engine, reset_coaching_engine, CoachingHint, HintType
 from ai_coach import get_ai_coach, reset_ai_coach, AISuggestion
+from conversation_coach import ConversationCoach
 
 # Load environment variables
 load_dotenv()
@@ -82,6 +85,9 @@ LIVEAVATAR_AVATAR_ID = os.getenv("LIVEAVATAR_AVATAR_ID", "")
 HEDRA_API_KEY = os.getenv("HEDRA_API_KEY", "")
 HEDRA_AVATAR_ID = os.getenv("HEDRA_AVATAR_ID", "")
 
+# ElevenLabs TTS configuration (half-cascade: Gemini TEXT + ElevenLabs TTS)
+ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID", "")
+
 # Lista de avatares Hedra disponíveis para seleção aleatória
 HEDRA_AVATAR_IDS = [
     "a962cefb-57f3-4ed8-acd9-7260eef703b1",
@@ -101,6 +107,38 @@ EMOTION_TAG_INTENSITY = {
     "entusiasmado": 95, "satisfeito": 80, "receptivo": 70, "curioso": 60,
     "neutro": 50, "hesitante": 35, "cetico": 20, "frustrado": 5,
 }
+
+# Translate PT-BR emotion tags to EN for frontend compatibility
+# Frontend expects: enthusiastic, happy, receptive, curious, neutral, hesitant, skeptical, frustrated
+EMOTION_PT_TO_EN = {
+    "entusiasmado": "enthusiastic",
+    "satisfeito": "happy",
+    "receptivo": "receptive",
+    "curioso": "curious",
+    "neutro": "neutral",
+    "hesitante": "hesitant",
+    "cetico": "skeptical",
+    "frustrado": "frustrated",
+}
+
+
+class EmotionStrippingAgent(Agent):
+    """Agent subclass that strips emotion tags (e.g. [receptivo]) from text before TTS.
+
+    In half-cascade mode (Gemini TEXT + ElevenLabs TTS), the LLM outputs text with
+    emotion tags like "[receptivo] Olá!". These tags are parsed by conversation_item_added
+    for the emotion system, but must NOT reach the TTS engine.
+    """
+
+    async def tts_node(self, text, model_settings):
+        async def _strip_emotion_tags(source):
+            async for chunk in source:
+                cleaned = EMOTION_TAG_PATTERN.sub('', chunk)
+                if cleaned:
+                    yield cleaned
+
+        async for frame in Agent.default.tts_node(self, _strip_emotion_tags(text), model_settings):
+            yield frame
 
 
 def format_transcript_line(speaker: str, text: str) -> str:
@@ -503,7 +541,8 @@ async def _trigger_feedback_impl(session_id: str) -> bool:
         async with aiohttp.ClientSession() as http_session:
             async with http_session.post(url, headers=headers, json={"session_id": session_id}) as response:
                 if response.status != 200:
-                    logger.warning(f"Feedback generation returned {response.status}")
+                    body = await response.text()
+                    logger.warning(f"Feedback generation returned {response.status}: {body[:500]}")
                     return False
                 return True
     except Exception as e:
@@ -554,21 +593,34 @@ async def set_feedback_requested(session_id: str) -> bool:
         return False
 
 
+_END_PHRASES_STRICT = [
+    re.compile(r"\btchau\b", re.IGNORECASE),
+    re.compile(r"\badeus\b", re.IGNORECASE),
+    re.compile(r"\bate logo\b", re.IGNORECASE),
+    re.compile(r"\bate mais\b", re.IGNORECASE),
+    re.compile(r"\bvamos encerrar\b", re.IGNORECASE),
+    re.compile(r"\bpode encerrar\b", re.IGNORECASE),
+    re.compile(r"\bfinalizamos\b", re.IGNORECASE),
+    re.compile(r"\bfinalizar\b", re.IGNORECASE),
+    re.compile(r"\bfoi um prazer\b", re.IGNORECASE),
+    re.compile(r"\bpor hoje e so\b", re.IGNORECASE),
+    re.compile(r"\bvou nessa\b", re.IGNORECASE),
+    re.compile(r"\bencerramos\b", re.IGNORECASE),
+]
+
+
 def detect_session_end(text: str) -> bool:
     """
     Detect if user wants to end the session based on their message.
-    Returns True if session should end.
+    Uses word boundary regex to avoid false positives from substring matching.
+    Only triggers on short phrases (< 10 words) to avoid matching goodbye words
+    embedded in longer sentences like "obrigado pela informação".
     """
-    text_lower = text.lower()
-
-    end_keywords = [
-        "tchau", "adeus", "ate logo", "ate mais", "obrigado", "obrigada",
-        "muito obrigado", "muito obrigada", "foi um prazer", "encerramos",
-        "vamos encerrar", "pode encerrar", "finalizamos", "finalizar",
-        "era isso", "e isso", "por hoje e so", "vou nessa", "falou"
-    ]
-
-    return any(kw in text_lower for kw in end_keywords)
+    text_lower = text.lower().strip()
+    # Only accept short phrases as goodbye (long sentences are likely mid-conversation)
+    if len(text_lower.split()) > 10:
+        return False
+    return any(p.search(text_lower) for p in _END_PHRASES_STRICT)
 
 
 def create_avatar_session(scenario: dict[str, Any]) -> Any | None:
@@ -591,7 +643,7 @@ def create_avatar_session(scenario: dict[str, Any]) -> Any | None:
         logger.info("Avatar disabled via DISABLE_AVATAR environment variable - running audio only")
         return None
 
-    provider = scenario.get('avatar_provider', 'simli')
+    provider = scenario.get('avatar_provider', 'hedra')
     avatar_id = scenario.get('avatar_id')
 
     logger.info(f"Creating avatar session: provider={provider}, avatar_id={avatar_id[:8] if avatar_id else 'None'}...")
@@ -752,18 +804,45 @@ async def entrypoint(ctx: JobContext):
     greeting_instruction = "\n\nIMPORTANTE: Ao iniciar a conversa, cumprimente o usuario de forma breve e natural, como 'Ola! Em que posso ajudar?' Seja direto e amigavel."
     full_instructions = instructions + greeting_instruction
 
-    # Create agent session with Gemini Live API and optimized VAD
-    session = AgentSession(
-        llm=google.realtime.RealtimeModel(
-            voice=voice,  # Dynamic: Puck, Charon, Kore, Fenrir, Aoede
-            temperature=0.6,  # Lower for faster, more focused responses
-            instructions=full_instructions,
+    # Half-cascade architecture: Gemini Realtime (STT+LLM) + ElevenLabs (TTS)
+    # - Gemini receives user audio natively (streaming STT) and outputs TEXT
+    # - ElevenLabs Flash v2.5 synthesizes speech (~75ms TTFB)
+    # - Faster than Gemini native audio output (text generation < audio generation)
+    use_elevenlabs = bool(ELEVEN_VOICE_ID)
+
+    realtime_kwargs: dict[str, Any] = {
+        "model": "gemini-2.5-flash-native-audio-preview-12-2025",
+        "temperature": 0.4,
+        "instructions": full_instructions,
+    }
+    if use_elevenlabs:
+        realtime_kwargs["modalities"] = [Modality.TEXT]
+        logger.info(f"Half-cascade mode: Gemini TEXT + ElevenLabs TTS (voice_id={ELEVEN_VOICE_ID})")
+    else:
+        realtime_kwargs["voice"] = voice
+        logger.info(f"Voice-to-voice mode: Gemini native audio (voice={voice})")
+
+    session_kwargs: dict[str, Any] = {
+        "llm": google.realtime.RealtimeModel(**realtime_kwargs),
+        "vad": silero.VAD.load(
+            min_speech_duration=0.1,
+            min_silence_duration=0.15,
         ),
-        vad=silero.VAD.load(
-            min_speech_duration=0.1,  # Detect shorter speech
-            min_silence_duration=0.2,  # Respond faster after silence (reduced from 0.3)
-        ),
-    )
+        "user_away_timeout": 60.0,
+        "resume_false_interruption": True,
+        "false_interruption_timeout": 1.0,
+    }
+    if use_elevenlabs:
+        session_kwargs["tts"] = elevenlabs.TTS(
+            model="eleven_flash_v2_5",
+            voice_id=ELEVEN_VOICE_ID,
+            language="pt",
+        )
+
+    session = AgentSession(**session_kwargs)
+
+    # Proactive conversation coach (Layer 2: silence/hesitation, zero LLM cost)
+    proactive_coach = ConversationCoach(stuck_timeout=10.0, hesitation_tokens=3)
 
     # Transcript collection
     transcript_lines: list[str] = []
@@ -893,6 +972,20 @@ async def entrypoint(ctx: JobContext):
 
             data = json.dumps(payload)
             await ctx.room.local_participant.publish_data(data.encode('utf-8'))
+
+            # Also set participant attributes for persistent state (Fase 2B)
+            # Attributes persist across reconnections, unlike data channel messages
+            attrs = {"emotion": emotion}
+            if intensity is not None:
+                attrs["emotion_intensity"] = str(intensity)
+            if trend is not None:
+                attrs["emotion_trend"] = trend
+            attrs["turn_count"] = str(len(transcript_lines))
+            try:
+                await ctx.room.local_participant.set_attributes(attrs)
+            except Exception as attr_err:
+                logger.debug(f"Participant attributes update failed: {attr_err}")
+
             logger.debug(f"Sent emotion: {emotion}, intensity={intensity}, trend={trend}, reason={reason}")
         except Exception as e:
             logger.warning(f"Failed to send emotion: {e}")
@@ -935,6 +1028,24 @@ async def entrypoint(ctx: JobContext):
             })
             await ctx.room.local_participant.publish_data(data.encode('utf-8'))
             logger.debug(f"Sent coaching state: methodology={state['methodology']['completion_percentage']}%")
+
+            # Also update participant attributes with SPIN stage (Fase 2B)
+            methodology = state.get("methodology", {})
+            spin_stage = "need_payoff"
+            if not methodology.get("situation"):
+                spin_stage = "situation"
+            elif not methodology.get("problem"):
+                spin_stage = "problem"
+            elif not methodology.get("implication"):
+                spin_stage = "implication"
+            try:
+                await ctx.room.local_participant.set_attributes({
+                    "spin_stage": spin_stage,
+                    "spin_completion": str(methodology.get("completion_percentage", 0)),
+                })
+            except Exception as attr_err:
+                logger.debug(f"SPIN attributes update failed: {attr_err}")
+
         except Exception as e:
             logger.warning(f"Failed to send coaching state: {e}")
 
@@ -1074,13 +1185,44 @@ async def entrypoint(ctx: JobContext):
                 logger.info(f"Added user line to transcript, total lines: {len(transcript_lines)}")
                 # Save transcript immediately (debounced to prevent DB overload)
                 asyncio.create_task(save_transcript_debounced())
-                # Check for early session end
-                if detect_session_end(text) and not early_end_triggered:
+                # Check for early session end (with 15s cooldown after greeting to avoid echo)
+                _greeting_elapsed = time.time() - _greeting_trigger_time if _greeting_trigger_time > 0 else 999
+                if _greeting_elapsed > 15 and detect_session_end(text) and not early_end_triggered:
                     early_end_triggered = True
                     logger.info("User requested session end, will terminate after response")
                     asyncio.create_task(handle_early_end())
 
-                # Analyze user message for coaching hints (keyword-based) - only in training mode
+                # Layer 2: Proactive coach — hesitation detection (zero LLM cost)
+                if coaching_enabled:
+                    proactive_coach.reset_timer()  # User spoke → reset silence watchdog
+                    # Get current SPIN stage for context-aware nudge
+                    _spin_stage = "default"
+                    try:
+                        _methodology = get_coaching_engine()._methodology
+                        if not _methodology.situation:
+                            _spin_stage = "situation"
+                        elif not _methodology.problem:
+                            _spin_stage = "problem"
+                        elif not _methodology.implication:
+                            _spin_stage = "implication"
+                        elif not _methodology.need_payoff:
+                            _spin_stage = "need_payoff"
+                    except Exception:
+                        pass
+
+                    _hesitation_hint = proactive_coach.check_hesitation(text, _spin_stage)
+                    if _hesitation_hint:
+                        _h = CoachingHint(
+                            id=f"proactive_hesitation_{int(time.time())}",
+                            type=HintType.SUGGESTION,
+                            title="Elabore mais",
+                            message=_hesitation_hint.text,
+                            priority=3,
+                        )
+                        asyncio.create_task(send_coaching_hint(_h))
+                        logger.info(f"Proactive hesitation nudge: {_hesitation_hint.reason}")
+
+                # Layer 1: Keyword coaching hints - only in training mode
                 if coaching_enabled:
                     async def analyze_user_coaching():
                         try:
@@ -1148,6 +1290,24 @@ async def entrypoint(ctx: JobContext):
             asyncio.create_task(send_transcription_to_room("user", text, is_final))
             asyncio.create_task(send_status_to_room("Processando resposta..."))
 
+    # Agent state tracking for latency diagnostics (Fase 1B)
+    _agent_thinking_start: float = 0.0
+
+    @session.on("agent_state_changed")
+    def on_agent_state_changed(ev):
+        nonlocal _agent_thinking_start
+        if ev.new_state == "thinking":
+            _agent_thinking_start = time.time()
+        elif ev.new_state == "speaking" and _agent_thinking_start > 0:
+            thinking_ms = (time.time() - _agent_thinking_start) * 1000
+            _agent_thinking_start = 0.0
+            asyncio.create_task(send_latency_event(
+                "agent_thinking", thinking_ms, "Agent Think→Speak",
+                f"state={ev.new_state}"
+            ))
+            if thinking_ms > 2000:
+                logger.warning(f"[Latency] Agent thinking took {thinking_ms:.0f}ms (>2s)")
+
     @session.on("conversation_item_added")
     def on_conversation_item(event):
         """Called when a new conversation item is added (user or assistant message)."""
@@ -1185,10 +1345,12 @@ async def entrypoint(ctx: JobContext):
                     clean_text = text[emotion_tag_match.end():]  # Remove tag from text
                     # Send emotion INSTANTLY (no wait for Gemini Flash analysis)
                     tag_intensity = EMOTION_TAG_INTENSITY.get(emotion_tag, 50)
+                    # Translate PT-BR tag to EN for frontend compatibility
+                    emotion_en = EMOTION_PT_TO_EN.get(emotion_tag, "neutral")
                     asyncio.create_task(send_emotion_to_room(
-                        emotion_tag, tag_intensity, None, f"Avatar: {emotion_tag}"
+                        emotion_en, tag_intensity, None, f"Avatar: {emotion_en}"
                     ))
-                    logger.debug(f"Emotion tag extracted: [{emotion_tag}] -> intensity {tag_intensity}")
+                    logger.debug(f"Emotion tag extracted: [{emotion_tag}] -> {emotion_en}, intensity {tag_intensity}")
 
                 # Add timestamped line to transcript (WITHOUT emotion tag)
                 transcript_lines.append(format_transcript_line("Avatar", clean_text))
@@ -1206,30 +1368,28 @@ async def entrypoint(ctx: JobContext):
                 asyncio.create_task(send_transcription_to_room("avatar", clean_text))
                 asyncio.create_task(send_status_to_room("Ouvindo..."))
 
-                # Background emotion analysis via Gemini Flash (calibration, runs even if tag was extracted)
-                async def analyze_and_send_emotion():
-                    try:
-                        _emo_start = time.time()
-                        result = await analyze_emotion_with_intensity(clean_text, transcript_lines)
-                        _emo_ms = (time.time() - _emo_start) * 1000
-                        asyncio.create_task(send_latency_event("emotion_analysis", _emo_ms, "Emotion AI", result.get("state", "?")))
-                        # Only send if no tag was already extracted (avoid overriding instant update)
-                        if not emotion_tag_match:
+                # Background emotion analysis via Gemini Flash
+                # Skip if emotion tag was already extracted (saves 1 API call per turn)
+                if not emotion_tag_match:
+                    async def analyze_and_send_emotion():
+                        try:
+                            _emo_start = time.time()
+                            result = await analyze_emotion_with_intensity(clean_text, transcript_lines)
+                            _emo_ms = (time.time() - _emo_start) * 1000
+                            asyncio.create_task(send_latency_event("emotion_analysis", _emo_ms, "Emotion AI", result.get("state", "?")))
                             await send_emotion_to_room(
                                 result["state"],
                                 result["intensity"],
                                 result["trend"],
                                 result.get("reason")
                             )
-                        # Track Gemini Flash call for emotion analysis
-                        metrics.record_gemini_flash_call(input_tokens=100, output_tokens=5)
-                    except Exception as e:
-                        logger.warning(f"AI emotion analysis failed, using fallback: {e}")
-                        if not emotion_tag_match:
+                            metrics.record_gemini_flash_call(input_tokens=100, output_tokens=5)
+                        except Exception as e:
+                            logger.warning(f"AI emotion analysis failed, using fallback: {e}")
                             emotion = analyze_emotion_sync(clean_text)
                             await send_emotion_to_room(emotion)
 
-                asyncio.create_task(analyze_and_send_emotion())
+                    asyncio.create_task(analyze_and_send_emotion())
 
                 # Analyze avatar message for coaching (objection detection) - only in training mode
                 if coaching_enabled:
@@ -1342,7 +1502,12 @@ async def entrypoint(ctx: JobContext):
     shutdown_event = asyncio.Event()
 
     # PRD 08, US-14: Session timeout from scenario config (fallback to 3 minutes)
-    session_timeout_seconds = scenario.get('duration_max_seconds', 180)
+    # Null safety: duration_max_seconds may be None in DB even if key exists
+    _raw_timeout = scenario.get('duration_max_seconds')
+    session_timeout_seconds = (
+        _raw_timeout if isinstance(_raw_timeout, (int, float)) and _raw_timeout > 0
+        else 180
+    )
     logger.info(f"Session timeout configured: {session_timeout_seconds}s (from scenario)")
     timeout_task: asyncio.Task | None = None
 
@@ -1498,23 +1663,7 @@ async def entrypoint(ctx: JobContext):
         await send_status_to_room("Iniciando sessao...")
 
         # Start session (must be awaited!)
-        await session.start(
-            room=ctx.room,
-            agent=Agent(instructions=full_instructions),
-            room_input_options=room_io.RoomInputOptions(
-                audio_enabled=True,
-                video_enabled=False,
-                close_on_disconnect=False,
-            ),
-        )
-        logger.info("Session started successfully")
-        logger.info(f"Event handlers registered: user_input_transcribed, conversation_item_added")
-        logger.info(f"Transcript collection initialized, current lines: {len(transcript_lines)}")
-
-        # Start metrics collection
-        metrics.start_session()
-
-        # Start avatar in parallel (with timeout)
+        # Start avatar BEFORE session (official LiveKit pattern from examples/avatars/hedra/)
         if avatar:
             await send_status_to_room("Iniciando avatar...")
             avatar_result = await start_avatar_with_timeout(avatar, session, ctx.room)
@@ -1524,6 +1673,24 @@ async def entrypoint(ctx: JobContext):
                 avatar = None  # Disable avatar if failed
                 avatar_failed = True  # PRD 08: Track avatar failure
                 logger.info("Avatar failed flag set - will be recorded in session")
+
+        # Use EmotionStrippingAgent in half-cascade mode to remove [tag] before TTS
+        agent_cls = EmotionStrippingAgent if use_elevenlabs else Agent
+        await session.start(
+            room=ctx.room,
+            agent=agent_cls(instructions=full_instructions),
+            room_options=room_io.RoomOptions(
+                audio_input=True,
+                video_input=False,
+                close_on_disconnect=False,
+            ),
+        )
+        logger.info("Session started successfully")
+        logger.info(f"Event handlers registered: user_input_transcribed, conversation_item_added")
+        logger.info(f"Transcript collection initialized, current lines: {len(transcript_lines)}")
+
+        # Start metrics collection
+        metrics.start_session()
 
         await send_status_to_room("Conectado! Aguardando...")
 
@@ -1602,19 +1769,53 @@ async def entrypoint(ctx: JobContext):
 
             asyncio.create_task(generate_initial_coach_suggestion())
 
+        # Start proactive coach watchdog (Layer 2: silence detection)
+        if coaching_enabled:
+            async def _on_silence_detected():
+                """Called by ConversationCoach when user is silent > stuck_timeout."""
+                nudge = proactive_coach.get_silence_nudge()
+                hint = CoachingHint(
+                    id=f"proactive_silence_{int(time.time())}",
+                    type=HintType.SUGGESTION,
+                    title="Retome a conversa",
+                    message=nudge.text,
+                    priority=2,
+                )
+                await send_coaching_hint(hint)
+                logger.info(f"Proactive silence nudge sent: {nudge.text}")
+
+            proactive_coach.start_watchdog(_on_silence_detected)
+
         await send_status_to_room("Ouvindo...")
         logger.info("Session ready and listening")
 
         # When session.shutdown(drain=True) finishes, resolve shutdown_event
+        # Enhanced close handler (pattern from session_close_callback.py):
+        # saves final transcript and updates session status before signaling shutdown
         @session.on("close")
         def on_session_close():
+            _elapsed = time.time() - _session_start_time
             logger.warning(
                 f"SHUTDOWN_TRIGGER: source='session_close', "
-                f"elapsed={time.time() - _session_start_time:.1f}s, "
+                f"elapsed={_elapsed:.1f}s, "
                 f"lines={len(transcript_lines)}, "
                 f"greeting={_greeting_received}, "
                 f"participants={len(ctx.room.remote_participants)}"
             )
+
+            # Schedule final transcript save (fire-and-forget)
+            async def _final_cleanup():
+                try:
+                    if transcript_lines and session_id:
+                        await save_intermediate_transcript(
+                            session_id, transcript_lines, status="completed"
+                        )
+                        logger.info(f"Final transcript saved on close: {len(transcript_lines)} lines")
+                except Exception as e:
+                    logger.warning(f"Final transcript save on close failed: {e}")
+
+            asyncio.create_task(_final_cleanup())
+
             if not shutdown_event.is_set():
                 shutdown_event.set()
 
@@ -1626,6 +1827,49 @@ async def entrypoint(ctx: JobContext):
                 f"elapsed={time.time() - _session_start_time:.1f}s, "
                 f"lines={len(transcript_lines)}"
             )
+
+        # User inactivity handler (pattern from LiveKit inactive_user.py)
+        # When user_away_timeout=60s triggers "away" state, ping them twice
+        # before gracefully shutting down the session.
+        _inactivity_task: asyncio.Task | None = None
+
+        async def _user_presence_pings():
+            """Ping inactive user twice, then shutdown if no response."""
+            prompts_ptbr = [
+                "Esta tudo bem? Quer continuar com o roleplay?",
+                "Se quiser, podemos retomar. Estou aqui.",
+            ]
+            for prompt in prompts_ptbr:
+                try:
+                    session.generate_reply(
+                        instructions=f"Diga ao usuario exatamente: '{prompt}'"
+                    )
+                except Exception as e:
+                    logger.warning(f"Inactivity ping failed: {e}")
+                await asyncio.sleep(30)
+            # No response after 2 pings (60s total since away) — graceful shutdown
+            logger.info("User unresponsive after inactivity pings — shutting down")
+            await send_status_to_room("Encerrando por inatividade...")
+            try:
+                session.shutdown(drain=True)
+            except Exception as e:
+                logger.warning(f"Inactivity shutdown failed: {e}")
+                shutdown_event.set()
+
+        @session.on("user_state_changed")
+        def on_user_state_changed(ev: UserStateChangedEvent):
+            nonlocal _inactivity_task
+            if ev.new_state == "away":
+                # Cancel any existing inactivity task before creating new one
+                if _inactivity_task and not _inactivity_task.done():
+                    _inactivity_task.cancel()
+                logger.info("User went away — starting inactivity pings")
+                _inactivity_task = asyncio.create_task(_user_presence_pings())
+            elif _inactivity_task is not None:
+                # User came back — cancel inactivity flow
+                logger.info(f"User returned (state={ev.new_state}) — cancelling inactivity pings")
+                _inactivity_task.cancel()
+                _inactivity_task = None
 
         # Keep the session running until room disconnects
         await shutdown_event.wait()
@@ -1640,6 +1884,45 @@ async def entrypoint(ctx: JobContext):
         )
         await send_status_to_room(f"Erro: {str(e)}")
         raise
+
+    finally:
+        # Guaranteed cleanup — runs on normal shutdown, exceptions, and cancellation
+        # Each step is individually wrapped to ensure later steps still execute
+        logger.info("Entering finally cleanup block...")
+
+        # Cancel background tasks (individually wrapped)
+        try:
+            if transcript_save_task and not transcript_save_task.done():
+                transcript_save_task.cancel()
+        except Exception as e:
+            logger.warning(f"Finally: transcript task cancel failed: {e}")
+
+        try:
+            if _inactivity_task and not _inactivity_task.done():
+                _inactivity_task.cancel()
+        except Exception as e:
+            logger.warning(f"Finally: inactivity task cancel failed: {e}")
+
+        try:
+            proactive_coach.stop()  # Stop silence watchdog
+        except Exception as e:
+            logger.warning(f"Finally: proactive coach stop failed: {e}")
+
+        # Final transcript save with 'completed' status (belt-and-suspenders with close handler)
+        try:
+            if transcript_lines and session_id:
+                await save_intermediate_transcript(
+                    session_id, transcript_lines, status="completed"
+                )
+                logger.info(f"Finally: final transcript saved ({len(transcript_lines)} lines)")
+        except Exception as e:
+            logger.warning(f"Finally: transcript save failed: {e}")
+
+        _total_elapsed = time.time() - _session_start_time
+        logger.info(
+            f"Session cleanup complete: elapsed={_total_elapsed:.1f}s, "
+            f"lines={len(transcript_lines)}, greeting={_greeting_received}"
+        )
 
 
 if __name__ == "__main__":

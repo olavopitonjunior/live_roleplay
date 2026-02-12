@@ -50,6 +50,27 @@ function getFriendlyError(error: string): {
       canRetry: true,
     };
   }
+  if (error.includes('API not configured') || error.includes('ANTHROPIC_API_KEY')) {
+    return {
+      title: 'Servico indisponivel',
+      message: 'O servico de avaliacao esta temporariamente indisponivel. Tente novamente mais tarde.',
+      canRetry: true,
+    };
+  }
+  if (error.includes('parse') || error.includes('AI response') || error.includes('JSON')) {
+    return {
+      title: 'Erro na analise',
+      message: 'Erro ao processar a resposta da IA. Tente novamente.',
+      canRetry: true,
+    };
+  }
+  if (error.includes('non-2xx') || error.includes('Edge Function')) {
+    return {
+      title: 'Erro no servico',
+      message: 'Erro no servico de feedback. Tente recarregar a pagina.',
+      canRetry: true,
+    };
+  }
   return {
     title: 'Erro ao carregar feedback',
     message: error,

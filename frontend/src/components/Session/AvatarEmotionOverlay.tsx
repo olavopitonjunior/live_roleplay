@@ -121,7 +121,9 @@ export function AvatarEmotionOverlay({
 
         if (data.type === 'emotion') {
           const newIntensity = typeof data.intensity === 'number' ? data.intensity : 50;
-          const newEmotion = data.value as EmotionState || getEmotionFromIntensity(newIntensity);
+          const newEmotion = (data.value && data.value in EMOTION_VISUALS)
+            ? data.value as EmotionState
+            : getEmotionFromIntensity(newIntensity);
 
           // Trigger change animation if emotion changed
           if (newEmotion !== emotion) {

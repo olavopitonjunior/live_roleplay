@@ -90,7 +90,13 @@ function DesktopSessionLayout({
   const handleEndRef = useRef<() => void>(() => {});
 
   // Ensure microphone is enabled (critical for existingRoom flow)
+  // In E2E mode, skip mic to prevent WebRTC ICE renegotiation crash in headless Chromium
   useEffect(() => {
+    const isE2E = typeof window !== 'undefined' && localStorage.getItem('e2e_mode') === 'true';
+    if (isE2E) {
+      console.log('[SessionRoom] E2E mode: skipping mic enablement');
+      return;
+    }
     if (room.localParticipant && !room.localParticipant.isMicrophoneEnabled) {
       console.log('[SessionRoom] Mic not enabled, enabling now...');
       room.localParticipant.setMicrophoneEnabled(true).catch(err => {
@@ -100,13 +106,23 @@ function DesktopSessionLayout({
   }, [room]);
 
   // Heartbeat monitor: detect if agent dies
+  // In E2E mode, also expose all data messages to window for test capture
   useEffect(() => {
+    const isE2E = typeof window !== 'undefined' && localStorage.getItem('e2e_mode') === 'true';
+    if (isE2E) {
+      (window as any).__testDataMessages = (window as any).__testDataMessages || [];
+    }
+
     const onData = (payload: Uint8Array) => {
       try {
         const msg = JSON.parse(new TextDecoder().decode(payload));
         if (msg.type === 'heartbeat') {
           lastHeartbeatRef.current = Date.now();
           setAgentAlive(true);
+        }
+        // Expose to E2E tests
+        if (isE2E) {
+          (window as any).__testDataMessages.push({ ...msg, _capturedAt: Date.now() });
         }
       } catch { /* ignore non-JSON */ }
     };
@@ -143,11 +159,15 @@ function DesktopSessionLayout({
     handleEndRef.current = handleEnd;
   }, [handleEnd]);
 
-  // Auto-handle unexpected disconnect (agent died, network lost)
+  // Auto-handle unexpected disconnect with grace period for reconnection
   useEffect(() => {
     if (connectionState === ConnectionState.Disconnected && !isEnding) {
-      console.warn('[SessionRoom] Unexpected disconnect, ending session...');
-      handleEndRef.current();
+      console.warn('[SessionRoom] Disconnect detected, waiting 5s for reconnection...');
+      const timeout = setTimeout(() => {
+        // Only end if still disconnected after grace period
+        handleEndRef.current();
+      }, 5000);
+      return () => clearTimeout(timeout);
     }
   }, [connectionState, isEnding]);
 
@@ -334,13 +354,14 @@ export function SessionRoom({
 }: SessionRoomProps) {
   // If we have an existing room from useAgentConnection, use it
   // Otherwise, let LiveKitRoom create a new connection
+  // IMPORTANT: Never pass connect={false} — LiveKitRoom disconnects the room when connect is false.
+  // When existingRoom is provided with token=undefined, LiveKitRoom skips connecting (no-op).
   return (
     <LiveKitRoom
       room={existingRoom ?? undefined}
       token={existingRoom ? undefined : token}
       serverUrl={existingRoom ? undefined : serverUrl}
-      connect={!existingRoom}
-      audio={existingRoom ? false : true} // Let explicit setMicrophoneEnabled handle mic for existingRoom
+      audio={existingRoom ? false : true}
       video={false}
       options={existingRoom ? undefined : {
         adaptiveStream: true,

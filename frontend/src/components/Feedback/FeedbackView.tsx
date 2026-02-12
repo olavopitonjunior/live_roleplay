@@ -168,7 +168,7 @@ export function FeedbackView({
               : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
-          Criterios ({hasRubricScores ? feedback.criteria_scores!.length : feedback.criteria_results.length})
+          Criterios ({hasRubricScores ? feedback.criteria_scores!.length : (feedback.criteria_results?.length ?? 0)})
         </button>
         {transcript && (
           <button
@@ -221,8 +221,8 @@ export function FeedbackView({
             ) : (
               /* Legacy pass/fail display */
               <CriteriaChecklist
-                results={feedback.criteria_results}
-                criteria={scenario.evaluation_criteria}
+                results={feedback.criteria_results ?? []}
+                criteria={scenario.evaluation_criteria ?? []}
               />
             )}
 

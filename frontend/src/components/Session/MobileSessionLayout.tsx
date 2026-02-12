@@ -41,7 +41,13 @@ export function MobileSessionLayout({
   const handleEndRef = useRef<() => void>(() => {});
 
   // Ensure microphone is enabled (critical for existingRoom flow)
+  // In E2E mode, skip mic to prevent WebRTC ICE renegotiation crash in headless Chromium
   useEffect(() => {
+    const isE2E = typeof window !== 'undefined' && localStorage.getItem('e2e_mode') === 'true';
+    if (isE2E) {
+      console.log('[MobileSession] E2E mode: skipping mic enablement');
+      return;
+    }
     if (room.localParticipant && !room.localParticipant.isMicrophoneEnabled) {
       console.log('[MobileSession] Mic not enabled, enabling now...');
       room.localParticipant.setMicrophoneEnabled(true).catch(err => {

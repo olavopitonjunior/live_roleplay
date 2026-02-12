@@ -14,9 +14,17 @@
     "setup": "npx supabase link --project-ref lzjixdhzejnknhxpcnlc && npm run db:push && npm run functions:deploy",
     "verify": "node tests/automated-verify.js",
     "verify:json": "node tests/automated-verify.js --json",
-    "verify:headed": "node tests/automated-verify.js --headed"
+    "verify:headed": "node tests/automated-verify.js --headed",
+    "test:e2e": "npx playwright test --config tests/playwright.config.ts",
+    "test:e2e:headed": "npx playwright test --config tests/playwright.config.ts --headed",
+    "test:e2e:fase0": "npx playwright test --config tests/playwright.config.ts tests/e2e/fase0/",
+    "test:e2e:fase1": "npx playwright test --config tests/playwright.config.ts tests/e2e/fase1/",
+    "test:e2e:fase2": "npx playwright test --config tests/playwright.config.ts tests/e2e/fase2/",
+    "test:e2e:full": "npx playwright test --config tests/playwright.config.ts tests/e2e/full-flow.spec.ts",
+    "test:qa": "npm run test:e2e"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "dotenv": "^17.2.3",
     "livekit-server-sdk": "^2.15.0",
     "pg": "^8.17.2",
