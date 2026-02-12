@@ -10,10 +10,10 @@ Interface única para web e mobile. Conecta à sala LiveKit para receber áudio 
 **Backend (Supabase)**
 Armazena cenários configurados, sessões e feedbacks. Edge Functions processam a geração de feedback pós-sessão via Claude API.
 
-**Agente Conversacional (LiveKit Agents + OpenAI + Simli)**
+**Agente Conversacional (LiveKit Agents + Gemini + Hedra)**
 - LiveKit Agents orquestra a sessão e gerencia a comunicação WebRTC
-- OpenAI Realtime API processa a conversa (STT + LLM + TTS integrados)
-- Simli gera o avatar visual com lip-sync sincronizado ao áudio
+- Google Gemini Live API processa a conversa (voice-to-voice)
+- Hedra gera o avatar visual com lip-sync sincronizado ao áudio
 
 **Geração de Feedback (Claude API)**
 Ao final da sessão, a transcrição é enviada para Claude API que avalia contra os critérios configurados no cenário.
@@ -48,13 +48,15 @@ Ao final da sessão, a transcrição é enviada para Claude API que avalia contr
 **Agente**
 - Python 3.11+
 - LiveKit Agents SDK (livekit-agents)
-- Plugin OpenAI (livekit-plugins-openai)
-- Plugin Simli (livekit-plugins-simli)
+- Plugin Google (livekit-plugins-google)
+- Plugin ElevenLabs (livekit-plugins-elevenlabs)
+- Plugin Hedra (livekit-plugins-hedra)
 
 **APIs Externas**
 - LiveKit Cloud (salas e comunicação WebRTC)
-- OpenAI Realtime API (conversa)
-- Simli API (avatar)
+- Google Gemini Realtime API (STT + LLM)
+- ElevenLabs TTS (síntese de voz - half-cascade)
+- Hedra API (avatar)
 - Claude API (geração de feedback)
 
 **Infraestrutura**
@@ -235,28 +237,40 @@ Avaliações geradas após cada sessão.
 - LiveKit Agents SDK gerencia conexão
 - Publica áudio/vídeo via plugins
 
-### OpenAI Realtime API
-**Propósito:** Processar conversa em tempo real (STT + LLM + TTS).
+### Google Gemini Realtime API
+**Propósito:** Processar conversa em tempo real (STT + LLM).
 
 **Configuração necessária:**
-- OPENAI_API_KEY
+- GOOGLE_API_KEY
 
 **Uso no agente:**
-- Plugin livekit-plugins-openai
-- Modelo: gpt-4o-realtime
-- Voice: configurável (ex: "alloy")
+- Plugin livekit-plugins-google
+- Modelo: gemini-2.5-flash-native-audio-preview
+- Modo half-cascade: `modalities=[Modality.TEXT]` + ElevenLabs TTS
 - Instructions: montado dinamicamente com contexto do cenário
 
-### Simli API
-**Propósito:** Gerar avatar visual com lip-sync.
+### ElevenLabs TTS
+**Propósito:** Síntese de voz de baixa latência (half-cascade mode).
 
-**Configuração necessária:**
-- SIMLI_API_KEY
-- SIMLI_FACE_ID (avatar escolhido)
+**Configuração necessária (opcional):**
+- ELEVEN_API_KEY
+- ELEVEN_VOICE_ID
 
 **Uso no agente:**
-- Plugin livekit-plugins-simli
-- Recebe áudio do OpenAI e gera vídeo sincronizado
+- Plugin livekit-plugins-elevenlabs
+- Modelo: eleven_flash_v2_5 (~75ms TTFB)
+- Se não configurado, fallback para Gemini voice-to-voice nativo
+
+### Hedra API
+**Propósito:** Gerar avatar visual com lip-sync (Character-3).
+
+**Configuração necessária:**
+- HEDRA_API_KEY
+- HEDRA_AVATAR_ID (avatar escolhido)
+
+**Uso no agente:**
+- Plugin livekit-plugins-hedra
+- Recebe áudio do Gemini e gera vídeo sincronizado
 - Publica vídeo na sala LiveKit
 
 ### Claude API
@@ -507,7 +521,7 @@ Seja específico nas observações, citando trechos da conversa quando relevante
 
 ### Fase 3: Agente
 1. Criar projeto do agente Python
-2. Configurar LiveKit Agents + OpenAI + Simli
+2. Configurar LiveKit Agents + Gemini + Hedra
 3. Implementar montagem dinâmica do prompt
 4. Testar conversa localmente
 

@@ -14,9 +14,9 @@ const GEMINI_VOICES: { value: GeminiVoice; label: string; description: string }[
 ];
 
 const AVATAR_PROVIDERS: { value: AvatarProvider; label: string; description: string }[] = [
-  { value: 'simli', label: 'Simli', description: 'Avatar padrao com lip-sync' },
-  { value: 'liveavatar', label: 'HeyGen (LiveAvatar)', description: 'Avatar mais expressivo' },
-  { value: 'hedra', label: 'Hedra', description: 'Avatar expressivo alternativo' },
+  { value: 'hedra', label: 'Hedra', description: 'Avatar padrao com lip-sync (Character-3)' },
+  { value: 'simli', label: 'Simli', description: 'Avatar legacy' },
+  { value: 'liveavatar', label: 'HeyGen (LiveAvatar)', description: 'Avatar legacy' },
 ];
 
 interface ScenarioFormProps {
@@ -52,7 +52,7 @@ const emptyFormData: ScenarioFormData = {
   ideal_outcome: '',
   simli_face_id: '',
   gemini_voice: 'Puck',
-  avatar_provider: 'simli',
+  avatar_provider: 'hedra',
   avatar_id: '',
   is_active: true,
 };
@@ -237,7 +237,7 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
           ideal_outcome: generatedData.ideal_outcome,
           simli_face_id: '',
           gemini_voice: generatedData.suggested_voice || 'Puck',
-          avatar_provider: 'simli',
+          avatar_provider: 'hedra',
           avatar_id: '',
           is_active: true,
         });
@@ -255,7 +255,7 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
           ideal_outcome: scenario.ideal_outcome || '',
           simli_face_id: scenario.simli_face_id || '',
           gemini_voice: scenario.gemini_voice || 'Puck',
-          avatar_provider: scenario.avatar_provider || 'simli',
+          avatar_provider: scenario.avatar_provider || 'hedra',
           avatar_id: scenario.avatar_id || '',
           is_active: scenario.is_active,
         });
@@ -492,7 +492,7 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
               Provedor do Avatar
             </label>
             <select
-              value={formData.avatar_provider || 'simli'}
+              value={formData.avatar_provider || 'hedra'}
               onChange={(e) =>
                 setFormData(prev => ({
                   ...prev,

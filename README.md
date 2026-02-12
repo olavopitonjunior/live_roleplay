@@ -6,7 +6,7 @@ Plataforma de treinamento com IA onde usuarios praticam vendas e negociacao atra
 
 - **Frontend**: React 18 + Vite + TypeScript + Tailwind CSS (PWA)
 - **Backend**: Supabase (PostgreSQL + Edge Functions)
-- **Agente**: Python + LiveKit Agents + Gemini Live API + Simli
+- **Agente**: Python + LiveKit Agents + Gemini Live API + ElevenLabs TTS + Hedra
 - **Feedback**: Claude API
 
 ## Estrutura do Projeto
@@ -66,8 +66,10 @@ LIVEKIT_URL=wss://seu-projeto.livekit.cloud
 LIVEKIT_API_KEY=...
 LIVEKIT_API_SECRET=...
 GOOGLE_API_KEY=...
-SIMLI_API_KEY=...
-SIMLI_FACE_ID=...
+HEDRA_API_KEY=...
+HEDRA_AVATAR_ID=...
+ELEVEN_API_KEY=...          # Opcional: habilita half-cascade (ElevenLabs TTS)
+ELEVEN_VOICE_ID=...         # Opcional: voice ID do ElevenLabs
 SUPABASE_URL=https://seu-projeto.supabase.co
 SUPABASE_SERVICE_KEY=...
 ```
@@ -84,11 +86,11 @@ SUPABASE_SERVICE_KEY=...
 2. Crie um novo projeto
 3. Copie as credenciais (API Key e Secret)
 
-### 6. Simli (Avatar)
+### 6. Hedra (Avatar)
 
-1. Crie uma conta no [Simli](https://simli.com)
+1. Crie uma conta no [Hedra](https://www.hedra.com)
 2. Obtenha sua API Key
-3. Escolha um Face ID para o avatar
+3. Escolha um Avatar ID (Character-3)
 
 ## Rodando o Projeto
 
@@ -144,8 +146,9 @@ O banco ja vem com 3 cenarios pre-configurados:
 | Servico | Proposito |
 |---------|-----------|
 | LiveKit Cloud | Comunicacao WebRTC em tempo real |
-| Gemini Live API | Conversacao em tempo real (STT + LLM + TTS) |
-| Simli | Avatar visual com lip-sync |
+| Gemini Live API | Conversacao em tempo real (STT + LLM) |
+| ElevenLabs | TTS de baixa latencia - half-cascade (~75ms TTFB) |
+| Hedra | Avatar visual com lip-sync (Character-3) |
 | Claude | Analise e geracao de feedback |
 
 ## Fluxo do Usuario

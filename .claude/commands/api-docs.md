@@ -11,7 +11,7 @@ O projeto integra as seguintes APIs externas:
 | **LiveKit** | WebRTC, rooms, tokens | https://docs.livekit.io |
 | **LiveKit Agents (Python)** | Orquestração do agente | https://docs.livekit.io/agents |
 | **Google Gemini Live API** | Conversação em tempo real (STT+LLM+TTS) | https://ai.google.dev/gemini-api/docs |
-| **Simli** | Avatar com lip-sync | https://docs.simli.com |
+| **Hedra** | Avatar com lip-sync (Character-3) | https://www.hedra.com/docs |
 | **Anthropic/Claude** | Geração de feedback | https://docs.anthropic.com |
 | **Supabase** | Database, Auth, Edge Functions | https://supabase.com/docs |
 
@@ -25,7 +25,7 @@ Quando o usuário invocar `/api-docs`, você deve:
    - LiveKit: https://docs.livekit.io
    - LiveKit Agents: https://docs.livekit.io/agents
    - Gemini: https://ai.google.dev/gemini-api/docs
-   - Simli: https://docs.simli.com
+   - Hedra: https://www.hedra.com/docs
    - Anthropic: https://docs.anthropic.com/en/docs
    - Supabase: https://supabase.com/docs
 
@@ -47,7 +47,7 @@ Quando o usuário invocar `/api-docs`, você deve:
 
 ### LiveKit Agents (Python)
 - AgentSession e ciclo de vida
-- Plugins (google, simli, silero)
+- Plugins (google, hedra, silero)
 - Event handlers (on_user_input_transcribed, on_agent_speech_committed)
 - VAD (Voice Activity Detection)
 
@@ -57,8 +57,8 @@ Quando o usuário invocar `/api-docs`, você deve:
 - Streaming de áudio
 - System instructions
 
-### Simli
-- Configuração de face_id
+### Hedra
+- Configuração de avatar_id (Character-3)
 - AvatarSession
 - Sincronização labial
 - Qualidade de vídeo
@@ -84,7 +84,7 @@ Resposta esperada: Buscar na documentação do LiveKit Agents sobre Silero VAD, 
 ## Contexto do Projeto
 
 Arquivos relevantes para entender o uso das APIs:
-- `agent/main.py` - Integração com LiveKit Agents, Gemini, Simli
+- `agent/main.py` - Integração com LiveKit Agents, Gemini, Hedra
 - `agent/prompts.py` - Prompts para Gemini e Claude
 - `frontend/src/hooks/useSession.ts` - Chamadas ao Supabase
 - `supabase/functions/create-livekit-token/` - Geração de tokens
