@@ -100,9 +100,9 @@ Checklist que define o que será analisado no feedback. Ex:
 ## 6. Requisitos Técnicos
 
 **Avatar Conversacional**
-- Solução all-in-one (Tavus, Simli ou HeyGen Streaming)
+- Hedra Character-3 para avatar com lip-sync em tempo real
 - Latência aceitável para conversa fluida (alvo: < 2 segundos)
-- Lip-sync com áudio gerado
+- Lip-sync sincronizado com áudio gerado via ElevenLabs TTS
 
 **Plataforma**
 - Web responsivo
