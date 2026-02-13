@@ -44,6 +44,7 @@ export function useAgentConnection({
   const roomRef = useRef<Room | null>(null);
   const retryCountRef = useRef(0);
   const stateRef = useRef<AgentConnectionState>('idle'); // Track state for closures
+  const disconnectedRef = useRef(false); // Guard against double-disconnect
 
   // Wrapper to update both state and ref (fixes closure issues)
   const setState = useCallback((newState: AgentConnectionState) => {
@@ -60,8 +61,12 @@ export function useAgentConnection({
   }, []);
 
   const disconnect = useCallback(() => {
+    if (disconnectedRef.current) {
+      console.log('[AgentConnection] disconnect() skipped — already disconnected');
+      return;
+    }
+    disconnectedRef.current = true;
     console.log('[AgentConnection] disconnect() called, current state:', stateRef.current);
-    console.trace('[AgentConnection] disconnect stack trace');
     clearConnectionTimeout();
     if (roomRef.current) {
       console.log('[AgentConnection] Disconnecting room...');
@@ -105,6 +110,7 @@ export function useAgentConnection({
     }
     clearConnectionTimeout();
 
+    disconnectedRef.current = false; // Reset guard for new connection
     setState('connecting');
     setError(null);
 
@@ -207,6 +213,10 @@ export function useAgentConnection({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (disconnectedRef.current) {
+        console.log('[AgentConnection] Cleanup: already disconnected, skipping');
+        return;
+      }
       console.log('[AgentConnection] Cleanup effect running, state:', stateRef.current);
       clearConnectionTimeout();
       if (roomRef.current) {

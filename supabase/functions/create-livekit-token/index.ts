@@ -180,6 +180,7 @@ serve(async (req: Request) => {
       canPublish: true,
       canSubscribe: true,
       canPublishData: true,
+      canUpdateOwnMetadata: true,
     });
 
     // Configure token-based agent dispatch using proper LiveKit classes

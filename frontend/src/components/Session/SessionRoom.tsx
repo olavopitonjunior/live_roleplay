@@ -164,8 +164,13 @@ function DesktopSessionLayout({
     if (connectionState === ConnectionState.Disconnected && !isEnding) {
       console.warn('[SessionRoom] Disconnect detected, waiting 5s for reconnection...');
       const timeout = setTimeout(() => {
-        // Only end if still disconnected after grace period
-        handleEndRef.current();
+        // Re-check: only end if room is truly disconnected (not reconnecting)
+        if (room.state === ConnectionState.Disconnected) {
+          console.warn('[SessionRoom] Still disconnected after 5s, ending session');
+          handleEndRef.current();
+        } else {
+          console.log('[SessionRoom] Room recovered during grace period');
+        }
       }, 5000);
       return () => clearTimeout(timeout);
     }

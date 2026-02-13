@@ -1674,6 +1674,88 @@ async def entrypoint(ctx: JobContext):
                 avatar_failed = True  # PRD 08: Track avatar failure
                 logger.info("Avatar failed flag set - will be recorded in session")
 
+        # ── Register session event handlers BEFORE session.start() ──
+        # CRITICAL: These must be registered before session.start() to avoid
+        # race condition where session closes before handlers are attached,
+        # causing shutdown_event to never be set (agent process leak).
+
+        _inactivity_task: asyncio.Task | None = None
+
+        async def _user_presence_pings():
+            """Ping inactive user twice, then shutdown if no response."""
+            prompts_ptbr = [
+                "Esta tudo bem? Quer continuar com o roleplay?",
+                "Se quiser, podemos retomar. Estou aqui.",
+            ]
+            for prompt in prompts_ptbr:
+                try:
+                    session.generate_reply(
+                        instructions=f"Diga ao usuario exatamente: '{prompt}'"
+                    )
+                except Exception as e:
+                    logger.warning(f"Inactivity ping failed: {e}")
+                await asyncio.sleep(30)
+            # No response after 2 pings (60s total since away) — graceful shutdown
+            logger.info("User unresponsive after inactivity pings — shutting down")
+            await send_status_to_room("Encerrando por inatividade...")
+            try:
+                session.shutdown(drain=True)
+            except Exception as e:
+                logger.warning(f"Inactivity shutdown failed: {e}")
+                shutdown_event.set()
+
+        @session.on("close")
+        def on_session_close():
+            _elapsed = time.time() - _session_start_time
+            logger.warning(
+                f"SHUTDOWN_TRIGGER: source='session_close', "
+                f"elapsed={_elapsed:.1f}s, "
+                f"lines={len(transcript_lines)}, "
+                f"greeting={_greeting_received}, "
+                f"participants={len(ctx.room.remote_participants)}"
+            )
+
+            # Schedule final transcript save (fire-and-forget)
+            async def _final_cleanup():
+                try:
+                    if transcript_lines and session_id:
+                        await save_intermediate_transcript(
+                            session_id, transcript_lines, status="completed"
+                        )
+                        logger.info(f"Final transcript saved on close: {len(transcript_lines)} lines")
+                except Exception as e:
+                    logger.warning(f"Final transcript save on close failed: {e}")
+
+            asyncio.create_task(_final_cleanup())
+
+            if not shutdown_event.is_set():
+                shutdown_event.set()
+
+        @session.on("error")
+        def on_session_error(ev):
+            logger.error(
+                f"DIAG: Session error: {ev}, "
+                f"elapsed={time.time() - _session_start_time:.1f}s, "
+                f"lines={len(transcript_lines)}"
+            )
+
+        @session.on("user_state_changed")
+        def on_user_state_changed(ev: UserStateChangedEvent):
+            nonlocal _inactivity_task
+            if ev.new_state == "away":
+                # Cancel any existing inactivity task before creating new one
+                if _inactivity_task and not _inactivity_task.done():
+                    _inactivity_task.cancel()
+                logger.info("User went away — starting inactivity pings")
+                _inactivity_task = asyncio.create_task(_user_presence_pings())
+            elif _inactivity_task is not None:
+                # User came back — cancel inactivity flow
+                logger.info(f"User returned (state={ev.new_state}) — cancelling inactivity pings")
+                _inactivity_task.cancel()
+                _inactivity_task = None
+
+        logger.info("Session event handlers registered (close, error, user_state_changed)")
+
         # Use EmotionStrippingAgent in half-cascade mode to remove [tag] before TTS
         agent_cls = EmotionStrippingAgent if use_elevenlabs else Agent
         await session.start(
@@ -1784,92 +1866,29 @@ async def entrypoint(ctx: JobContext):
                 await send_coaching_hint(hint)
                 logger.info(f"Proactive silence nudge sent: {nudge.text}")
 
-            proactive_coach.start_watchdog(_on_silence_detected)
+            # Reset timer so watchdog counts from NOW (not from ConversationCoach.__init__)
+            proactive_coach.reset_timer()
+            _silence_guard_resets = 0
+            _MAX_SILENCE_GUARD_RESETS = 6  # ~60s of resets before giving up
+
+            async def _on_silence_detected_guarded():
+                """Only fire silence nudge after greeting has been received."""
+                nonlocal _silence_guard_resets
+                if not _greeting_received:
+                    _silence_guard_resets += 1
+                    if _silence_guard_resets >= _MAX_SILENCE_GUARD_RESETS:
+                        logger.warning("Silence watchdog: max guard resets reached, stopping")
+                        proactive_coach.stop()
+                        return
+                    # Still waiting for greeting — reset and skip
+                    proactive_coach.reset_timer()
+                    return
+                await _on_silence_detected()
+
+            proactive_coach.start_watchdog(_on_silence_detected_guarded)
 
         await send_status_to_room("Ouvindo...")
         logger.info("Session ready and listening")
-
-        # When session.shutdown(drain=True) finishes, resolve shutdown_event
-        # Enhanced close handler (pattern from session_close_callback.py):
-        # saves final transcript and updates session status before signaling shutdown
-        @session.on("close")
-        def on_session_close():
-            _elapsed = time.time() - _session_start_time
-            logger.warning(
-                f"SHUTDOWN_TRIGGER: source='session_close', "
-                f"elapsed={_elapsed:.1f}s, "
-                f"lines={len(transcript_lines)}, "
-                f"greeting={_greeting_received}, "
-                f"participants={len(ctx.room.remote_participants)}"
-            )
-
-            # Schedule final transcript save (fire-and-forget)
-            async def _final_cleanup():
-                try:
-                    if transcript_lines and session_id:
-                        await save_intermediate_transcript(
-                            session_id, transcript_lines, status="completed"
-                        )
-                        logger.info(f"Final transcript saved on close: {len(transcript_lines)} lines")
-                except Exception as e:
-                    logger.warning(f"Final transcript save on close failed: {e}")
-
-            asyncio.create_task(_final_cleanup())
-
-            if not shutdown_event.is_set():
-                shutdown_event.set()
-
-        # Diagnostic: session error handler
-        @session.on("error")
-        def on_session_error(ev):
-            logger.error(
-                f"DIAG: Session error: {ev}, "
-                f"elapsed={time.time() - _session_start_time:.1f}s, "
-                f"lines={len(transcript_lines)}"
-            )
-
-        # User inactivity handler (pattern from LiveKit inactive_user.py)
-        # When user_away_timeout=60s triggers "away" state, ping them twice
-        # before gracefully shutting down the session.
-        _inactivity_task: asyncio.Task | None = None
-
-        async def _user_presence_pings():
-            """Ping inactive user twice, then shutdown if no response."""
-            prompts_ptbr = [
-                "Esta tudo bem? Quer continuar com o roleplay?",
-                "Se quiser, podemos retomar. Estou aqui.",
-            ]
-            for prompt in prompts_ptbr:
-                try:
-                    session.generate_reply(
-                        instructions=f"Diga ao usuario exatamente: '{prompt}'"
-                    )
-                except Exception as e:
-                    logger.warning(f"Inactivity ping failed: {e}")
-                await asyncio.sleep(30)
-            # No response after 2 pings (60s total since away) — graceful shutdown
-            logger.info("User unresponsive after inactivity pings — shutting down")
-            await send_status_to_room("Encerrando por inatividade...")
-            try:
-                session.shutdown(drain=True)
-            except Exception as e:
-                logger.warning(f"Inactivity shutdown failed: {e}")
-                shutdown_event.set()
-
-        @session.on("user_state_changed")
-        def on_user_state_changed(ev: UserStateChangedEvent):
-            nonlocal _inactivity_task
-            if ev.new_state == "away":
-                # Cancel any existing inactivity task before creating new one
-                if _inactivity_task and not _inactivity_task.done():
-                    _inactivity_task.cancel()
-                logger.info("User went away — starting inactivity pings")
-                _inactivity_task = asyncio.create_task(_user_presence_pings())
-            elif _inactivity_task is not None:
-                # User came back — cancel inactivity flow
-                logger.info(f"User returned (state={ev.new_state}) — cancelling inactivity pings")
-                _inactivity_task.cancel()
-                _inactivity_task = None
 
         # Keep the session running until room disconnects
         await shutdown_event.wait()
