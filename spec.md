@@ -12,7 +12,7 @@ Armazena cenários configurados, sessões e feedbacks. Edge Functions processam 
 
 **Agente Conversacional (LiveKit Agents + Gemini + Hedra)**
 - LiveKit Agents orquestra a sessão e gerencia a comunicação WebRTC
-- Google Gemini Live API processa a conversa (voice-to-voice)
+- Google Gemini Live API processa a conversa (half-cascade: TEXT + ElevenLabs TTS, ou voice-to-voice nativo)
 - Hedra gera o avatar visual com lip-sync sincronizado ao áudio
 
 **Geração de Feedback (Claude API)**
@@ -60,9 +60,10 @@ Ao final da sessão, a transcrição é enviada para Claude API que avalia contr
 - Claude API (geração de feedback)
 
 **Infraestrutura**
-- Vercel ou Cloudflare Pages (frontend)
+- Vercel (frontend)
+- Railway (agent Python)
 - Supabase Cloud (backend)
-- LiveKit Cloud (agente)
+- LiveKit Cloud (salas WebRTC)
 
 ---
 
@@ -120,6 +121,10 @@ agent-roleplay/
 ├── agent/
 │   ├── main.py
 │   ├── prompts.py
+│   ├── conversation_coach.py
+│   ├── ai_coach.py
+│   ├── emotion_analyzer.py
+│   ├── metrics_collector.py
 │   ├── requirements.txt
 │   └── .env.example
 │
@@ -127,10 +132,18 @@ agent-roleplay/
 │   ├── migrations/
 │   │   └── 001_initial_schema.sql
 │   └── functions/
+│       ├── create-livekit-token/
+│       │   └── index.ts
 │       ├── generate-feedback/
 │       │   └── index.ts
-│       └── create-livekit-token/
+│       ├── generate-scenario/
+│       │   └── index.ts
+│       ├── suggest-scenario-fields/
+│       │   └── index.ts
+│       └── get-api-metrics/
 │           └── index.ts
+│
+├── tests/                    # Playwright E2E
 │
 └── README.md
 ```
@@ -245,8 +258,9 @@ Avaliações geradas após cada sessão.
 
 **Uso no agente:**
 - Plugin livekit-plugins-google
-- Modelo: gemini-2.5-flash-native-audio-preview
-- Modo half-cascade: `modalities=[Modality.TEXT]` + ElevenLabs TTS
+- Modelo half-cascade: `gemini-2.0-flash-live-001` (TEXT modality)
+- Modelo voice-to-voice: `gemini-2.5-flash-native-audio-preview-12-2025`
+- Modo half-cascade (padrão): `modalities=[Modality.TEXT]` + ElevenLabs TTS
 - Instructions: montado dinamicamente com contexto do cenário
 
 ### ElevenLabs TTS

@@ -22,11 +22,18 @@ live_roleplay/
 ├── agent/             # Python agent
 │   ├── main.py        # Orquestração LiveKit + Gemini + ElevenLabs + Hedra
 │   ├── prompts.py     # Construção de prompts dinâmicos
-│   └── conversation_coach.py  # Coaching layer 2 (silence/hesitation)
-└── supabase/
-    └── functions/     # Edge Functions (Deno)
-        ├── create-livekit-token/
-        └── generate-feedback/
+│   ├── conversation_coach.py  # Coaching layer 2 (silence/hesitation)
+│   ├── ai_coach.py    # Gemini Flash coaching suggestions em tempo real
+│   ├── emotion_analyzer.py  # Gemini Flash emotion detection
+│   └── metrics_collector.py # Coleta de métricas da sessão
+├── supabase/
+│   └── functions/     # Edge Functions (Deno)
+│       ├── create-livekit-token/
+│       ├── generate-feedback/
+│       ├── generate-scenario/
+│       ├── suggest-scenario-fields/
+│       └── get-api-metrics/
+└── tests/             # Playwright E2E tests (26 specs)
 ```
 
 ## APIs Externas
@@ -38,6 +45,7 @@ Use `/api-docs` para consultar documentação detalhada de qualquer API.
 | LiveKit | `agent/main.py` | https://docs.livekit.io/agents |
 | Google Gemini Live | `agent/main.py` | https://ai.google.dev/gemini-api/docs |
 | Hedra | `agent/main.py` | https://www.hedra.com/docs |
+| ElevenLabs | `agent/main.py` | https://elevenlabs.io/docs |
 | Anthropic/Claude | `supabase/functions/generate-feedback/` | https://docs.anthropic.com |
 | Supabase | `frontend/src/hooks/`, Edge Functions | https://supabase.com/docs |
 
@@ -50,7 +58,8 @@ Use `/api-docs` para consultar documentação detalhada de qualquer API.
 
 ### Agent (Python)
 - `AgentSession` com plugins (google, hedra, silero, elevenlabs)
-- Half-cascade mode: Gemini TEXT + ElevenLabs TTS (quando `ELEVEN_VOICE_ID` configurado)
+- Half-cascade mode: `gemini-2.0-flash-live-001` (TEXT) + ElevenLabs TTS (quando `ELEVEN_VOICE_ID` configurado)
+- Voice-to-voice mode: `gemini-2.5-flash-native-audio-preview-12-2025` (fallback sem ElevenLabs)
 - Event handlers para captura de transcript
 - aiohttp para chamadas REST ao Supabase
 
@@ -75,7 +84,7 @@ Use `/api-docs` para consultar documentação detalhada de qualquer API.
 ## Comandos Úteis
 
 ```bash
-# Frontend
+# Frontend (porta 5174)
 cd frontend && npm run dev
 
 # Agent
@@ -84,6 +93,10 @@ cd agent && python main.py dev
 # Supabase local
 supabase start
 supabase functions serve
+
+# E2E Tests
+cd frontend && npm run test:e2e
+cd frontend && npm run test:e2e:headed
 ```
 
 ## Fluxo Principal
