@@ -69,11 +69,20 @@ export function MobileSessionLayout({
     handleEndRef.current = handleEnd;
   }, [handleEnd]);
 
-  // Auto-handle unexpected disconnect (agent died, network lost)
+  // Auto-handle unexpected disconnect with grace period for reconnection
   useEffect(() => {
     if (connectionState === ConnectionState.Disconnected && !isEnding) {
-      console.warn('[MobileSession] Unexpected disconnect, ending session...');
-      handleEndRef.current();
+      console.warn('[MobileSession] Disconnect detected, waiting 5s for reconnection...');
+      const timeout = setTimeout(() => {
+        // Re-check: only end if room is truly disconnected (not reconnecting)
+        if (room.state === ConnectionState.Disconnected) {
+          console.warn('[MobileSession] Still disconnected after 5s, ending session');
+          handleEndRef.current();
+        } else {
+          console.log('[MobileSession] Room recovered during grace period');
+        }
+      }, 5000);
+      return () => clearTimeout(timeout);
     }
   }, [connectionState, isEnding]);
 
