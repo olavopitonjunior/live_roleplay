@@ -810,8 +810,14 @@ async def entrypoint(ctx: JobContext):
     # - Faster than Gemini native audio output (text generation < audio generation)
     use_elevenlabs = bool(ELEVEN_VOICE_ID)
 
+    # Native-audio models reject TEXT modality — use gemini-2.0-flash-live-001 for half-cascade
+    if use_elevenlabs:
+        gemini_model = "gemini-2.0-flash-live-001"
+    else:
+        gemini_model = "gemini-2.5-flash-native-audio-preview-12-2025"
+
     realtime_kwargs: dict[str, Any] = {
-        "model": "gemini-2.5-flash-native-audio-preview-12-2025",
+        "model": gemini_model,
         "temperature": 0.4,
         "instructions": full_instructions,
     }
