@@ -47,6 +47,8 @@ export function SessionLoading({
         return 2;
       case 'ready':
         return 3;
+      case 'reconnecting':
+        return animatedStep; // Keep current step while reconnecting
       case 'error':
         return animatedStep; // Keep current step on error
       default:

@@ -19,6 +19,28 @@ import {
 // Agent name must match the agent registered in the worker
 const AGENT_NAME = "roleplay-agent";
 
+// ---------------------------------------------------------------------------
+// In-memory rate limiting (resets on cold start — acceptable for Edge Functions)
+// ---------------------------------------------------------------------------
+const RATE_LIMIT_WINDOW_MS = 5_000; // 5 seconds between requests per access code
+const RATE_LIMIT_MAX_ENTRIES = 200;
+const _rateLimitMap = new Map<string, number>(); // access_code -> last request timestamp
+
+function checkRateLimit(key: string): boolean {
+  const now = Date.now();
+  const lastRequest = _rateLimitMap.get(key);
+  if (lastRequest && now - lastRequest < RATE_LIMIT_WINDOW_MS) {
+    return false; // Rate limited
+  }
+  // Evict oldest entry if at capacity (Map preserves insertion order)
+  if (_rateLimitMap.size >= RATE_LIMIT_MAX_ENTRIES) {
+    const oldest = _rateLimitMap.keys().next().value;
+    if (oldest !== undefined) _rateLimitMap.delete(oldest);
+  }
+  _rateLimitMap.set(key, now);
+  return true;
+}
+
 type SessionMode = "training" | "evaluation";
 type CoachIntensity = "low" | "medium" | "high";
 
@@ -75,6 +97,12 @@ serve(async (req: Request) => {
 
     if (!scenario_id || !access_code) {
       return corsErrorResponse("Missing scenario_id or access_code", 400, req);
+    }
+
+    // Rate limit: 1 request per 5 seconds per access code
+    if (!checkRateLimit(access_code.toUpperCase())) {
+      console.warn(`[RATE_LIMIT] Blocked request for code ${access_code.substring(0, 4)}***`);
+      return corsErrorResponse("Aguarde antes de tentar novamente", 429, req);
     }
 
     // Initialize Supabase client with service role

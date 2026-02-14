@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
 import {
   LiveKitRoom,
+  RoomAudioRenderer,
   useRoomContext,
   useConnectionState,
 } from '@livekit/components-react';
@@ -235,6 +236,9 @@ function DesktopSessionLayout({
 
   return (
     <div className="w-full h-screen bg-neutral-950 flex flex-col overflow-hidden">
+      {/* Audio Renderer - ensures all remote audio tracks play */}
+      <RoomAudioRenderer />
+
       {/* Latency Monitor (debug only) */}
       <LatencyOverlay />
 

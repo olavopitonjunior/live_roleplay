@@ -7,12 +7,13 @@ export type AgentConnectionState =
   | 'connecting'
   | 'waiting_agent'
   | 'ready'
+  | 'reconnecting'
   | 'error';
 
 interface UseAgentConnectionOptions {
   token: string | null;
   serverUrl: string;
-  agentTimeout?: number; // ms to wait for agent (default: 30000)
+  agentTimeout?: number; // ms to wait for agent (default: 60000)
 }
 
 interface UseAgentConnectionResult {
@@ -23,6 +24,9 @@ interface UseAgentConnectionResult {
   disconnect: () => void;
 }
 
+const MAX_RECONNECT_ATTEMPTS = 4;
+const RECONNECT_BASE_DELAY_MS = 1000; // 1s, 2s, 4s, 8s
+
 /**
  * Hook to connect to LiveKit and wait for agent during loading screen.
  *
@@ -30,6 +34,7 @@ interface UseAgentConnectionResult {
  * 1. idle -> connecting (when token provided)
  * 2. connecting -> waiting_agent (after room connects)
  * 3. waiting_agent -> ready (when agent joins) OR error (timeout)
+ * 4. ready -> reconnecting (on disconnect) -> ready (success) OR error (max retries)
  */
 export function useAgentConnection({
   token,
@@ -43,8 +48,12 @@ export function useAgentConnection({
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const roomRef = useRef<Room | null>(null);
   const retryCountRef = useRef(0);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRef = useRef<AgentConnectionState>('idle'); // Track state for closures
   const disconnectedRef = useRef(false); // Guard against double-disconnect
+  const tokenRef = useRef<string | null>(null);
+  tokenRef.current = token;
 
   // Wrapper to update both state and ref (fixes closure issues)
   const setState = useCallback((newState: AgentConnectionState) => {
@@ -60,6 +69,13 @@ export function useAgentConnection({
     }
   }, []);
 
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
+
   const disconnect = useCallback(() => {
     if (disconnectedRef.current) {
       console.log('[AgentConnection] disconnect() skipped — already disconnected');
@@ -68,6 +84,8 @@ export function useAgentConnection({
     disconnectedRef.current = true;
     console.log('[AgentConnection] disconnect() called, current state:', stateRef.current);
     clearConnectionTimeout();
+    clearReconnectTimer();
+    reconnectAttemptRef.current = 0;
     if (roomRef.current) {
       console.log('[AgentConnection] Disconnecting room...');
       roomRef.current.disconnect();
@@ -76,14 +94,12 @@ export function useAgentConnection({
     setRoom(null);
     setState('idle');
     setError(null);
-  }, [clearConnectionTimeout, setState]);
+  }, [clearConnectionTimeout, clearReconnectTimer, setState]);
 
   const checkForAgent = useCallback((checkRoom: Room): boolean => {
     // Check if any remote participant is an agent
-    // Agent identity contains "agent" or matches pattern
     const participants = Array.from(checkRoom.remoteParticipants.values());
 
-    // Debug logging
     console.log('[AgentConnection] Checking for agent, found participants:', participants.map((p: RemoteParticipant) => ({
       identity: p.identity,
       name: p.name,
@@ -104,13 +120,16 @@ export function useAgentConnection({
       return;
     }
 
-    // Clean up previous connection
+    // Clean up previous connection and remove stale event listeners
     if (roomRef.current) {
+      roomRef.current.removeAllListeners();
       roomRef.current.disconnect();
     }
     clearConnectionTimeout();
+    clearReconnectTimer();
 
     disconnectedRef.current = false; // Reset guard for new connection
+    reconnectAttemptRef.current = 0;
     setState('connecting');
     setError(null);
 
@@ -171,11 +190,17 @@ export function useAgentConnection({
 
       newRoom.on(RoomEvent.ParticipantConnected, onParticipantConnected);
 
-      // Handle disconnection (use ref to avoid stale closure)
+      // Handle disconnection with auto-reconnect
       newRoom.on(RoomEvent.Disconnected, () => {
-        console.log('[AgentConnection] Room disconnected, current state:', stateRef.current);
+        const currentState = stateRef.current;
+        console.log('[AgentConnection] Room disconnected, current state:', currentState);
         clearConnectionTimeout();
-        if (stateRef.current !== 'ready') {
+
+        if (currentState === 'ready') {
+          // Session was active — attempt reconnection
+          attemptReconnect();
+        } else {
+          // Not yet ready — go to error state
           setState('error');
           setError('Conexao perdida. Por favor, tente novamente.');
         }
@@ -192,7 +217,56 @@ export function useAgentConnection({
       );
       newRoom.disconnect();
     }
-  }, [token, serverUrl, agentTimeout, checkForAgent, clearConnectionTimeout, setState]);
+  }, [token, serverUrl, agentTimeout, checkForAgent, clearConnectionTimeout, clearReconnectTimer, setState]);
+
+  // Reconnection with exponential backoff
+  const attemptReconnect = useCallback(() => {
+    reconnectAttemptRef.current += 1;
+    const attempt = reconnectAttemptRef.current;
+
+    if (attempt > MAX_RECONNECT_ATTEMPTS) {
+      console.log(`[AgentConnection] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached`);
+      setState('error');
+      setError('Conexao perdida apos varias tentativas. Por favor, volte e tente novamente.');
+      if (roomRef.current) {
+        roomRef.current.disconnect();
+        roomRef.current = null;
+      }
+      setRoom(null);
+      return;
+    }
+
+    const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, attempt - 1); // 1s, 2s, 4s, 8s
+    console.log(`[AgentConnection] Reconnecting in ${delay}ms (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`);
+    setState('reconnecting');
+    setError(null);
+
+    reconnectTimerRef.current = setTimeout(async () => {
+      const currentToken = tokenRef.current;
+      const currentRoom = roomRef.current;
+      if (!currentToken || !currentRoom) {
+        setState('error');
+        setError('Conexao perdida. Por favor, volte e tente novamente.');
+        return;
+      }
+
+      try {
+        // LiveKit Room.connect() handles ICE restart internally
+        await currentRoom.connect(serverUrl, currentToken);
+
+        if (currentRoom.state === ConnectionState.Connected) {
+          console.log(`[AgentConnection] Reconnected successfully on attempt ${attempt}`);
+          reconnectAttemptRef.current = 0;
+          setState('ready');
+        } else {
+          attemptReconnect();
+        }
+      } catch (err) {
+        console.warn(`[AgentConnection] Reconnect attempt ${attempt} failed:`, err);
+        attemptReconnect();
+      }
+    }, delay);
+  }, [serverUrl, setState]);
 
   const retry = useCallback(() => {
     retryCountRef.current += 1;
@@ -219,12 +293,13 @@ export function useAgentConnection({
       }
       console.log('[AgentConnection] Cleanup effect running, state:', stateRef.current);
       clearConnectionTimeout();
+      clearReconnectTimer();
       if (roomRef.current) {
         console.log('[AgentConnection] Cleanup: disconnecting room');
         roomRef.current.disconnect();
       }
     };
-  }, [clearConnectionTimeout]);
+  }, [clearConnectionTimeout, clearReconnectTimer]);
 
   return {
     state,
