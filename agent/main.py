@@ -1859,21 +1859,6 @@ async def entrypoint(ctx: JobContext):
             avatar_result = await start_avatar_with_timeout(avatar, session, ctx.room)
             if avatar_result:
                 metrics.start_avatar(provider=avatar_provider)
-
-                # FIX DEADLOCK (BUG-016 pt4): Override DataStreamAudioOutput
-                # The Hedra plugin sets wait_remote_track=KIND_VIDEO, which blocks ALL
-                # audio until Hedra publishes a video track. But Hedra needs audio to
-                # start lip-syncing and publish video → deadlock → 6.1s timeout.
-                # By setting wait_remote_track=None, audio flows as soon as Hedra joins
-                # as a participant, breaking the deadlock.
-                from livekit.agents.voice.avatar import DataStreamAudioOutput
-                session.output.audio = DataStreamAudioOutput(
-                    room=ctx.room,
-                    destination_identity="hedra-avatar-agent",
-                    wait_remote_track=None,
-                    sample_rate=16000,
-                )
-                logger.info("DataStreamAudioOutput overridden: wait_remote_track=None (deadlock fix)")
             else:
                 avatar = None  # Disable avatar if failed
                 avatar_failed = True  # PRD 08: Track avatar failure
