@@ -4,19 +4,21 @@ Last audit: 2026-02-14
 
 ## Active Issues
 
-### BUG-016: Avatar disconnect + audio race condition [FIXED 2026-02-14]
+### BUG-016: Avatar disconnect + audio race condition [WORKAROUND APPLIED 2026-02-14]
 - **Severity**: Critical
-- **Symptoms**: Avatar video disappears ~6s after session start. Audio never plays. 0 transcript lines in all sessions.
+- **Symptoms**: Avatar video disappears ~3-6s after session start. Hedra never publishes tracks (`tracks=0`). Audio never plays. 0 transcript lines in all sessions.
 - **Root cause (Part 1)**: Greeting instruction was duplicated — present in both `full_instructions` (passed to `Agent()`) and explicit `generate_reply()` call. When OpenAI Realtime started processing the first response (from instructions/VAD), the explicit `generate_reply()` call failed with `"Conversation already has an active response in progress"`. Without audio output from the agent, the Hedra avatar received no lip-sync input and disconnected after its internal timeout (~6s).
 - **Root cause (Part 2)**: The 2s delay added in Part 1 fix pushed first audio output to T+7s, exceeding Hedra's idle timeout (~6s from avatar.start at T+2).
-- **Fix**:
+- **Root cause (Part 3)**: Attempted fix (pt3) reversed init order (session → avatar) but still failed.
+- **Root cause (Part 4)**: Attempted fix (pt4) created SECOND `DataStreamAudioOutput` instance, causing RPC handler collision + duplicate streams → Hedra receives corrupted audio → disconnect.
+- **Workaround**: `DISABLE_AVATAR=true` environment variable in production (Railway). Sessions run audio-only until definitive fix.
+- **Fix attempts (pt1-pt4)**:
   1. Removed greeting from `full_instructions` (only trigger via `generate_reply`)
-  2. Reduced greeting delay from 2.0s to 0.5s (Hedra needs audio within ~4-6s of joining)
-  3. Added retry logic with exponential backoff for `generate_reply` (3 attempts)
-  4. Added `RoomAudioRenderer` to desktop layout (was only in mobile)
-  5. Enhanced avatar disconnect diagnostics (detect early Hedra disconnect)
-  6. Added track diagnostic logging (participants + track kinds after 3s)
-- **Prevention**: Never include greeting/response-triggering instructions in both `Agent(instructions=...)` and `generate_reply()`. Use `generate_reply()` as the single greeting trigger. Keep pre-greeting delay minimal to avoid Hedra idle timeout.
+  2. Reduced greeting delay from 2.0s → 0.5s → 0s
+  3. Reversed init order: `session.start()` before `avatar.start()`
+  4. Override `DataStreamAudioOutput` with `wait_remote_track=None` (FAILED — duplicate instances)
+- **Definitive fix (pending)**: Monkey-patch Hedra plugin's `DataStreamAudioOutput` class BEFORE avatar creation (pt5) OR investigate Hedra API issues.
+- **Prevention**: Never create second `DataStreamAudioOutput` instance. Modify existing instance or monkey-patch class before instantiation.
 
 ### BUG-013: Edge Function desync after DB migration [FIXED 2026-02-13]
 - **Severity**: Critical
