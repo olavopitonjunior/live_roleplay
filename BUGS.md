@@ -1,8 +1,20 @@
 # Known Bugs & Issues
 
-Last audit: 2026-02-13
+Last audit: 2026-02-14
 
 ## Active Issues
+
+### BUG-016: Avatar disconnect + audio race condition [FIXED 2026-02-14]
+- **Severity**: Critical
+- **Symptoms**: Avatar video disappears ~6s after session start. Audio never plays. 0 transcript lines in all sessions.
+- **Root cause**: Greeting instruction was duplicated — present in both `full_instructions` (passed to `Agent()`) and explicit `generate_reply()` call. When OpenAI Realtime started processing the first response (from instructions/VAD), the explicit `generate_reply()` call failed with `"Conversation already has an active response in progress"`. Without audio output from the agent, the Hedra avatar received no lip-sync input and disconnected after its internal timeout (~6s).
+- **Fix**:
+  1. Removed greeting from `full_instructions` (only trigger via `generate_reply`)
+  2. Added 2s delay after `session.start()` before greeting to let OpenAI Realtime stabilize
+  3. Added retry logic with exponential backoff for `generate_reply` (3 attempts)
+  4. Added `RoomAudioRenderer` to desktop layout (was only in mobile)
+  5. Enhanced avatar disconnect diagnostics (detect early Hedra disconnect)
+- **Prevention**: Never include greeting/response-triggering instructions in both `Agent(instructions=...)` and `generate_reply()`. Use `generate_reply()` as the single greeting trigger.
 
 ### BUG-013: Edge Function desync after DB migration [FIXED 2026-02-13]
 - **Severity**: Critical
@@ -89,15 +101,29 @@ Last audit: 2026-02-13
 - **Symptoms**: `RoomInputOptions` removed in SDK 1.3.12
 - **Fix**: Migrated to `RoomOptions`
 
+### BUG-014: Vercel build failure — simli_minutes type mismatch [FIXED 2026-02-14]
+- **Severity**: Critical
+- **Commit**: `3335617`
+- **Symptoms**: Vercel deploy fails with TS2339: `Property 'simli_minutes' does not exist on type 'MetricsTotals'`
+- **Root cause**: During Gemini→OpenAI migration, `MetricsTotals.simli_minutes` was renamed to `avatar_minutes` in types but `MetricsOverview.tsx` line 57 was missed
+- **Fix**: Changed `totals?.simli_minutes` to `totals?.avatar_minutes`
+
+### BUG-015: Railway agent crash — RealtimeModel instructions kwarg [FIXED 2026-02-14]
+- **Severity**: Critical
+- **Commit**: `72172ba`
+- **Symptoms**: Agent accepts dispatch but immediately crashes: `TypeError: RealtimeModel.__init__() got an unexpected keyword argument 'instructions'`
+- **Root cause**: OpenAI `RealtimeModel` does NOT accept `instructions` parameter (unlike Gemini's `RealtimeModel`). Instructions were being passed both in `realtime_kwargs` (wrong) and in `Agent(instructions=...)` at `session.start()` (correct — line 1761).
+- **Fix**: Removed `instructions` from `realtime_kwargs` dict. Instructions correctly passed via `Agent()` class.
+
 ---
 
-## Infrastructure Health (2026-02-13, updated)
+## Infrastructure Health (2026-02-14, updated)
 
 | Service | Status | Notes |
 |---------|--------|-------|
-| Vercel (Frontend) | Pending | Git push pending — local changes not yet deployed |
+| Vercel (Frontend) | Healthy | Build fix deployed (`3335617`) |
 | Supabase Postgres | Healthy | Migration applied: `gemini_voice` → `ai_voice` |
 | Supabase Auth | Healthy | No errors |
-| Supabase Edge Functions | Fixed | BUG-013 fixed — `create-livekit-token` v36, `get-api-metrics` v17 deployed |
-| Railway (Agent) | Healthy | OpenAI Realtime deployed, SDK 1.4.1, worker registered |
+| Supabase Edge Functions | Healthy | `create-livekit-token` v36, `get-api-metrics` v17 deployed |
+| Railway (Agent) | Fix deployed | BUG-016 fix: greeting race condition + avatar disconnect diagnostics |
 | LiveKit Cloud | Healthy | Worker registered, US East B |

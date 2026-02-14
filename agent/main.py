@@ -13,6 +13,8 @@ Improvements:
 
 import os
 import re
+import time
+import signal
 import asyncio
 import logging
 import random
@@ -20,6 +22,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
+from aiohttp import web
 from dotenv import load_dotenv
 from livekit.agents import (
     Agent,
@@ -94,6 +97,72 @@ HEDRA_AVATAR_IDS = [
     "f47a3167-01f8-45a3-b72e-7c36fa097e98",
     "0a1c73e8-887d-4cfe-84f4-4ec11d087e45",
 ]
+
+# ---------------------------------------------------------------------------
+# Health Check Server + Graceful Shutdown
+# ---------------------------------------------------------------------------
+_startup_time = time.time()
+_active_sessions: dict[str, dict] = {}  # session_id -> {"started_at": float, "room": str}
+
+HEALTH_PORT = int(os.getenv("HEALTH_PORT", "8080"))
+
+
+async def _health_handler(request: web.Request) -> web.Response:
+    """GET /health — returns agent status for Railway/Docker health checks."""
+    # Snapshot dict to avoid RuntimeError if modified during iteration
+    sessions_snapshot = dict(_active_sessions)
+    now = time.time()
+    return web.json_response({
+        "status": "healthy",
+        "active_sessions": len(sessions_snapshot),
+        "uptime_s": round(now - _startup_time, 1),
+        "worker_pid": os.getpid(),
+        "sessions": {
+            sid: {"room": info["room"], "elapsed_s": round(now - info["started_at"], 1)}
+            for sid, info in sessions_snapshot.items()
+        },
+    })
+
+
+async def _start_health_server() -> None:
+    """Start a lightweight HTTP health check server on HEALTH_PORT.
+
+    Called from entrypoint so it runs on the worker's event loop, not the parent.
+    Only the first call per process actually binds the port; subsequent calls are no-ops.
+    """
+    if getattr(_start_health_server, "_started", False):
+        return
+    _start_health_server._started = True  # type: ignore[attr-defined]
+
+    app = web.Application()
+    app.router.add_get("/health", _health_handler)
+    runner = web.AppRunner(app, access_log=None)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", HEALTH_PORT)
+    try:
+        await site.start()
+        logger.info(f"Health check server running on port {HEALTH_PORT} (PID {os.getpid()})")
+    except OSError as e:
+        # Port already in use (e.g. multiple workers) — non-fatal
+        logger.warning(f"Health check server failed to bind port {HEALTH_PORT}: {e}")
+
+
+def _setup_sigterm_handler() -> None:
+    """Register SIGTERM handler for graceful shutdown on Railway/Docker.
+
+    LiveKit SDK handles the actual graceful drain via shutdown_process_timeout=90.
+    This handler adds visibility into what sessions are active when shutdown begins.
+    """
+    def _on_sigterm(signum, frame):
+        sessions = dict(_active_sessions)
+        logger.info(
+            f"SIGTERM received — {len(sessions)} active session(s): "
+            f"{list(sessions.keys())}. "
+            f"LiveKit SDK will drain for up to 90s before SIGKILL."
+        )
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
+    logger.info("SIGTERM handler registered for graceful shutdown")
 
 
 # Regex to extract emotion tags from LLM output (e.g., "[receptivo] Que interessante...")
@@ -720,8 +789,10 @@ async def entrypoint(ctx: JobContext):
     needs to join and start the conversation session.
     """
     logger.info(f"Agent starting for room: {ctx.room.name}")
-    import time as _time_mod_early
-    _session_start_time = _time_mod_early.time()
+    _session_start_time = time.time()
+
+    # Start health check server on first entrypoint call (worker event loop)
+    await _start_health_server()
 
     # Connect to the room
     await ctx.connect()
@@ -734,6 +805,9 @@ async def entrypoint(ctx: JobContext):
 
     session_id = room_name.replace("roleplay_", "")
     logger.info(f"Extracted session_id: {session_id}")
+
+    # Track active session for health check
+    _active_sessions[session_id] = {"started_at": time.time(), "room": room_name}
 
     # Initialize metrics collector for this session
     metrics = get_metrics_collector(session_id)
@@ -808,9 +882,10 @@ async def entrypoint(ctx: JobContext):
     # Build dynamic instructions with outcomes and difficulty
     instructions = build_agent_instructions(scenario, outcomes, difficulty_level)
 
-    # Add greeting instruction to make agent start conversation
-    greeting_instruction = "\n\nIMPORTANTE: Ao iniciar a conversa, cumprimente o usuario de forma breve e natural, como 'Ola! Em que posso ajudar?' Seja direto e amigavel."
-    full_instructions = instructions + greeting_instruction
+    # Greeting is triggered separately via generate_reply() after session.start()
+    # Do NOT include greeting in instructions — causes race condition with OpenAI Realtime
+    # (two simultaneous responses → "active response in progress" error, BUG-016)
+    full_instructions = instructions
 
     # OpenAI Realtime: supports text + audio modalities (enables generate_reply)
     openai_model = "gpt-4o-realtime-preview"
@@ -841,22 +916,21 @@ async def entrypoint(ctx: JobContext):
     transcript_lines: list[str] = []
 
     # Debounced transcript save - saves at most every 5 seconds
-    import time as _time_mod
     _last_transcript_save_time: float = 0.0
 
     async def save_transcript_debounced():
         """Save transcript if at least 5s since last save (prevents DB overload)."""
         nonlocal _last_transcript_save_time
-        now = _time_mod.time()
+        now = time.time()
         if now - _last_transcript_save_time < 5:
             return  # debounce
         if not transcript_lines or not session_id:
             return
         _last_transcript_save_time = now
         try:
-            _save_start = _time_mod.time()
+            _save_start = time.time()
             await save_intermediate_transcript(session_id, transcript_lines)
-            _save_ms = (_time_mod.time() - _save_start) * 1000
+            _save_ms = (time.time() - _save_start) * 1000
             asyncio.create_task(send_latency_event("transcript_save", _save_ms, "Transcript Save", f"{len(transcript_lines)} lines"))
         except Exception as e:
             logger.warning(f"Debounced transcript save failed: {e}")
@@ -891,7 +965,7 @@ async def entrypoint(ctx: JobContext):
 
     async def save_evidence_if_needed(evidence_type: str, data: dict):
         """Save evidence with debounce of 5s per type."""
-        now = _time_mod.time()
+        now = time.time()
         if now - _last_evidence_save.get(evidence_type, 0) < 5:
             return  # debounce
         _last_evidence_save[evidence_type] = now
@@ -904,13 +978,12 @@ async def entrypoint(ctx: JobContext):
             return True
 
         import json
-        import time as time_module
         data = {
             "type": "transcription",
             "speaker": speaker,
             "text": text,
             "isFinal": is_final,
-            "timestamp": int(time_module.time() * 1000)
+            "timestamp": int(time.time() * 1000)
         }
 
         max_retries = 3
@@ -1079,7 +1152,7 @@ async def entrypoint(ctx: JobContext):
                 "duration_ms": round(duration_ms, 1),
                 "label": label,
                 "details": details,
-                "timestamp": int(_time_mod.time() * 1000)
+                "timestamp": int(time.time() * 1000)
             })
             await ctx.room.local_participant.publish_data(data.encode('utf-8'))
             logger.info(f"[Latency] {event}: {duration_ms:.0f}ms {details}")
@@ -1093,7 +1166,6 @@ async def entrypoint(ctx: JobContext):
     _response_turn_counter: int = 0
 
     # Streaming analysis tracking
-    import time
     last_partial_analysis_time = {"user": 0.0, "avatar": 0.0}
     PARTIAL_ANALYSIS_INTERVAL = 0.5  # seconds
 
@@ -1552,14 +1624,36 @@ async def entrypoint(ctx: JobContext):
             timeout_task.cancel()
         shutdown_event.set()
 
-    # Diagnostic: track participant disconnections
+    # Diagnostic: track participant disconnections (especially avatar)
     @ctx.room.on("participant_disconnected")
     def on_participant_left(participant):
+        identity = participant.identity.lower()
+        is_avatar = any(kw in identity for kw in ['hedra', 'simli', 'liveavatar'])
+        elapsed = time.time() - _session_start_time
+
         logger.warning(
             f"DIAG: Participant left: {participant.identity}, "
+            f"is_avatar={is_avatar}, "
             f"remaining={len(ctx.room.remote_participants)}, "
-            f"elapsed={time.time() - _session_start_time:.1f}s"
+            f"elapsed={elapsed:.1f}s"
         )
+
+        # Alert if avatar disconnects early (< 30s = likely a failure, not user-initiated)
+        if is_avatar and elapsed < 30:
+            logger.error(
+                f"CRITICAL: Avatar '{participant.identity}' disconnected early ({elapsed:.1f}s)! "
+                f"greeting={_greeting_received}, lines={len(transcript_lines)}, "
+                f"avatar_provider={avatar_provider}"
+            )
+            # Send avatar_status inline (send_avatar_status may not be defined yet)
+            try:
+                import json as _json_dc
+                _dc_data = _json_dc.dumps({"type": "avatar_status", "status": "audio_only"})
+                asyncio.create_task(
+                    ctx.room.local_participant.publish_data(_dc_data.encode('utf-8'))
+                )
+            except Exception:
+                pass
 
     try:
         # Send initial status
@@ -1624,7 +1718,7 @@ async def entrypoint(ctx: JobContext):
 
             max_attempts = 3
             base_timeout = 5.0  # Start with 5s, increase each attempt
-            _avatar_load_start = _time_mod.time()
+            _avatar_load_start = time.time()
 
             await send_avatar_status("connecting")
 
@@ -1633,7 +1727,7 @@ async def entrypoint(ctx: JobContext):
                 try:
                     await asyncio.wait_for(av.start(sess, room=room), timeout=timeout)
                     logger.info(f"Avatar started successfully on attempt {attempt + 1}")
-                    _avatar_load_ms = (_time_mod.time() - _avatar_load_start) * 1000
+                    _avatar_load_ms = (time.time() - _avatar_load_start) * 1000
                     await send_avatar_status("ready")
                     asyncio.create_task(send_latency_event("avatar_load", _avatar_load_ms, "Avatar Load", f"{avatar_provider}, attempt {attempt + 1}/{max_attempts}"))
                     return av
@@ -1732,11 +1826,18 @@ async def entrypoint(ctx: JobContext):
 
         @session.on("error")
         def on_session_error(ev):
+            error_msg = str(ev)
             logger.error(
-                f"DIAG: Session error: {ev}, "
+                f"DIAG: Session error: {error_msg}, "
                 f"elapsed={time.time() - _session_start_time:.1f}s, "
                 f"lines={len(transcript_lines)}"
             )
+            # Detect OpenAI Realtime race condition (BUG-016)
+            if "active response in progress" in error_msg.lower():
+                logger.error(
+                    "RACE CONDITION: Concurrent generate_reply calls detected. "
+                    "Check if greeting instruction is duplicated."
+                )
 
         @session.on("user_state_changed")
         def on_user_state_changed(ev: UserStateChangedEvent):
@@ -1817,17 +1918,32 @@ async def entrypoint(ctx: JobContext):
         asyncio.create_task(heartbeat_loop())
         logger.info("Heartbeat loop started (every 5s)")
 
-        # Trigger greeting via generate_reply (OpenAI Realtime processes text instructions)
-        try:
-            logger.info("Triggering greeting via generate_reply...")
-            await send_status_to_room("Avatar iniciando...")
-            _greeting_trigger_time = _time_mod.time()
-            session.generate_reply(
-                instructions="Cumprimente o usuario de forma breve e natural. Seja direto e amigavel."
-            )
-            logger.info("Greeting triggered successfully")
-        except Exception as e:
-            logger.warning(f"Failed to trigger greeting: {e}")
+        # Wait for OpenAI Realtime session to fully initialize before greeting
+        # Prevents "active response in progress" race condition (BUG-016)
+        await asyncio.sleep(2.0)
+
+        # Trigger greeting with retry logic (exponential backoff)
+        await send_status_to_room("Avatar iniciando...")
+        _greeting_trigger_time = time.time()
+        max_greeting_attempts = 3
+        for _g_attempt in range(max_greeting_attempts):
+            try:
+                logger.info(f"Triggering greeting (attempt {_g_attempt + 1}/{max_greeting_attempts})...")
+                session.generate_reply(
+                    instructions="Cumprimente o usuario de forma breve e natural. Seja direto e amigavel."
+                )
+                logger.info(f"Greeting triggered successfully on attempt {_g_attempt + 1}")
+                break
+            except Exception as e:
+                error_msg = str(e).lower()
+                logger.warning(f"Greeting attempt {_g_attempt + 1}/{max_greeting_attempts} failed: {e}")
+                if "active response" in error_msg and _g_attempt < max_greeting_attempts - 1:
+                    backoff = 1.0 * (2 ** _g_attempt)  # 1s, 2s
+                    logger.info(f"Retrying greeting after {backoff}s backoff...")
+                    await asyncio.sleep(backoff)
+                else:
+                    logger.error(f"Greeting failed permanently: {e}")
+                    break
 
         # Start timeout AFTER greeting (so greeting doesn't eat into conversation time)
         timeout_task = asyncio.create_task(session_timeout())
@@ -1936,6 +2052,9 @@ async def entrypoint(ctx: JobContext):
         except Exception as e:
             logger.warning(f"Finally: transcript save failed: {e}")
 
+        # Untrack session from health check
+        _active_sessions.pop(session_id, None)
+
         _total_elapsed = time.time() - _session_start_time
         logger.info(
             f"Session cleanup complete: elapsed={_total_elapsed:.1f}s, "
@@ -1944,6 +2063,12 @@ async def entrypoint(ctx: JobContext):
 
 
 if __name__ == "__main__":
+    # Setup graceful shutdown handler before starting workers
+    _setup_sigterm_handler()
+
+    # Health check server starts lazily from the first entrypoint call
+    # (runs on the worker's event loop, not the parent process)
+
     # Agent name for explicit dispatch - agents with a name require
     # explicit dispatch via token or API
     cli.run_app(WorkerOptions(

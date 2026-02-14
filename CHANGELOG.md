@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [2026-02-14]
+
+### Fixed
+- **BUG-014: Vercel build failure** — `MetricsOverview.tsx` still referenced `simli_minutes` (renamed to `avatar_minutes` in types during OpenAI migration) (`3335617`)
+- **BUG-015: Railway agent crash** — OpenAI `RealtimeModel` does not accept `instructions` kwarg (unlike Gemini). Instructions are passed via `Agent(instructions=...)` class instead (`72172ba`)
+- Killed 7 orphaned local Python processes stealing LiveKit dispatches from Railway production agent
+
 ## [2026-02-13]
 
 ### Changed

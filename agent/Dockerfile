@@ -21,5 +21,12 @@ COPY agent/.env* ./
 # Ensure Python output is not buffered (critical for Docker/Railway log capture)
 ENV PYTHONUNBUFFERED=1
 
+# Expose health check port
+EXPOSE 8080
+
+# Health check for Railway/Docker orchestrator
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
+
 # Run the agent (LiveKit Agents CLI requires 'start' command)
 CMD ["python", "main.py", "start"]
