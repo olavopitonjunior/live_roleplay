@@ -818,7 +818,6 @@ async def entrypoint(ctx: JobContext):
     realtime_kwargs: dict[str, Any] = {
         "model": openai_model,
         "temperature": 0.8,
-        "instructions": full_instructions,
         "voice": voice,
         "modalities": ["text", "audio"],
     }
