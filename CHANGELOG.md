@@ -4,8 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [2026-02-13]
 
+### Changed
+- **Migrated AI stack from Gemini to OpenAI** — `gpt-4o-realtime-preview` (voice), `gpt-4o-mini` (emotion analyzer + AI coach) (`c2131ff`)
+- DB columns renamed: `gemini_voice` → `ai_voice`, `gemini_live_*` → `realtime_*`, `gemini_flash_*` → `text_api_*`
+- Frontend: updated voice dropdown (OpenAI voices), dashboard metrics, pricing info
+- Edge Functions: updated column references for new schema
+
 ### Fixed
-- **Gemini model for half-cascade mode** — native-audio model (`gemini-2.5-flash-native-audio-preview`) rejects `Modality.TEXT`; switched to `gemini-2.0-flash-live-001` for TEXT output (`f3da74a`)
+- **BUG-013: Edge Function desync** — `create-livekit-token` (v36) and `get-api-metrics` (v17) redeployed with correct column names after DB migration renamed columns
+- **BUG-005 resolved** — Gemini native-audio TEXT rejection (`f3da74a`) eliminated by migrating to OpenAI (supports text+audio natively)
+
+### Added
+- Deployment Checklist in CLAUDE.md — rule for redeploying Edge Functions after DB column renames
+- Gemini code archived in `_reference/gemini-archive/`
 
 ## [2026-02-12]
 
