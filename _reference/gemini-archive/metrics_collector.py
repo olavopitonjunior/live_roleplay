@@ -2,7 +2,7 @@
 Metrics Collector Module
 
 Collects API usage metrics during roleplay sessions for cost monitoring.
-Tracks usage of OpenAI Realtime, GPT-4o-mini, Hedra, and LiveKit.
+Tracks usage of Gemini Live, Gemini Flash, Simli, and LiveKit.
 """
 
 import os
@@ -19,14 +19,14 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 # Cost constants (USD cents per unit)
-# Prices as of Feb 2026 - update as needed
+# Prices as of 2025 - update as needed
 COSTS = {
-    # OpenAI Realtime: $40/1M input, $200/1M output tokens
-    "realtime_input_per_1k": 40.0,  # cents
-    "realtime_output_per_1k": 200.0,  # cents
-    # GPT-4o-mini: $0.15/1M input, $0.60/1M output tokens
-    "text_api_input_per_1k": 1.5,  # cents
-    "text_api_output_per_1k": 6.0,  # cents
+    # Gemini Live: $0.025/1K input, $0.10/1K output tokens
+    "gemini_live_input_per_1k": 2.5,  # cents
+    "gemini_live_output_per_1k": 10.0,  # cents
+    # Gemini Flash: $0.0075/1K input, $0.03/1K output tokens
+    "gemini_flash_input_per_1k": 0.75,  # cents
+    "gemini_flash_output_per_1k": 3.0,  # cents
     # Claude Sonnet: $3/1M input, $15/1M output tokens
     "claude_input_per_1m": 300,  # cents
     "claude_output_per_1m": 1500,  # cents
@@ -54,8 +54,8 @@ class MetricsCollector:
         metrics.start_session()
 
         # During session:
-        metrics.add_realtime_tokens(input_tokens, output_tokens)
-        metrics.record_text_api_call(input_tokens, output_tokens)
+        metrics.add_gemini_live_tokens(input_tokens, output_tokens)
+        metrics.record_gemini_flash_call(input_tokens, output_tokens)
 
         # At end:
         await metrics.save_to_database()
@@ -63,15 +63,15 @@ class MetricsCollector:
 
     session_id: str
 
-    # OpenAI Realtime metrics
-    realtime_input_tokens: int = 0
-    realtime_output_tokens: int = 0
-    realtime_start_time: Optional[datetime] = None
+    # Gemini Live metrics
+    gemini_live_input_tokens: int = 0
+    gemini_live_output_tokens: int = 0
+    gemini_live_start_time: Optional[datetime] = None
 
-    # GPT-4o-mini (text API) metrics
-    text_api_calls: int = 0
-    text_api_input_tokens: int = 0
-    text_api_output_tokens: int = 0
+    # Gemini Flash metrics
+    gemini_flash_calls: int = 0
+    gemini_flash_input_tokens: int = 0
+    gemini_flash_output_tokens: int = 0
 
     # Avatar metrics (generic - supports Simli/Hedra/LiveAvatar)
     avatar_start_time: Optional[datetime] = None
@@ -86,7 +86,7 @@ class MetricsCollector:
     def start_session(self) -> None:
         """Mark the start of a session for duration tracking."""
         now = datetime.now(timezone.utc)
-        self.realtime_start_time = now
+        self.gemini_live_start_time = now
         self.livekit_start_time = now
         logger.info(f"Metrics collection started for session {self.session_id}")
 
@@ -99,16 +99,16 @@ class MetricsCollector:
         self.simli_start_time = now
         logger.debug(f"Avatar metrics tracking started: provider={provider}")
 
-    def add_realtime_tokens(self, input_tokens: int = 0, output_tokens: int = 0) -> None:
-        """Add tokens from OpenAI Realtime API usage."""
-        self.realtime_input_tokens += input_tokens
-        self.realtime_output_tokens += output_tokens
+    def add_gemini_live_tokens(self, input_tokens: int = 0, output_tokens: int = 0) -> None:
+        """Add tokens from Gemini Live API usage."""
+        self.gemini_live_input_tokens += input_tokens
+        self.gemini_live_output_tokens += output_tokens
 
-    def record_text_api_call(self, input_tokens: int, output_tokens: int) -> None:
-        """Record a GPT-4o-mini API call (emotion analysis / coaching)."""
-        self.text_api_calls += 1
-        self.text_api_input_tokens += input_tokens
-        self.text_api_output_tokens += output_tokens
+    def record_gemini_flash_call(self, input_tokens: int, output_tokens: int) -> None:
+        """Record a Gemini Flash API call (emotion analysis)."""
+        self.gemini_flash_calls += 1
+        self.gemini_flash_input_tokens += input_tokens
+        self.gemini_flash_output_tokens += output_tokens
 
     @staticmethod
     def estimate_tokens(text: str) -> int:
@@ -122,12 +122,12 @@ class MetricsCollector:
             return 0
         return max(1, len(text) // 4)
 
-    def get_realtime_duration(self) -> float:
-        """Get Realtime session duration in seconds."""
-        if not self.realtime_start_time:
+    def get_gemini_live_duration(self) -> float:
+        """Get Gemini Live session duration in seconds."""
+        if not self.gemini_live_start_time:
             return 0.0
         now = datetime.now(timezone.utc)
-        return (now - self.realtime_start_time).total_seconds()
+        return (now - self.gemini_live_start_time).total_seconds()
 
     def get_avatar_duration(self) -> float:
         """Get avatar duration in seconds (generic for any provider)."""
@@ -153,13 +153,13 @@ class MetricsCollector:
         """Calculate estimated total cost in USD cents."""
         cost = 0.0
 
-        # OpenAI Realtime cost
-        cost += (self.realtime_input_tokens / 1000) * COSTS["realtime_input_per_1k"]
-        cost += (self.realtime_output_tokens / 1000) * COSTS["realtime_output_per_1k"]
+        # Gemini Live cost
+        cost += (self.gemini_live_input_tokens / 1000) * COSTS["gemini_live_input_per_1k"]
+        cost += (self.gemini_live_output_tokens / 1000) * COSTS["gemini_live_output_per_1k"]
 
-        # GPT-4o-mini (text API) cost
-        cost += (self.text_api_input_tokens / 1000) * COSTS["text_api_input_per_1k"]
-        cost += (self.text_api_output_tokens / 1000) * COSTS["text_api_output_per_1k"]
+        # Gemini Flash cost
+        cost += (self.gemini_flash_input_tokens / 1000) * COSTS["gemini_flash_input_per_1k"]
+        cost += (self.gemini_flash_output_tokens / 1000) * COSTS["gemini_flash_output_per_1k"]
 
         # Avatar cost (provider-specific pricing)
         avatar_minutes = self.get_avatar_duration() / 60
@@ -176,14 +176,13 @@ class MetricsCollector:
         avatar_duration = round(self.get_avatar_duration(), 2)
         return {
             "session_id": self.session_id,
-            "realtime_input_tokens": self.realtime_input_tokens,
-            "realtime_output_tokens": self.realtime_output_tokens,
-            "realtime_duration_seconds": round(self.get_realtime_duration(), 2),
-            "text_api_calls": self.text_api_calls,
-            "text_api_input_tokens": self.text_api_input_tokens,
-            "text_api_output_tokens": self.text_api_output_tokens,
-            "llm_provider": "openai",
-            # Avatar fields
+            "gemini_live_input_tokens": self.gemini_live_input_tokens,
+            "gemini_live_output_tokens": self.gemini_live_output_tokens,
+            "gemini_live_duration_seconds": round(self.get_gemini_live_duration(), 2),
+            "gemini_flash_calls": self.gemini_flash_calls,
+            "gemini_flash_input_tokens": self.gemini_flash_input_tokens,
+            "gemini_flash_output_tokens": self.gemini_flash_output_tokens,
+            # New generic avatar fields
             "avatar_duration_seconds": avatar_duration,
             "avatar_provider": self.avatar_provider,
             # Legacy field for backwards compatibility

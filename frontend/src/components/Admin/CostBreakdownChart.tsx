@@ -12,10 +12,10 @@ const COLORS = ['#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#10b981'];
 
 // API pricing constants (USD)
 const PRICING = {
-  gemini_live_per_1k: 0.0625, // Average of input/output
-  gemini_flash_per_call: 0.001, // Rough average per call
+  openai_realtime_per_1k: 0.12, // Average of input ($40/1M) and output ($200/1M)
+  openai_mini_per_call: 0.0004, // Rough average per call (~200 tokens)
   claude_per_1k: 0.009, // Average of input/output
-  simli_per_minute: 0.02,
+  avatar_per_minute: 0.015,
   livekit_per_minute: 0.004,
 };
 
@@ -50,13 +50,13 @@ export function CostBreakdownChart({ totals, loading }: Props) {
   // Calculate cost breakdown by API
   const data = [
     {
-      name: 'Gemini Live',
-      value: (totals.gemini_live_tokens / 1000) * PRICING.gemini_live_per_1k,
+      name: 'OpenAI Realtime',
+      value: (totals.realtime_tokens / 1000) * PRICING.openai_realtime_per_1k,
       color: COLORS[0],
     },
     {
-      name: 'Gemini Flash',
-      value: totals.gemini_flash_calls * PRICING.gemini_flash_per_call,
+      name: 'GPT-4o-mini',
+      value: totals.text_api_calls * PRICING.openai_mini_per_call,
       color: COLORS[1],
     },
     {
@@ -65,8 +65,8 @@ export function CostBreakdownChart({ totals, loading }: Props) {
       color: COLORS[2],
     },
     {
-      name: 'Simli',
-      value: totals.simli_minutes * PRICING.simli_per_minute,
+      name: 'Avatar (Hedra)',
+      value: totals.avatar_minutes * PRICING.avatar_per_minute,
       color: COLORS[3],
     },
     {

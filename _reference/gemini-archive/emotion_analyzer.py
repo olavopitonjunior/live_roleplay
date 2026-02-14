@@ -1,7 +1,7 @@
 """
 Emotion Analyzer Module
 
-Analyzes user emotions during roleplay sessions using AI (GPT-4o-mini)
+Analyzes user emotions during roleplay sessions using AI (Gemini Flash)
 with keyword-based fallback for reliability.
 
 The emotion meter should reflect the CLIENT's satisfaction level,
@@ -12,12 +12,13 @@ import os
 import logging
 from typing import Literal, TypedDict
 
-# Try to import OpenAI
+# Try to import google.genai (new unified SDK)
 try:
-    from openai import AsyncOpenAI
-    OPENAI_AVAILABLE = True
+    from google import genai
+    from google.genai import types
+    GEMINI_AVAILABLE = True
 except ImportError:
-    OPENAI_AVAILABLE = False
+    GEMINI_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class EmotionResult(TypedDict):
     trend: TrendType
     reason: str | None  # Human-readable reason for emotion change
 
-# Emotion analysis prompt for GPT-4o-mini
+# Emotion analysis prompt for Gemini Flash
 # Enhanced with 8 states for more precise detection
 EMOTION_ANALYSIS_PROMPT = """Analise a emocao do CLIENTE nesta conversa de vendas.
 
@@ -92,7 +93,7 @@ Responda com APENAS uma palavra (o estado emocional):"""
 
 class EmotionAnalyzer:
     """
-    Analyzes emotions using GPT-4o-mini with keyword fallback.
+    Analyzes emotions using Gemini Flash with keyword fallback.
 
     The analyzer evaluates the CLIENT's (avatar's) emotional state,
     which reflects how well the user (salesperson) is performing.
@@ -100,29 +101,30 @@ class EmotionAnalyzer:
 
     def __init__(self):
         """Initialize the emotion analyzer."""
-        self._client = None
+        self._gemini_client = None
         self._intensity_history: list[int] = []  # Track recent intensities for trend
         self._max_history = 5  # Number of readings to keep for trend calculation
         self._last_state: EmotionState | None = None  # Track previous state for reason generation
-        self._setup_openai()
+        self._setup_gemini()
 
-    def _setup_openai(self):
-        """Setup OpenAI for emotion analysis."""
-        if not OPENAI_AVAILABLE:
-            logger.warning("openai package not installed, using keyword fallback only")
+    def _setup_gemini(self):
+        """Setup Gemini Flash for emotion analysis."""
+        if not GEMINI_AVAILABLE:
+            logger.warning("google-genai not installed, using keyword fallback only")
             return
 
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            logger.warning("OPENAI_API_KEY not set, using keyword fallback only")
+            logger.warning("GOOGLE_API_KEY not set, using keyword fallback only")
             return
 
         try:
-            self._client = AsyncOpenAI(api_key=api_key)
-            logger.info("OpenAI initialized for emotion analysis (GPT-4o-mini)")
+            # Use new unified google-genai SDK with Client pattern
+            self._gemini_client = genai.Client(api_key=api_key)
+            logger.info("Gemini Flash initialized for emotion analysis (google-genai SDK)")
         except Exception as e:
-            logger.error(f"Failed to initialize OpenAI: {e}")
-            self._client = None
+            logger.error(f"Failed to initialize Gemini: {e}")
+            self._gemini_client = None
 
     async def analyze(
         self,
@@ -145,14 +147,14 @@ class EmotionAnalyzer:
             return "neutral"
 
         # Try AI analysis first (if enabled and available)
-        if use_ai and self._client:
+        if use_ai and self._gemini_client:
             try:
-                emotion = await self._analyze_with_openai(text, conversation_history)
+                emotion = await self._analyze_with_gemini(text, conversation_history)
                 if emotion in VALID_EMOTIONS:
-                    logger.debug(f"OpenAI emotion analysis: {emotion}")
+                    logger.debug(f"Gemini emotion analysis: {emotion}")
                     return emotion
             except Exception as e:
-                logger.warning(f"OpenAI analysis failed, using fallback: {e}")
+                logger.warning(f"Gemini analysis failed, using fallback: {e}")
 
         # Fallback to keyword-based analysis
         emotion = self._analyze_with_keywords(text)
@@ -316,12 +318,12 @@ class EmotionAnalyzer:
         """Reset intensity history (call at start of new session)."""
         self._intensity_history = []
 
-    async def _analyze_with_openai(
+    async def _analyze_with_gemini(
         self,
         text: str,
         conversation_history: list[str] | None = None
     ) -> str:
-        """Analyze emotion using GPT-4o-mini."""
+        """Analyze emotion using Gemini Flash."""
         # Build context from recent history (last 4 messages)
         context = ""
         if conversation_history:
@@ -332,20 +334,22 @@ class EmotionAnalyzer:
 
         prompt = EMOTION_ANALYSIS_PROMPT.format(text=text, context=context)
 
-        response = await self._client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=10,
+        # Generate response using new google-genai SDK
+        response = await self._gemini_client.aio.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.1,  # Low temperature for consistent results
+                max_output_tokens=10,  # We only need one word
+            )
         )
 
         # Extract and validate emotion (handle empty responses)
-        result_text = response.choices[0].message.content if response.choices else None
-        if not result_text:
-            logger.warning("OpenAI returned empty response for emotion analysis")
-            raise ValueError("Empty response from OpenAI")
+        if not response or not response.text:
+            logger.warning("Gemini returned empty response for emotion analysis")
+            raise ValueError("Empty response from Gemini")
 
-        emotion = result_text.strip().lower()
+        emotion = response.text.strip().lower()
 
         # Handle potential variations (expanded for 8 states)
         emotion_map = {

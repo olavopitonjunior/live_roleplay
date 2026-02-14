@@ -34,7 +34,7 @@ interface UseAgentConnectionResult {
 export function useAgentConnection({
   token,
   serverUrl,
-  agentTimeout = 30000,
+  agentTimeout = 60000,
 }: UseAgentConnectionOptions): UseAgentConnectionResult {
   const [state, setStateInternal] = useState<AgentConnectionState>('idle');
   const [error, setError] = useState<string | null>(null);

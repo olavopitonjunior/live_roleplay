@@ -31,8 +31,8 @@ export function MetricsOverview({ totals, loading }: Props) {
       ),
     },
     {
-      label: 'Tokens Gemini Live',
-      value: totals?.gemini_live_tokens ?? 0,
+      label: 'Tokens Realtime',
+      value: totals?.realtime_tokens ?? 0,
       format: (v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}K` : v.toString(),
       color: 'bg-blue-100 text-blue-800',
       icon: (

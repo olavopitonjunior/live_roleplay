@@ -2,7 +2,7 @@
 AI Coach Engine Module
 
 AI-powered coaching that generates specific, contextual suggestions
-using GPT-4o-mini for fast inference.
+using Gemini Flash for fast inference.
 
 Features:
 - Generates specific questions/phrases (not just techniques)
@@ -20,12 +20,13 @@ from datetime import datetime, timezone
 from typing import Literal, Optional
 from enum import Enum
 
-# Try to import OpenAI
+# Try to import google.genai (new unified SDK)
 try:
-    from openai import AsyncOpenAI
-    OPENAI_AVAILABLE = True
+    from google import genai
+    from google.genai import types
+    GEMINI_AVAILABLE = True
 except ImportError:
-    OPENAI_AVAILABLE = False
+    GEMINI_AVAILABLE = False
 
 import os
 
@@ -240,10 +241,11 @@ INTENSITY_CONFIG = {
 class AICoachEngine:
     """
     AI-powered coaching engine that generates specific, contextual suggestions.
-    Uses GPT-4o-mini for fast inference (~100-200ms).
+    Uses Gemini Flash for fast inference (~100-200ms).
     Supports intensity control (low/medium/high) per PRD 08, US-11.
 
-    Rate limiting: Enforced to avoid excessive API costs.
+    Rate limiting: Gemini Flash-Lite free tier has 20 requests/minute limit.
+    We enforce a global rate limit to avoid 429 errors.
     """
 
     # Default configuration (medium intensity)
@@ -253,13 +255,13 @@ class AICoachEngine:
     MIN_TEXT_LENGTH_STREAMING = 15
     MIN_TEXT_LENGTH_FINAL = 5
 
-    # API rate limiting
-    API_RATE_LIMIT = 15  # Conservative limit
+    # API rate limiting (Gemini Flash-Lite free tier = 20/min)
+    API_RATE_LIMIT = 15  # Stay under 20 to be safe
     API_RATE_WINDOW = 60  # seconds
     MIN_REQUEST_INTERVAL = 3.0  # Minimum seconds between requests
 
     def __init__(self):
-        self._client = None
+        self._gemini_client = None
         self._suggestion_counter = 0
         self._last_suggestion_time: float = 0
         self._last_streaming_time: float = 0
@@ -267,13 +269,13 @@ class AICoachEngine:
         self._context: Optional[ConversationContext] = None
         self._objectives: list[SessionObjective] = []
         self._intensity: CoachIntensity = CoachIntensity.MEDIUM
-        # Turn counter: AI only called every 2 turns to save rate limit
+        # Turn counter: Gemini AI only called every 2 turns to save rate limit
         self._turn_counter: int = 0
         # API rate limiting
         self._api_request_times: list[float] = []
         self._last_api_request: float = 0
         self._rate_limited_until: float = 0  # Track 429 backoff
-        self._setup_openai()
+        self._setup_gemini()
 
     @property
     def intensity(self) -> CoachIntensity:
@@ -297,23 +299,23 @@ class AICoachEngine:
         """Get configuration based on current intensity."""
         return INTENSITY_CONFIG.get(self._intensity, INTENSITY_CONFIG[CoachIntensity.MEDIUM])
 
-    def _setup_openai(self):
-        """Setup OpenAI for coaching."""
-        if not OPENAI_AVAILABLE:
-            logger.warning("openai package not installed, AI coaching unavailable")
+    def _setup_gemini(self):
+        """Setup Gemini Flash for coaching."""
+        if not GEMINI_AVAILABLE:
+            logger.warning("google-genai not installed, AI coaching unavailable")
             return
 
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            logger.warning("OPENAI_API_KEY not set, AI coaching unavailable")
+            logger.warning("GOOGLE_API_KEY not set, AI coaching unavailable")
             return
 
         try:
-            self._client = AsyncOpenAI(api_key=api_key)
-            logger.info("OpenAI initialized for AI coaching (GPT-4o-mini)")
+            self._gemini_client = genai.Client(api_key=api_key)
+            logger.info("Gemini Flash initialized for AI coaching")
         except Exception as e:
-            logger.error(f"Failed to initialize OpenAI for coaching: {e}")
-            self._client = None
+            logger.error(f"Failed to initialize Gemini for coaching: {e}")
+            self._gemini_client = None
 
     async def _wait_for_rate_limit(self) -> bool:
         """
@@ -431,16 +433,16 @@ class AICoachEngine:
 
         logger.info(f"AI Coach session started: {scenario_name}")
 
-        # Log OpenAI client status for debugging
-        if self._client:
-            logger.info("AI Coach OpenAI client ready - suggestions enabled")
+        # Log Gemini client status for debugging
+        if self._gemini_client:
+            logger.info("AI Coach Gemini client ready - suggestions enabled")
         else:
-            logger.error("AI Coach OpenAI client NOT initialized - suggestions will be disabled")
+            logger.error("AI Coach Gemini client NOT initialized - suggestions will be disabled")
 
     async def generate_initial_suggestion(self) -> Optional[AISuggestion]:
         """Generate proactive suggestion at session start."""
-        if not self._client:
-            logger.warning("Coach: OpenAI client not initialized")
+        if not self._gemini_client:
+            logger.warning("Coach: Gemini client not initialized")
             return None
 
         if not self._context:
@@ -473,21 +475,22 @@ Responda APENAS com JSON valido (sem markdown):
 
             # Add timeout to prevent blocking
             response = await asyncio.wait_for(
-                self._client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.4,
-                    max_tokens=200,
+                self._gemini_client.aio.models.generate_content(
+                    model="gemini-2.5-flash-lite",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.4,
+                        max_output_tokens=200,
+                    )
                 ),
                 timeout=5.0
             )
 
-            result_text = response.choices[0].message.content if response.choices else None
-            if not result_text:
-                logger.warning("Coach: OpenAI returned empty response for initial suggestion")
+            if not response or not response.text:
+                logger.warning("Coach: Gemini returned empty response for initial suggestion")
                 return None
 
-            result = self._parse_response(result_text, is_streaming=False)
+            result = self._parse_response(response.text, is_streaming=False)
             if result:
                 self._record_suggestion(is_streaming=False)
                 logger.info(f"Coach: Initial suggestion generated: {result.title}")
@@ -657,7 +660,7 @@ Responda APENAS com JSON valido (sem markdown):
         Analyze partial transcript for urgent suggestions.
         Uses lighter prompt for faster response.
         """
-        if not self._client or not self._context:
+        if not self._gemini_client or not self._context:
             return None
 
         if len(text) < self.MIN_TEXT_LENGTH_STREAMING:
@@ -685,20 +688,21 @@ Responda APENAS com JSON valido (sem markdown):
             # Record request before making it
             self._record_api_request()
 
-            response = await self._client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=200,
+            response = await self._gemini_client.aio.models.generate_content(
+                model="gemini-2.5-flash-lite",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.3,
+                    max_output_tokens=200,
+                )
             )
 
             # Handle empty responses
-            result_text = response.choices[0].message.content if response.choices else None
-            if not result_text:
-                logger.warning("OpenAI returned empty response for streaming coach")
+            if not response or not response.text:
+                logger.warning("Gemini returned empty response for streaming coach")
                 return None
 
-            result = self._parse_response(result_text, is_streaming=True)
+            result = self._parse_response(response.text, is_streaming=True)
             if result:
                 self._record_suggestion(is_streaming=True)
                 logger.debug(f"Streaming suggestion generated: {result.title}")
@@ -721,13 +725,13 @@ Responda APENAS com JSON valido (sem markdown):
         """
         Analyze final transcript for comprehensive suggestion.
         """
-        if not self._client or not self._context:
+        if not self._gemini_client or not self._context:
             return None
 
         if len(text) < self.MIN_TEXT_LENGTH_FINAL:
             return None
 
-        # Turn counter: only call AI every 2 turns to save API rate limit
+        # Turn counter: only call Gemini AI every 2 turns to save API rate limit
         # Keywords (in coaching.py) still run every turn at zero cost
         self._turn_counter += 1
         if self._turn_counter % 2 != 0:
@@ -767,26 +771,27 @@ Responda APENAS com JSON valido (sem markdown):
             # Record request before making it
             self._record_api_request()
 
-            _api_start = time.time()
-            response = await self._client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.4,
-                max_tokens=300,
+            _gemini_start = time.time()
+            response = await self._gemini_client.aio.models.generate_content(
+                model="gemini-2.5-flash-lite",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.4,
+                    max_output_tokens=300,
+                )
             )
-            _api_ms = (time.time() - _api_start) * 1000
-            logger.info(f"[Latency] AI Coach OpenAI call: {_api_ms:.0f}ms")
+            _gemini_ms = (time.time() - _gemini_start) * 1000
+            logger.info(f"[Latency] AI Coach Gemini call: {_gemini_ms:.0f}ms")
 
             # Handle empty responses
-            result_text = response.choices[0].message.content if response.choices else None
-            if not result_text:
-                logger.warning("OpenAI returned empty response for final coach")
+            if not response or not response.text:
+                logger.warning("Gemini returned empty response for final coach")
                 return None
 
-            result = self._parse_response(result_text, is_streaming=False)
+            result = self._parse_response(response.text, is_streaming=False)
             if result:
                 self._record_suggestion(is_streaming=False)
-                logger.debug(f"Final suggestion generated: {result.title} (openai: {_api_ms:.0f}ms)")
+                logger.debug(f"Final suggestion generated: {result.title} (gemini: {_gemini_ms:.0f}ms)")
 
                 # Check if this completes any objectives
                 await self._check_objectives(text, speaker)
@@ -806,7 +811,7 @@ Responda APENAS com JSON valido (sem markdown):
         response_text: str,
         is_streaming: bool
     ) -> Optional[AISuggestion]:
-        """Parse LLM response into AISuggestion."""
+        """Parse Gemini response into AISuggestion."""
         try:
             # Clean response
             text = response_text.strip()
@@ -872,7 +877,7 @@ Responda APENAS com JSON valido (sem markdown):
 
     async def _check_objectives(self, text: str, speaker: str):
         """Check if any objectives were completed."""
-        if not self._objectives or not self._client:
+        if not self._objectives or not self._gemini_client:
             return
 
         uncompleted = [obj for obj in self._objectives if not obj.completed]

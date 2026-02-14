@@ -2,15 +2,15 @@ import { useState, useEffect } from 'react';
 import { Modal, ModalFooter } from '../ui/Modal';
 import { Button } from '../ui';
 import { supabase } from '../../lib/supabase';
-import type { Scenario, Objection, EvaluationCriterion, GeminiVoice, GeneratedScenario, AvatarProvider, SuggestedScenarioFields } from '../../types';
+import type { Scenario, Objection, EvaluationCriterion, AiVoice, GeneratedScenario, AvatarProvider, SuggestedScenarioFields } from '../../types';
 
-// Available Gemini voices with descriptions
-const GEMINI_VOICES: { value: GeminiVoice; label: string; description: string }[] = [
-  { value: 'Puck', label: 'Puck', description: 'Masculina, amigavel (padrao)' },
-  { value: 'Charon', label: 'Charon', description: 'Masculina, grave e seria' },
-  { value: 'Kore', label: 'Kore', description: 'Feminina, suave' },
-  { value: 'Fenrir', label: 'Fenrir', description: 'Masculina, assertiva' },
-  { value: 'Aoede', label: 'Aoede', description: 'Feminina, expressiva' },
+// Available AI voices (OpenAI Realtime)
+const AI_VOICES: { value: AiVoice; label: string; description: string }[] = [
+  { value: 'echo', label: 'Echo', description: 'Masculina, amigavel (padrao)' },
+  { value: 'ash', label: 'Ash', description: 'Masculina, grave e seria' },
+  { value: 'shimmer', label: 'Shimmer', description: 'Feminina, suave' },
+  { value: 'sage', label: 'Sage', description: 'Masculina, assertiva' },
+  { value: 'coral', label: 'Coral', description: 'Feminina, expressiva' },
 ];
 
 const AVATAR_PROVIDERS: { value: AvatarProvider; label: string; description: string }[] = [
@@ -37,7 +37,7 @@ export interface ScenarioFormData {
   evaluation_criteria: EvaluationCriterion[];
   ideal_outcome: string;
   simli_face_id: string;
-  gemini_voice: GeminiVoice;
+  ai_voice: AiVoice;
   avatar_provider: AvatarProvider | null;
   avatar_id: string;
   is_active: boolean;
@@ -51,7 +51,7 @@ const emptyFormData: ScenarioFormData = {
   evaluation_criteria: [{ id: 'crit_1', description: '' }],
   ideal_outcome: '',
   simli_face_id: '',
-  gemini_voice: 'Puck',
+  ai_voice: 'echo',
   avatar_provider: 'hedra',
   avatar_id: '',
   is_active: true,
@@ -155,7 +155,7 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
             updated.ideal_outcome = fields.ideal_outcome;
           }
           if (fields.suggested_voice !== undefined) {
-            updated.gemini_voice = fields.suggested_voice;
+            updated.ai_voice = fields.suggested_voice;
           }
 
           return updated;
@@ -209,7 +209,7 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
           objections: fields.objections,
           evaluation_criteria: fields.evaluation_criteria,
           ideal_outcome: fields.ideal_outcome,
-          gemini_voice: fields.suggested_voice || prev.gemini_voice,
+          ai_voice: fields.suggested_voice || prev.ai_voice,
         }));
       } else {
         throw new Error('Resposta invalida do servidor');
@@ -236,7 +236,7 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
           evaluation_criteria: generatedData.evaluation_criteria,
           ideal_outcome: generatedData.ideal_outcome,
           simli_face_id: '',
-          gemini_voice: generatedData.suggested_voice || 'Puck',
+          ai_voice: generatedData.suggested_voice || 'echo',
           avatar_provider: 'hedra',
           avatar_id: '',
           is_active: true,
@@ -254,7 +254,7 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
             : [{ id: 'crit_1', description: '' }],
           ideal_outcome: scenario.ideal_outcome || '',
           simli_face_id: scenario.simli_face_id || '',
-          gemini_voice: scenario.gemini_voice || 'Puck',
+          ai_voice: scenario.ai_voice || 'echo',
           avatar_provider: scenario.avatar_provider || 'hedra',
           avatar_id: scenario.avatar_id || '',
           is_active: scenario.is_active,
@@ -519,12 +519,12 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
               Voz do Avatar
             </label>
             <select
-              value={formData.gemini_voice}
-              onChange={(e) => setFormData(prev => ({ ...prev, gemini_voice: e.target.value as GeminiVoice }))}
+              value={formData.ai_voice}
+              onChange={(e) => setFormData(prev => ({ ...prev, ai_voice: e.target.value as AiVoice }))}
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
                          focus:border-black focus:ring-0 transition-colors outline-none bg-white"
             >
-              {GEMINI_VOICES.map((voice) => (
+              {AI_VOICES.map((voice) => (
                 <option key={voice.value} value={voice.value}>
                   {voice.label} - {voice.description}
                 </option>
