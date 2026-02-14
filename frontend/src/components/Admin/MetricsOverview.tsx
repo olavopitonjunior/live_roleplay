@@ -54,7 +54,7 @@ export function MetricsOverview({ totals, loading }: Props) {
     },
     {
       label: 'Minutos Avatar',
-      value: totals?.simli_minutes ?? 0,
+      value: totals?.avatar_minutes ?? 0,
       format: (v: number) => `${v.toFixed(1)} min`,
       color: 'bg-pink-100 text-pink-800',
       icon: (
