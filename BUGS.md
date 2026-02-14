@@ -7,14 +7,16 @@ Last audit: 2026-02-14
 ### BUG-016: Avatar disconnect + audio race condition [FIXED 2026-02-14]
 - **Severity**: Critical
 - **Symptoms**: Avatar video disappears ~6s after session start. Audio never plays. 0 transcript lines in all sessions.
-- **Root cause**: Greeting instruction was duplicated — present in both `full_instructions` (passed to `Agent()`) and explicit `generate_reply()` call. When OpenAI Realtime started processing the first response (from instructions/VAD), the explicit `generate_reply()` call failed with `"Conversation already has an active response in progress"`. Without audio output from the agent, the Hedra avatar received no lip-sync input and disconnected after its internal timeout (~6s).
+- **Root cause (Part 1)**: Greeting instruction was duplicated — present in both `full_instructions` (passed to `Agent()`) and explicit `generate_reply()` call. When OpenAI Realtime started processing the first response (from instructions/VAD), the explicit `generate_reply()` call failed with `"Conversation already has an active response in progress"`. Without audio output from the agent, the Hedra avatar received no lip-sync input and disconnected after its internal timeout (~6s).
+- **Root cause (Part 2)**: The 2s delay added in Part 1 fix pushed first audio output to T+7s, exceeding Hedra's idle timeout (~6s from avatar.start at T+2).
 - **Fix**:
   1. Removed greeting from `full_instructions` (only trigger via `generate_reply`)
-  2. Added 2s delay after `session.start()` before greeting to let OpenAI Realtime stabilize
+  2. Reduced greeting delay from 2.0s to 0.5s (Hedra needs audio within ~4-6s of joining)
   3. Added retry logic with exponential backoff for `generate_reply` (3 attempts)
   4. Added `RoomAudioRenderer` to desktop layout (was only in mobile)
   5. Enhanced avatar disconnect diagnostics (detect early Hedra disconnect)
-- **Prevention**: Never include greeting/response-triggering instructions in both `Agent(instructions=...)` and `generate_reply()`. Use `generate_reply()` as the single greeting trigger.
+  6. Added track diagnostic logging (participants + track kinds after 3s)
+- **Prevention**: Never include greeting/response-triggering instructions in both `Agent(instructions=...)` and `generate_reply()`. Use `generate_reply()` as the single greeting trigger. Keep pre-greeting delay minimal to avoid Hedra idle timeout.
 
 ### BUG-013: Edge Function desync after DB migration [FIXED 2026-02-13]
 - **Severity**: Critical

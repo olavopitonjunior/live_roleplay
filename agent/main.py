@@ -1918,9 +1918,9 @@ async def entrypoint(ctx: JobContext):
         asyncio.create_task(heartbeat_loop())
         logger.info("Heartbeat loop started (every 5s)")
 
-        # Wait for OpenAI Realtime session to fully initialize before greeting
-        # Prevents "active response in progress" race condition (BUG-016)
-        await asyncio.sleep(2.0)
+        # Brief wait for OpenAI Realtime to initialize before greeting
+        # Keep short (0.5s) to avoid Hedra idle timeout (~6s from avatar.start)
+        await asyncio.sleep(0.5)
 
         # Trigger greeting with retry logic (exponential backoff)
         await send_status_to_room("Avatar iniciando...")
@@ -1944,6 +1944,23 @@ async def entrypoint(ctx: JobContext):
                 else:
                     logger.error(f"Greeting failed permanently: {e}")
                     break
+
+        # Diagnostic: log room participants and tracks after 3s
+        async def _log_room_state():
+            await asyncio.sleep(3)
+            participants = list(ctx.room.remote_participants.values())
+            for p in participants:
+                tracks = list(p.track_publications.values())
+                logger.info(
+                    f"DIAG: Participant '{p.identity}': "
+                    f"tracks={len(tracks)}, "
+                    f"kinds={[t.kind.name for t in tracks]}"
+                )
+            if not participants:
+                logger.warning("DIAG: No remote participants in room after 3s!")
+            else:
+                logger.info(f"DIAG: Total remote participants: {len(participants)}")
+        asyncio.create_task(_log_room_state())
 
         # Start timeout AFTER greeting (so greeting doesn't eat into conversation time)
         timeout_task = asyncio.create_task(session_timeout())
