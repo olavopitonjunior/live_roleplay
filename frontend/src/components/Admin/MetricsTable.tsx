@@ -92,9 +92,9 @@ export function MetricsTable({ metrics, loading }: Props) {
             </th>
             <th
               className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase cursor-pointer hover:text-gray-700"
-              onClick={() => handleSort('gemini_live_input_tokens')}
+              onClick={() => handleSort('realtime_input_tokens')}
             >
-              Gemini <SortIcon field="gemini_live_input_tokens" />
+              Realtime <SortIcon field="realtime_input_tokens" />
             </th>
             <th
               className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase cursor-pointer hover:text-gray-700"
@@ -118,9 +118,9 @@ export function MetricsTable({ metrics, loading }: Props) {
         </thead>
         <tbody>
           {sortedMetrics.map((metric) => {
-            const totalGeminiTokens =
-              (metric.gemini_live_input_tokens || 0) +
-              (metric.gemini_live_output_tokens || 0);
+            const totalRealtimeTokens =
+              (metric.realtime_input_tokens || 0) +
+              (metric.realtime_output_tokens || 0);
             const totalClaudeTokens =
               (metric.claude_input_tokens || 0) +
               (metric.claude_output_tokens || 0);
@@ -141,9 +141,9 @@ export function MetricsTable({ metrics, loading }: Props) {
                   {metric.sessions?.scenarios?.title || '-'}
                 </td>
                 <td className="py-3 px-4 text-sm text-right text-gray-900">
-                  {totalGeminiTokens >= 1000
-                    ? `${(totalGeminiTokens / 1000).toFixed(1)}K`
-                    : totalGeminiTokens}
+                  {totalRealtimeTokens >= 1000
+                    ? `${(totalRealtimeTokens / 1000).toFixed(1)}K`
+                    : totalRealtimeTokens}
                 </td>
                 <td className="py-3 px-4 text-sm text-right text-gray-900">
                   {totalClaudeTokens >= 1000

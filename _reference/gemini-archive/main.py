@@ -6,7 +6,7 @@ for sales and negotiation training scenarios.
 
 Improvements:
 - Timestamps in transcript for better analysis
-- AI-powered emotion analysis (GPT-4o-mini) with keyword fallback
+- AI-powered emotion analysis (Gemini Flash) with keyword fallback
 - Emotion meter reflects CLIENT (avatar) satisfaction, not user
 - Avatar synchronized after session start for better latency
 """
@@ -30,8 +30,8 @@ from livekit.agents import (
     cli,
     room_io,
 )
-# OpenAI Realtime for voice, Silero VAD, legacy avatar plugins
-from livekit.plugins import openai as openai_plugin, silero, simli, elevenlabs
+# Modality import removed — half-cascade (TEXT mode) disabled since gemini-2.0-flash-live-001 shutdown
+from livekit.plugins import google, silero, simli, elevenlabs
 
 # Optional avatar providers - import with fallback
 try:
@@ -85,7 +85,7 @@ LIVEAVATAR_AVATAR_ID = os.getenv("LIVEAVATAR_AVATAR_ID", "")
 HEDRA_API_KEY = os.getenv("HEDRA_API_KEY", "")
 HEDRA_AVATAR_ID = os.getenv("HEDRA_AVATAR_ID", "")
 
-# ElevenLabs TTS configuration (legacy — half-cascade disabled)
+# ElevenLabs TTS configuration (half-cascade: Gemini TEXT + ElevenLabs TTS)
 ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID", "")
 
 # Lista de avatares Hedra disponíveis para seleção aleatória
@@ -96,7 +96,7 @@ HEDRA_AVATAR_IDS = [
 ]
 
 
-# Regex to extract emotion tags from LLM output (e.g., "[receptivo] Que interessante...")
+# Regex to extract emotion tags from Gemini output (e.g., "[receptivo] Que interessante...")
 EMOTION_TAG_PATTERN = re.compile(
     r'^\[(neutro|receptivo|curioso|entusiasmado|satisfeito|hesitante|cetico|frustrado)\]\s*',
     re.IGNORECASE
@@ -125,7 +125,7 @@ EMOTION_PT_TO_EN = {
 class EmotionStrippingAgent(Agent):
     """Agent subclass that strips emotion tags (e.g. [receptivo]) from text before TTS.
 
-    In half-cascade mode (LLM TEXT + ElevenLabs TTS), the LLM outputs text with
+    In half-cascade mode (Gemini TEXT + ElevenLabs TTS), the LLM outputs text with
     emotion tags like "[receptivo] Olá!". These tags are parsed by conversation_item_added
     for the emotion system, but must NOT reach the TTS engine.
     """
@@ -791,16 +791,8 @@ async def entrypoint(ctx: JobContext):
         else:
             logger.info("Learning profile empty or new user")
 
-    # Get voice setting from scenario (with fallback + Gemini→OpenAI mapping)
-    VOICE_MAP = {
-        "Puck": "echo",
-        "Charon": "ash",
-        "Kore": "shimmer",
-        "Fenrir": "sage",
-        "Aoede": "coral",
-    }
-    raw_voice = scenario.get('ai_voice') or scenario.get('gemini_voice') or 'echo'
-    voice = VOICE_MAP.get(raw_voice, raw_voice)  # Map Gemini names or pass OpenAI names through
+    # Get voice setting from scenario (with fallback)
+    voice = scenario.get('gemini_voice') or 'Puck'
     avatar_provider = scenario.get('avatar_provider', 'hedra')
 
     logger.info(f"Using voice: {voice}, avatar_provider: {avatar_provider}")
@@ -812,25 +804,34 @@ async def entrypoint(ctx: JobContext):
     greeting_instruction = "\n\nIMPORTANTE: Ao iniciar a conversa, cumprimente o usuario de forma breve e natural, como 'Ola! Em que posso ajudar?' Seja direto e amigavel."
     full_instructions = instructions + greeting_instruction
 
-    # OpenAI Realtime: supports text + audio modalities (enables generate_reply)
-    openai_model = "gpt-4o-realtime-preview"
+    # Voice-to-voice mode: Gemini native audio handles STT + LLM + TTS
+    # NOTE: Half-cascade (TEXT + ElevenLabs) disabled — gemini-2.0-flash-live-001
+    # was shut down Dec 9 2025, and native-audio models reject TEXT modality.
+    # See: https://github.com/livekit/agents/issues/4423
+    gemini_model = "gemini-2.5-flash-native-audio-preview-12-2025"
+    if ELEVEN_VOICE_ID:
+        logger.warning(
+            "ELEVEN_VOICE_ID is set but half-cascade is unavailable "
+            "(gemini-2.0-flash-live-001 shut down). Using native audio."
+        )
 
     realtime_kwargs: dict[str, Any] = {
-        "model": openai_model,
-        "temperature": 0.8,
+        "model": gemini_model,
+        "temperature": 0.4,
         "instructions": full_instructions,
         "voice": voice,
-        "modalities": ["text", "audio"],
+        "proactivity": True,
     }
-    logger.info(f"Voice mode: OpenAI Realtime (model={openai_model}, voice={voice})")
+    logger.info(f"Voice-to-voice mode: Gemini native audio (model={gemini_model}, voice={voice})")
 
     session_kwargs: dict[str, Any] = {
-        "llm": openai_plugin.realtime.RealtimeModel(**realtime_kwargs),
+        "llm": google.realtime.RealtimeModel(**realtime_kwargs),
         "vad": silero.VAD.load(
             min_speech_duration=0.1,
             min_silence_duration=0.15,
         ),
         "user_away_timeout": 60.0,
+        "resume_false_interruption": False,
     }
 
     session = AgentSession(**session_kwargs)
@@ -1264,8 +1265,8 @@ async def entrypoint(ctx: JobContext):
                             _coach_ai_ms = (time.time() - _coach_ai_start) * 1000
                             if suggestion:
                                 await send_ai_suggestion(suggestion)
-                                # Track text API call for AI coaching
-                                metrics.record_text_api_call(input_tokens=200, output_tokens=50)
+                                # Track Gemini Flash call for AI coaching
+                                metrics.record_gemini_flash_call(input_tokens=200, output_tokens=50)
                                 asyncio.create_task(send_latency_event("coach_ai", _coach_ai_ms, "Coach AI", f"suggestion: {suggestion.title[:30]}"))
                             else:
                                 asyncio.create_task(send_latency_event("coach_ai", _coach_ai_ms, "Coach AI", "skipped/no suggestion"))
@@ -1279,7 +1280,7 @@ async def entrypoint(ctx: JobContext):
             # Track input tokens for metrics
             if is_final:
                 input_tokens = metrics.estimate_tokens(text)
-                metrics.add_realtime_tokens(input_tokens=input_tokens)
+                metrics.add_gemini_live_tokens(input_tokens=input_tokens)
             # Send to frontend (fire and forget)
             asyncio.create_task(send_transcription_to_room("user", text, is_final))
             asyncio.create_task(send_status_to_room("Processando resposta..."))
@@ -1331,13 +1332,13 @@ async def entrypoint(ctx: JobContext):
                     asyncio.create_task(send_latency_event("response_time", _response_ms, "Response Time", f"turn {_response_turn_counter}"))
                     _last_user_speech_end_time = 0.0  # Reset for next turn
 
-                # Extract emotion tag from LLM output (e.g., "[receptivo] Texto...")
+                # Extract emotion tag from Gemini output (e.g., "[receptivo] Texto...")
                 clean_text = text
                 emotion_tag_match = EMOTION_TAG_PATTERN.match(text)
                 if emotion_tag_match:
                     emotion_tag = emotion_tag_match.group(1).lower()
                     clean_text = text[emotion_tag_match.end():]  # Remove tag from text
-                    # Send emotion INSTANTLY (no wait for background analysis)
+                    # Send emotion INSTANTLY (no wait for Gemini Flash analysis)
                     tag_intensity = EMOTION_TAG_INTENSITY.get(emotion_tag, 50)
                     # Translate PT-BR tag to EN for frontend compatibility
                     emotion_en = EMOTION_PT_TO_EN.get(emotion_tag, "neutral")
@@ -1356,13 +1357,13 @@ async def entrypoint(ctx: JobContext):
 
                 # Track output tokens for metrics
                 output_tokens = metrics.estimate_tokens(clean_text)
-                metrics.add_realtime_tokens(output_tokens=output_tokens)
+                metrics.add_gemini_live_tokens(output_tokens=output_tokens)
 
                 # Send to frontend (clean text without emotion tag)
                 asyncio.create_task(send_transcription_to_room("avatar", clean_text))
                 asyncio.create_task(send_status_to_room("Ouvindo..."))
 
-                # Background emotion analysis via GPT-4o-mini
+                # Background emotion analysis via Gemini Flash
                 # Skip if emotion tag was already extracted (saves 1 API call per turn)
                 if not emotion_tag_match:
                     async def analyze_and_send_emotion():
@@ -1377,7 +1378,7 @@ async def entrypoint(ctx: JobContext):
                                 result["trend"],
                                 result.get("reason")
                             )
-                            metrics.record_text_api_call(input_tokens=100, output_tokens=5)
+                            metrics.record_gemini_flash_call(input_tokens=100, output_tokens=5)
                         except Exception as e:
                             logger.warning(f"AI emotion analysis failed, using fallback: {e}")
                             emotion = analyze_emotion_sync(clean_text)
@@ -1419,8 +1420,8 @@ async def entrypoint(ctx: JobContext):
                             suggestion = await ai_coach.analyze_final(clean_text, "avatar")
                             if suggestion:
                                 await send_ai_suggestion(suggestion)
-                                # Track text API call
-                                metrics.record_text_api_call(input_tokens=200, output_tokens=50)
+                                # Track Gemini Flash call
+                                metrics.record_gemini_flash_call(input_tokens=200, output_tokens=50)
                             else:
                                 logger.warning(f"AI Coach returned None for avatar response: {clean_text[:50]}...")
                         except Exception as e:
@@ -1569,13 +1570,13 @@ async def entrypoint(ctx: JobContext):
         # Reset emotion history for fresh session
         reset_emotion_history()
 
-        # Verify OPENAI_API_KEY for AI Coach (early warning)
+        # Verify GOOGLE_API_KEY for AI Coach (early warning)
         if coaching_enabled:
-            openai_key = os.getenv("OPENAI_API_KEY")
-            if not openai_key:
-                logger.error("OPENAI_API_KEY not set - AI Coach suggestions will be disabled")
+            google_key = os.getenv("GOOGLE_API_KEY")
+            if not google_key:
+                logger.error("GOOGLE_API_KEY not set - AI Coach suggestions will be disabled")
             else:
-                logger.info(f"OPENAI_API_KEY configured (length: {len(openai_key)} chars)")
+                logger.info(f"GOOGLE_API_KEY configured (length: {len(google_key)} chars)")
 
         # Initialize coaching engine (keyword-based) - only in training mode
         if coaching_enabled:
@@ -1818,17 +1819,10 @@ async def entrypoint(ctx: JobContext):
         asyncio.create_task(heartbeat_loop())
         logger.info("Heartbeat loop started (every 5s)")
 
-        # Trigger greeting via generate_reply (OpenAI Realtime processes text instructions)
-        try:
-            logger.info("Triggering greeting via generate_reply...")
-            await send_status_to_room("Avatar iniciando...")
-            _greeting_trigger_time = _time_mod.time()
-            session.generate_reply(
-                instructions="Cumprimente o usuario de forma breve e natural. Seja direto e amigavel."
-            )
-            logger.info("Greeting triggered successfully")
-        except Exception as e:
-            logger.warning(f"Failed to trigger greeting: {e}")
+        # Greeting via proactivity (model speaks first based on system instructions)
+        logger.info("Greeting via proactivity (model speaks first based on instructions)")
+        await send_status_to_room("Avatar pronto!")
+        _greeting_trigger_time = _time_mod.time()
 
         # Start timeout AFTER greeting (so greeting doesn't eat into conversation time)
         timeout_task = asyncio.create_task(session_timeout())

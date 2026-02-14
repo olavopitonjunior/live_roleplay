@@ -16,37 +16,38 @@ import {
 interface ApiMetric {
   id: string;
   session_id: string;
-  gemini_live_input_tokens: number;
-  gemini_live_output_tokens: number;
-  gemini_live_duration_seconds: number;
-  gemini_flash_calls: number;
-  gemini_flash_input_tokens: number;
-  gemini_flash_output_tokens: number;
+  realtime_input_tokens: number;
+  realtime_output_tokens: number;
+  realtime_duration_seconds: number;
+  text_api_calls: number;
+  text_api_input_tokens: number;
+  text_api_output_tokens: number;
   claude_input_tokens: number;
   claude_output_tokens: number;
   simli_duration_seconds: number;
   livekit_participant_minutes: number;
   estimated_cost_cents: number;
+  llm_provider: string;
   created_at: string;
 }
 
 interface DailyAggregate {
   date: string;
   session_count: number;
-  total_gemini_live_tokens: number;
-  total_gemini_flash_calls: number;
+  total_realtime_tokens: number;
+  total_text_api_calls: number;
   total_claude_tokens: number;
-  total_simli_minutes: number;
+  total_avatar_minutes: number;
   total_livekit_minutes: number;
   total_cost_cents: number;
 }
 
 interface MetricsTotals {
   total_sessions: number;
-  gemini_live_tokens: number;
-  gemini_flash_calls: number;
+  realtime_tokens: number;
+  text_api_calls: number;
   claude_tokens: number;
-  simli_minutes: number;
+  avatar_minutes: number;
   livekit_minutes: number;
   estimated_cost_usd: number;
 }
@@ -166,17 +167,17 @@ function calculateTotals(metrics: any[]): MetricsTotals {
   const result = metrics.reduce(
     (acc, m) => ({
       total_sessions: acc.total_sessions + 1,
-      gemini_live_tokens:
-        acc.gemini_live_tokens +
-        (m.gemini_live_input_tokens || 0) +
-        (m.gemini_live_output_tokens || 0),
-      gemini_flash_calls: acc.gemini_flash_calls + (m.gemini_flash_calls || 0),
+      realtime_tokens:
+        acc.realtime_tokens +
+        (m.realtime_input_tokens || 0) +
+        (m.realtime_output_tokens || 0),
+      text_api_calls: acc.text_api_calls + (m.text_api_calls || 0),
       claude_tokens:
         acc.claude_tokens +
         (m.claude_input_tokens || 0) +
         (m.claude_output_tokens || 0),
-      simli_minutes:
-        acc.simli_minutes + (m.simli_duration_seconds || 0) / 60,
+      avatar_minutes:
+        acc.avatar_minutes + (m.simli_duration_seconds || 0) / 60,
       livekit_minutes:
         acc.livekit_minutes + (m.livekit_participant_minutes || 0),
       estimated_cost_usd:
@@ -184,17 +185,17 @@ function calculateTotals(metrics: any[]): MetricsTotals {
     }),
     {
       total_sessions: 0,
-      gemini_live_tokens: 0,
-      gemini_flash_calls: 0,
+      realtime_tokens: 0,
+      text_api_calls: 0,
       claude_tokens: 0,
-      simli_minutes: 0,
+      avatar_minutes: 0,
       livekit_minutes: 0,
       estimated_cost_usd: 0,
     }
   );
 
   // Round numeric values
-  result.simli_minutes = Math.round(result.simli_minutes * 100) / 100;
+  result.avatar_minutes = Math.round(result.avatar_minutes * 100) / 100;
   result.livekit_minutes = Math.round(result.livekit_minutes * 100) / 100;
   result.estimated_cost_usd = Math.round(result.estimated_cost_usd * 100) / 100;
 
@@ -211,22 +212,22 @@ function aggregateByDate(metrics: any[]): DailyAggregate[] {
       byDate[date] = {
         date,
         session_count: 0,
-        total_gemini_live_tokens: 0,
-        total_gemini_flash_calls: 0,
+        total_realtime_tokens: 0,
+        total_text_api_calls: 0,
         total_claude_tokens: 0,
-        total_simli_minutes: 0,
+        total_avatar_minutes: 0,
         total_livekit_minutes: 0,
         total_cost_cents: 0,
       };
     }
 
     byDate[date].session_count += 1;
-    byDate[date].total_gemini_live_tokens +=
-      (m.gemini_live_input_tokens || 0) + (m.gemini_live_output_tokens || 0);
-    byDate[date].total_gemini_flash_calls += m.gemini_flash_calls || 0;
+    byDate[date].total_realtime_tokens +=
+      (m.realtime_input_tokens || 0) + (m.realtime_output_tokens || 0);
+    byDate[date].total_text_api_calls += m.text_api_calls || 0;
     byDate[date].total_claude_tokens +=
       (m.claude_input_tokens || 0) + (m.claude_output_tokens || 0);
-    byDate[date].total_simli_minutes += (m.simli_duration_seconds || 0) / 60;
+    byDate[date].total_avatar_minutes += (m.simli_duration_seconds || 0) / 60;
     byDate[date].total_livekit_minutes += m.livekit_participant_minutes || 0;
     byDate[date].total_cost_cents += m.estimated_cost_cents || 0;
   });
@@ -236,7 +237,7 @@ function aggregateByDate(metrics: any[]): DailyAggregate[] {
     .sort((a, b) => b.date.localeCompare(a.date))
     .map((d) => ({
       ...d,
-      total_simli_minutes: Math.round(d.total_simli_minutes * 100) / 100,
+      total_avatar_minutes: Math.round(d.total_avatar_minutes * 100) / 100,
       total_livekit_minutes: Math.round(d.total_livekit_minutes * 100) / 100,
     }));
 }

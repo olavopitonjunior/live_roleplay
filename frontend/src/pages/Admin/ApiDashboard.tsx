@@ -153,10 +153,10 @@ export function ApiDashboard() {
         <div className="bg-gray-100 rounded-lg p-4 text-sm text-gray-600">
           <h4 className="font-medium text-gray-700 mb-2">Sobre os custos estimados</h4>
           <ul className="list-disc list-inside space-y-1">
-            <li>Gemini Live: $0.025/1K input tokens, $0.10/1K output tokens</li>
-            <li>Gemini Flash: $0.0075/1K input tokens, $0.03/1K output tokens</li>
+            <li>OpenAI Realtime: $40/1M input tokens, $200/1M output tokens</li>
+            <li>GPT-4o-mini: $0.15/1M input tokens, $0.60/1M output tokens</li>
             <li>Claude Sonnet: $3/1M input tokens, $15/1M output tokens</li>
-            <li>Simli Avatar: ~$0.02/minuto</li>
+            <li>Hedra Avatar: ~$0.015/minuto</li>
             <li>LiveKit WebRTC: ~$0.004/participante-minuto</li>
           </ul>
           <p className="mt-2 text-gray-500">

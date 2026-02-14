@@ -18,5 +18,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY agent/*.py .
 COPY agent/.env* ./
 
+# Ensure Python output is not buffered (critical for Docker/Railway log capture)
+ENV PYTHONUNBUFFERED=1
+
 # Run the agent (LiveKit Agents CLI requires 'start' command)
 CMD ["python", "main.py", "start"]

@@ -63,3 +63,13 @@ scripts/test_audio_samples/
 
 # Windows temp
 nul
+
+.vercel
+.env*.local
+
+# Reference repos (embedded git repos)
+_reference/livekit-agents/
+
+# QA artifacts
+playwright-report/
+qa-artifacts/

@@ -73,8 +73,11 @@ export interface EvaluationCriterion {
   description: string;
 }
 
-// Available Gemini voices
-export type GeminiVoice = 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Aoede';
+// Available AI voices (OpenAI Realtime)
+export type AiVoice = 'echo' | 'ash' | 'shimmer' | 'sage' | 'coral';
+
+// Legacy alias for backwards compatibility
+export type GeminiVoice = AiVoice;
 
 // Available avatar providers
 export type AvatarProvider = 'simli' | 'liveavatar' | 'hedra';
@@ -88,7 +91,7 @@ export interface Scenario {
   evaluation_criteria: EvaluationCriterion[];
   ideal_outcome: string | null;
   simli_face_id: string | null;
-  gemini_voice: GeminiVoice | null;
+  ai_voice: AiVoice | null;
   avatar_provider: AvatarProvider | null;
   avatar_id: string | null;
   is_active: boolean;
@@ -114,7 +117,7 @@ export interface GeneratedScenario {
   objections: Objection[];
   evaluation_criteria: EvaluationCriterion[];
   ideal_outcome: string;
-  suggested_voice: GeminiVoice;
+  suggested_voice: AiVoice;
 }
 
 // Request for scenario generation
@@ -130,7 +133,7 @@ export interface SuggestedScenarioFields {
   objections: Objection[];
   evaluation_criteria: EvaluationCriterion[];
   ideal_outcome: string;
-  suggested_voice: GeminiVoice;
+  suggested_voice: AiVoice;
 }
 
 // Session types
@@ -276,17 +279,18 @@ export interface FeedbackResponse {
 export interface ApiMetric {
   id: string;
   session_id: string;
-  gemini_live_input_tokens: number;
-  gemini_live_output_tokens: number;
-  gemini_live_duration_seconds: number;
-  gemini_flash_calls: number;
-  gemini_flash_input_tokens: number;
-  gemini_flash_output_tokens: number;
+  realtime_input_tokens: number;
+  realtime_output_tokens: number;
+  realtime_duration_seconds: number;
+  text_api_calls: number;
+  text_api_input_tokens: number;
+  text_api_output_tokens: number;
   claude_input_tokens: number;
   claude_output_tokens: number;
   simli_duration_seconds: number;
   livekit_participant_minutes: number;
   estimated_cost_cents: number;
+  llm_provider: string;
   created_at: string;
   sessions?: {
     scenario_id: string;
@@ -299,10 +303,10 @@ export interface ApiMetric {
 
 export interface MetricsTotals {
   total_sessions: number;
-  gemini_live_tokens: number;
-  gemini_flash_calls: number;
+  realtime_tokens: number;
+  text_api_calls: number;
   claude_tokens: number;
-  simli_minutes: number;
+  avatar_minutes: number;
   livekit_minutes: number;
   estimated_cost_usd: number;
 }
@@ -310,10 +314,10 @@ export interface MetricsTotals {
 export interface DailyAggregate {
   date: string;
   session_count: number;
-  total_gemini_live_tokens: number;
-  total_gemini_flash_calls: number;
+  total_realtime_tokens: number;
+  total_text_api_calls: number;
   total_claude_tokens: number;
-  total_simli_minutes: number;
+  total_avatar_minutes: number;
   total_livekit_minutes: number;
   total_cost_cents: number;
 }

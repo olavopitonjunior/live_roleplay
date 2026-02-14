@@ -4,6 +4,13 @@ Last audit: 2026-02-13
 
 ## Active Issues
 
+### BUG-013: Edge Function desync after DB migration [FIXED 2026-02-13]
+- **Severity**: Critical
+- **Symptoms**: ALL session creation fails — `create-livekit-token` queries `gemini_voice` column that was renamed to `ai_voice` in DB migration. Returns 404/500.
+- **Root cause**: DB migration renamed `gemini_voice` → `ai_voice` and `gemini_live_*` → `realtime_*`, but Edge Functions on Supabase were NOT redeployed. Edge Functions don't auto-deploy — they require manual deploy via MCP or `supabase functions deploy`.
+- **Fix**: Redeployed `create-livekit-token` (v36) and `get-api-metrics` (v17) with updated column names.
+- **Prevention**: Added "Deployment Checklist" section to CLAUDE.md — when renaming DB columns, ALWAYS redeploy Edge Functions that reference them.
+
 ### BUG-001: generate-feedback returning 400/404 [MONITORING]
 - **Severity**: Medium
 - **Source**: Supabase Edge Function logs
@@ -29,12 +36,12 @@ Last audit: 2026-02-13
 
 ## Resolved Bugs
 
-### BUG-005: Gemini native-audio model rejects TEXT modality [FIXED 2026-02-13]
-- **Severity**: Critical
+### BUG-005: Gemini native-audio model rejects TEXT modality [RESOLVED — migrated to OpenAI]
+- **Severity**: Critical (was)
 - **Commit**: `f3da74a`
-- **Symptoms**: ALL sessions crash ~1s after connect with `Cannot extract voices from a non-audio request`. 0 transcript lines. No roleplay possible.
-- **Root cause**: `agent/main.py` used `gemini-2.5-flash-native-audio-preview-12-2025` for both modes. Native-audio models reject `modalities=[Modality.TEXT]` by design.
-- **Fix**: Use `gemini-2.0-flash-live-001` for half-cascade (TEXT), keep native-audio for voice-to-voice.
+- **Symptoms**: ALL sessions crash ~1s after connect with `Cannot extract voices from a non-audio request`.
+- **Root cause**: Gemini native-audio models reject `modalities=[Modality.TEXT]` by design. Half-cascade impossible.
+- **Resolution**: Migrated entire AI stack from Gemini to OpenAI Realtime (`gpt-4o-realtime-preview`). OpenAI supports text+audio output natively.
 
 ### BUG-006: Premature session termination — 6 bugs [FIXED 2026-02-12]
 - **Severity**: Critical
@@ -84,13 +91,13 @@ Last audit: 2026-02-13
 
 ---
 
-## Infrastructure Health (2026-02-13)
+## Infrastructure Health (2026-02-13, updated)
 
 | Service | Status | Notes |
 |---------|--------|-------|
-| Vercel (Frontend) | Healthy | Latest deploy READY, 0 runtime errors |
-| Supabase Postgres | Healthy | No query errors, no deadlocks |
+| Vercel (Frontend) | Pending | Git push pending — local changes not yet deployed |
+| Supabase Postgres | Healthy | Migration applied: `gemini_voice` → `ai_voice` |
 | Supabase Auth | Healthy | No errors |
-| Supabase Edge Functions | Degraded | BUG-001 (feedback 400/404), expected to resolve |
-| Railway (Agent) | Deploying | Fix for BUG-005 in progress |
+| Supabase Edge Functions | Fixed | BUG-013 fixed — `create-livekit-token` v36, `get-api-metrics` v17 deployed |
+| Railway (Agent) | Healthy | OpenAI Realtime deployed, SDK 1.4.1, worker registered |
 | LiveKit Cloud | Healthy | Worker registered, US East B |
