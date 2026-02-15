@@ -119,6 +119,33 @@ Last audit: 2026-02-14
 - **Root cause**: OpenAI `RealtimeModel` does NOT accept `instructions` parameter (unlike Gemini's `RealtimeModel`). Instructions were being passed both in `realtime_kwargs` (wrong) and in `Agent(instructions=...)` at `session.start()` (correct — line 1761).
 - **Fix**: Removed `instructions` from `realtime_kwargs` dict. Instructions correctly passed via `Agent()` class.
 
+### BUG-017: Emotion tags verbalized in audio [FIXED 2026-02-14]
+- **Severity**: High
+- **Commits**: `9036842`, `e7fbcf9`
+- **Symptoms**: Avatar verbalizava tags emocionais no áudio (ex: usuário ouvia "receptivo Que interessante!" em vez de apenas "Que interessante!")
+- **Root cause**: Prompt instruía OpenAI Realtime a gerar texto com tags `[emoção]`. Como Realtime usa `modalities=["text", "audio"]` e gera áudio+texto simultaneamente, as tags eram sintetizadas na voz.
+- **Impact**: Quebra total de imersão do roleplay
+- **Fix**:
+  1. Removidas linhas 152-156 de `agent/prompts.py` (seção TAG EMOCIONAL OBRIGATORIO)
+  2. Emotion analysis migrada 100% para `emotion_analyzer.py` (GPT-4o-mini assíncrono)
+  3. Backend mantém extração de tags como fallback (`EMOTION_TAG_PATTERN`)
+- **Result**: Avatar expressa emoções naturalmente via prosódia, tom e escolha de palavras. Emotion meter atualizado via GPT-4o-mini com delay ~1-2s (trade-off aceitável).
+
+### BUG-018: Avatar inverte papel mid-conversation [FIXED 2026-02-14]
+- **Severity**: Critical
+- **Commits**: `9036842`, `e7fbcf9`
+- **Symptoms**: Avatar começava correto (cliente frustrado) mas invertia para papel de suporte quando usuário respondia mal (ex: "Não posso fazer nada"). Avatar oferecia soluções e fazia perguntas de vendedor ("O que posso fazer por você?").
+- **Root cause (Part 1)**: Context do cenário "Retenção de Cliente Insatisfeito" usava "Voce precisa... reter o cliente", fazendo OpenAI interpretar que AVATAR deveria reter.
+- **Root cause (Part 2)**: OpenAI Realtime tentava "corrigir" situação quando detectava resposta inadequada do usuário, assumindo houve confusão de papéis.
+- **Impact**: Usuários não conseguiam treinar — avatar assumia papel deles
+- **Fix**:
+  1. Adicionada seção "SEU PAPEL (CRITICO)" em `prompts.py` (linhas 133-155) com instruções explícitas: NUNCA inverter papéis mesmo se usuário responder mal
+  2. Exemplos de como reagir mantendo papel de cliente ("Como assim?", "Você não está me ouvindo")
+  3. Lista explícita de comportamentos proibidos (oferecer soluções, fazer perguntas de vendedor)
+  4. Reforço em REGRAS: "PAPEL FIXO", "NUNCA tente 'salvar' a conversa assumindo outro papel"
+  5. Updated scenario context de 3ª pessoa ("Um cliente ligou...") para 1ª pessoa ("Voce e um cliente... frustrado")
+- **Result**: Avatar mantém papel de cliente durante toda conversa, mesmo com respostas inadequadas do usuário.
+
 ---
 
 ## Infrastructure Health (2026-02-14, updated)

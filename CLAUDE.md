@@ -66,6 +66,63 @@ Use `/api-docs` para consultar documentação detalhada de qualquer API.
 - CORS handling em todas as funções
 - Service role key para operações privilegiadas
 
+## Prompts e Roleplay
+
+### Arquitetura de Prompts (`agent/prompts.py`)
+
+O sistema usa prompts dinâmicos construídos em tempo real baseados no cenário:
+
+```python
+build_agent_instructions(
+    scenario,      # Contexto, perfil, objeções
+    outcomes,      # Finais possíveis
+    difficulty_level  # 1-10
+)
+```
+
+**Estrutura do prompt:**
+1. **SEU PAPEL**: Define claramente que avatar é CLIENTE/PROSPECT, não vendedor
+2. **DIFICULDADE**: Comportamento adaptativo (fácil→receptivo, difícil→cético)
+3. **CONTEXTO**: Cenário específico (ex: cliente frustrado cancelando serviço)
+4. **SEU PERFIL**: Personalidade e características do avatar
+5. **OBJEÇÕES**: Lista de objeções que devem ser apresentadas naturalmente
+6. **COMPORTAMENTO EMOCIONAL**: Evolução emocional durante conversa
+7. **REGRAS**: 11 regras críticas incluindo manutenção de papel fixo
+
+### Prevenção de Inversão de Papéis
+
+**Problema resolvido:** Avatar invertia papéis mid-conversation quando usuário respondia inadequadamente (ex: "Não posso fazer nada").
+
+**Solução implementada (2026-02-14):**
+
+```python
+--- SEU PAPEL (CRITICO - LEIA COM ATENCAO) ---
+MANTENHA seu papel de cliente do INICIO AO FIM da conversa.
+NUNCA inverta papeis, mesmo se o usuario:
+- Responder de forma inadequada ou confusa
+- Agir como cliente em vez de vendedor/suporte
+
+Se o usuario responder mal, CONTINUE COMO CLIENTE:
+- Questione a resposta dele ("Como assim?", "Nao entendi")
+- Expresse frustacao se ele nao estiver ajudando
+- NUNCA ofereça solucoes ou faca perguntas de vendedor
+
+--- REGRAS ---
+1. PAPEL FIXO: Voce e SEMPRE o cliente durante TODA a conversa.
+7. NUNCA tente "salvar" a conversa assumindo o outro papel.
+```
+
+### Emotion Analysis
+
+**Método atual:** GPT-4o-mini análise assíncrona via `emotion_analyzer.py`
+
+**Histórico:** Anteriormente usava tags emocionais `[receptivo]` no texto gerado pelo OpenAI Realtime, mas isso causava verbalização das tags no áudio. Tags foram removidas em 2026-02-14.
+
+**Fluxo:**
+1. OpenAI Realtime gera resposta natural (sem tags)
+2. `emotion_analyzer.py` analisa conversa completa com GPT-4o-mini
+3. Emotion meter atualizado (~1-2s delay, trade-off aceitável)
+
 ## Variáveis de Ambiente
 
 ### Frontend (.env)
