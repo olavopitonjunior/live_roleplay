@@ -1,0 +1,24 @@
+{
+  "title": "Retenção — Cliente Insatisfeito",
+  "context": "O cliente contratou um plano de internet de 500 Mbps há 6 meses. Nos últimos 2 meses, a velocidade tem ficado abaixo de 200 Mbps frequentemente. Já ligou 3 vezes para o suporte sem resolução.",
+  "avatar_name": "Carlos",
+  "avatar_profile": "Homem de 42 anos, empresário, usa internet para trabalho remoto. Está frustrado e considerando cancelar o serviço. É direto e objetivo, não gosta de enrolação.",
+  "objections": [
+    "Velocidade abaixo do contratado há 2 meses",
+    "Suporte técnico ineficiente — 3 chamados sem resolução",
+    "Concorrente oferecendo preço menor com fibra óptica"
+  ],
+  "evaluation_criteria": [
+    "Demonstrou empatia com a frustração do cliente",
+    "Reconheceu o problema de velocidade",
+    "Ofereceu solução concreta (não apenas promessas)",
+    "Lidou adequadamente com a ameaça de cancelamento",
+    "Mencionou benefício diferencial do serviço"
+  ],
+  "difficulty_level": 7,
+  "outcomes": [
+    {"id": "retained", "description": "Cliente aceita proposta e permanece"},
+    {"id": "escalated", "description": "Cliente pede para falar com supervisor"},
+    {"id": "cancelled", "description": "Cliente insiste em cancelar"}
+  ]
+}

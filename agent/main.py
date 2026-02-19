@@ -33,8 +33,9 @@ from livekit.agents import (
     cli,
     room_io,
 )
-# OpenAI Realtime for voice, Silero VAD, legacy avatar plugins
-from livekit.plugins import openai as openai_plugin, silero, simli, elevenlabs
+# OpenAI Realtime for voice, Silero VAD, Deepgram STT, avatar plugins
+from livekit.plugins import openai as openai_plugin, silero, simli, elevenlabs, deepgram
+from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 # Optional avatar providers - import with fallback
 try:
@@ -83,6 +84,20 @@ SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 # Avatar providers configuration
 SIMLI_API_KEY = os.getenv("SIMLI_API_KEY", "")
 SIMLI_FACE_ID = os.getenv("SIMLI_FACE_ID", "")
+# Pool of Simli face IDs for random selection (comma-separated in env var)
+SIMLI_FACE_IDS_STR = os.getenv("SIMLI_FACE_IDS", "")
+SIMLI_FACE_IDS = [fid.strip() for fid in SIMLI_FACE_IDS_STR.split(",") if fid.strip()] if SIMLI_FACE_IDS_STR else []
+# Simli avatar session parameters
+SIMLI_EMOTION_ID = os.getenv("SIMLI_EMOTION_ID", "")  # UUID, defaults to natural in code
+SIMLI_MAX_SESSION_LENGTH = int(os.getenv("SIMLI_MAX_SESSION_LENGTH", "300"))  # 5 min (> our 3-min sessions)
+SIMLI_MAX_IDLE_TIME = int(os.getenv("SIMLI_MAX_IDLE_TIME", "120"))  # 2 min (user may pause to think)
+# Simli emotion IDs by category (for mapping scenario difficulty to avatar expression)
+SIMLI_EMOTIONS = {
+    "natural": "b4fcff6b-3072-45ad-89db-5a859287f3b2",
+    "happy": "92f24a0c-f046-45df-8df0-af7449c04571",
+    "angry": "668f65f6-cf71-46b5-9876-40bd83fb18d2",
+    "doubtful": "7f5e31e8-0bf4-4a8f-97f9-76660b0f7aa1",
+}
 LIVEAVATAR_API_KEY = os.getenv("LIVEAVATAR_API_KEY", "")
 LIVEAVATAR_AVATAR_ID = os.getenv("LIVEAVATAR_AVATAR_ID", "")
 HEDRA_API_KEY = os.getenv("HEDRA_API_KEY", "")
@@ -90,6 +105,13 @@ HEDRA_AVATAR_ID = os.getenv("HEDRA_AVATAR_ID", "")
 
 # ElevenLabs TTS configuration (legacy — half-cascade disabled)
 ELEVEN_VOICE_ID = os.getenv("ELEVEN_VOICE_ID", "")
+
+# Deepgram STT — required for EOU turn detection model
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
+
+# EOU (End of Utterance) model: improves turn detection for natural conversations
+# Requires DEEPGRAM_API_KEY to be set (provides text context for turn prediction)
+ENABLE_EOU_MODEL = os.getenv("ENABLE_EOU_MODEL", "").lower() in ("true", "1", "yes")
 
 # Lista de avatares Hedra disponíveis para seleção aleatória
 HEDRA_AVATAR_IDS = [
@@ -712,23 +734,48 @@ def create_avatar_session(scenario: dict[str, Any]) -> Any | None:
         logger.info("Avatar disabled via DISABLE_AVATAR environment variable - running audio only")
         return None
 
-    provider = scenario.get('avatar_provider', 'hedra')
+    provider = scenario.get('avatar_provider', 'simli')
     avatar_id = scenario.get('avatar_id')
 
     logger.info(f"Creating avatar session: provider={provider}, avatar_id={avatar_id[:8] if avatar_id else 'None'}...")
 
     if provider == 'simli':
-        # Simli: Use avatar_id or fall back to simli_face_id or env var
-        face_id = avatar_id or scenario.get('simli_face_id') or SIMLI_FACE_ID
+        # Simli: avatar_id from scenario > random from pool > single SIMLI_FACE_ID
+        if avatar_id:
+            face_id = avatar_id
+        elif SIMLI_FACE_IDS:
+            face_id = random.choice(SIMLI_FACE_IDS)
+            logger.info(f"Randomly selected Simli face: {face_id[:8]}...")
+        else:
+            face_id = scenario.get('simli_face_id') or SIMLI_FACE_ID
+
+        # Map scenario difficulty to avatar emotion (set at session start, not dynamic)
+        # Difficulty 1-3: happy, 4-6: natural, 7-8: doubtful, 9-10: angry
+        difficulty = scenario.get('difficulty_level', 5)
+        if SIMLI_EMOTION_ID:
+            emotion_id = SIMLI_EMOTION_ID  # Explicit override from env
+        elif difficulty <= 3:
+            emotion_id = SIMLI_EMOTIONS["happy"]
+        elif difficulty <= 6:
+            emotion_id = SIMLI_EMOTIONS["natural"]
+        elif difficulty <= 8:
+            emotion_id = SIMLI_EMOTIONS["doubtful"]
+        else:
+            emotion_id = SIMLI_EMOTIONS["angry"]
+
         if SIMLI_API_KEY and face_id:
             try:
                 avatar = simli.AvatarSession(
                     simli_config=simli.SimliConfig(
                         api_key=SIMLI_API_KEY,
                         face_id=face_id,
+                        emotion_id=emotion_id,
+                        max_session_length=SIMLI_MAX_SESSION_LENGTH,
+                        max_idle_time=SIMLI_MAX_IDLE_TIME,
                     ),
                 )
-                logger.info(f"Simli avatar initialized with face_id: {face_id[:8]}...")
+                logger.info(f"Simli avatar initialized: face={face_id[:8]}..., emotion={emotion_id[:8]}..., "
+                           f"max_session={SIMLI_MAX_SESSION_LENGTH}s, max_idle={SIMLI_MAX_IDLE_TIME}s")
                 return avatar
             except Exception as e:
                 logger.error(f"Failed to initialize Simli avatar: {e}")
@@ -875,7 +922,7 @@ async def entrypoint(ctx: JobContext):
     }
     raw_voice = scenario.get('ai_voice') or scenario.get('gemini_voice') or 'echo'
     voice = VOICE_MAP.get(raw_voice, raw_voice)  # Map Gemini names or pass OpenAI names through
-    avatar_provider = scenario.get('avatar_provider', 'hedra')
+    avatar_provider = scenario.get('avatar_provider', 'simli')
 
     logger.info(f"Using voice: {voice}, avatar_provider: {avatar_provider}")
 
@@ -896,6 +943,16 @@ async def entrypoint(ctx: JobContext):
         "voice": voice,
         "modalities": ["text", "audio"],
     }
+
+    # EOU model requires: (1) separate STT for text context, (2) disabled Realtime turn detection,
+    # (3) disabled Realtime input audio transcription
+    # Reference: _reference/livekit-agents/examples/voice_agents/realtime_turn_detector.py
+    use_eou = ENABLE_EOU_MODEL and DEEPGRAM_API_KEY
+    if use_eou:
+        realtime_kwargs["turn_detection"] = None
+        realtime_kwargs["input_audio_transcription"] = None
+        logger.info("EOU model enabled: disabling Realtime turn_detection and transcription, using Deepgram STT")
+
     logger.info(f"Voice mode: OpenAI Realtime (model={openai_model}, voice={voice})")
 
     session_kwargs: dict[str, Any] = {
@@ -906,6 +963,16 @@ async def entrypoint(ctx: JobContext):
         ),
         "user_away_timeout": 60.0,
     }
+
+    if use_eou:
+        session_kwargs["stt"] = deepgram.STT(
+            model="nova-3",
+            language="multi",  # Multilingual — auto-detects PT-BR
+        )
+        session_kwargs["turn_detection"] = MultilingualModel()
+        logger.info("EOU turn detection configured with Deepgram Nova-3 STT (multilingual)")
+    else:
+        logger.info("Using default Realtime server-side turn detection")
 
     session = AgentSession(**session_kwargs)
 

@@ -10,19 +10,22 @@ Live Roleplay é um sistema de voice AI para treinamento de vendas B2B via rolep
 
 - Frontend: React 18 + TypeScript + Vite (PWA)
 - Backend Agent: Python (LiveKit Agents SDK 1.4.x) - rodando no Railway
-- LLM: Google Gemini Live (multimodal, half-cascade: TEXT + ElevenLabs TTS)
-- TTS: ElevenLabs Flash v2.5 (~75ms TTFB) — fallback para Gemini voice nativo
-- Avatar: Hedra (Character-3 model)
-- Coaching: conversation_coach.py (Layer 2) + ai_coach.py (Gemini Flash)
-- Database/Auth: Supabase (12 tabelas + 6 Edge Functions)
-- Feedback: Edge Function generate-feedback (1069 linhas, usa Claude API)
+- LLM: OpenAI Realtime API (gpt-4o-realtime-preview) — STT+LLM+TTS unificado
+- Analysis: GPT-4o-mini (emotion analyzer + AI coach em tempo real)
+- Avatar: Hedra (Character-3 model) — atualmente desabilitado (DISABLE_AVATAR=true)
+- VAD: Silero VAD (min_silence_duration=0.15s)
+- Coaching: conversation_coach.py (Layer 2) + ai_coach.py (GPT-4o-mini)
+- Database/Auth: Supabase (12 tabelas + 5 Edge Functions)
+- Feedback: Edge Function generate-feedback (usa Claude API)
+
+> **Nota**: Migrado de Google Gemini Live para OpenAI Realtime em 2026-02-13 (ver [ADR-001](docs/adr/001-openai-realtime.md)). Análise de stack modular em andamento (ver [ADR-002](docs/adr/002-stack-modular.md)).
 
 ### Arquivos Críticos
 
 | Arquivo | Linhas | Responsabilidade |
 |---------|--------|-----------------|
-| `agent/main.py` | ~1378 | Orquestração principal: LiveKit + Gemini + Hedra |
-| `agent/ai_coach.py` | ~907 | Lógica de coaching com Gemini Flash |
+| `agent/main.py` | ~1800 | Orquestração principal: LiveKit + OpenAI Realtime + Hedra |
+| `agent/ai_coach.py` | ~907 | Lógica de coaching com GPT-4o-mini |
 | `agent/coaching.py` | - | Keywords de coaching em PT-BR |
 | `agent/emotion_analyzer.py` | - | Análise emocional AI + fallback keywords |
 | `supabase/functions/generate-feedback/` | ~1069 | Geração de feedback com Claude API |
@@ -87,7 +90,7 @@ TavusVideoService do Pipecat. Avatar persona configurada via TAVUS_REPLICA_ID no
 | Beyond Presence (Bey) | Alto | Via TTS | <100ms render | Plugin oficial |
 | Rhubarb+Three.js | Baixo (3D) | Explícita via facialExpression | Zero rede | Local no browser |
 
-**Decisão para Live Roleplay:** Manter Hedra via plugin oficial do LiveKit. VERIFICAR se main.py está usando relay manual ou plugin oficial. Se relay manual, migrar para plugin oficial copiando pattern de `livekit/agents/examples/avatars/hedra/`. Se futuro exigir emoção determinística, avaliar Simli (emotion_id nativo) como alternativa.
+**Decisão para Live Roleplay:** Hedra via plugin oficial do LiveKit (atualmente desabilitado por problemas de idle timeout — ver BUGS.md BUG-016). Avaliando alternativas: Simli Trinity-1 (curto prazo, drop-in replacement), TalkingHead.js (médio prazo, browser-only, zero custo), NVIDIA A2F (longo prazo, máxima expressividade). Ver [ADR-003](docs/adr/003-avatar-talkinghead.md).
 
 ---
 
@@ -117,7 +120,7 @@ Deepgram, ElevenLabs, Fish Audio como extensões. Configurável via graph JSON.
 | OpenAI TTS | ~200ms | Limitado | Oficial |
 | Gemini Live (nativo) | N/A (voice mode) | Via prompt de contexto | Nativo |
 
-**Decisão para Live Roleplay:** O Live Roleplay usa Gemini Live (multimodal, voice nativo) — não precisa de STT/TTS separados para conversa principal. Para o coach (ai_coach.py), se precisar gerar áudio de coaching, usar Cartesia Sonic-3 pela latência de 90ms. Para melhorar emoção do avatar, avaliar se o áudio do Gemini Live tem entonação suficiente para o Hedra ou se precisa de TTS dedicado com controle emocional (Cartesia ou ElevenLabs) como intermediário.
+**Decisão para Live Roleplay:** Atualmente usa OpenAI Realtime (STT+LLM+TTS unificado) — não usa STT/TTS separados. Avaliando migração para pipeline modular: Deepgram Nova-3 (STT) + Gemini 2.5 Flash (LLM texto) + ElevenLabs/Cartesia (TTS). Ver [ADR-002](docs/adr/002-stack-modular.md).
 
 ---
 
@@ -142,15 +145,16 @@ OpenAI GPT-4 + FAISS + LangChain para busca semântica. LLM avalia resposta do c
 
 **Mapeamento de LLMs por função no Live Roleplay:**
 
-| Função | LLM atual | Alternativa recomendada | Repositório de referência |
-|--------|-----------|------------------------|--------------------------|
-| Conversa principal (persona) | Gemini Live | Manter (multimodal nativo) | LiveKit Agents |
-| Coaching em tempo real | Gemini Flash | Manter + layer system | Immersion (ConversationCoach) |
-| Scoring por turno | Não existe | Gemini Flash (chamada paralela) | FoloUp |
-| Feedback pós-sessão | Claude API (Edge Function) | Manter + categoryScores 0-100 | Interviewer, FoloUp |
-| Busca em playbook (RAG) | Não existe | Gemini + FAISS | GPTInterviewer |
+| Função | LLM atual | Alternativa avaliada | Repositório de referência |
+|--------|-----------|---------------------|--------------------------|
+| Conversa principal (persona) | OpenAI Realtime (gpt-4o-realtime-preview) | Gemini 2.5 Flash (texto only) — ver ADR-002 | LiveKit Agents |
+| Coaching em tempo real | GPT-4o-mini (ai_coach.py) | Manter (custo baixo, qualidade suficiente) | Immersion (ConversationCoach) |
+| Emotion analysis | GPT-4o-mini (emotion_analyzer.py) | Hume AI (multimodal) — ver ADR-002 | Live Roleplay |
+| Scoring por turno | Não existe | GPT-4o-mini (chamada paralela) | FoloUp |
+| Feedback pós-sessão | Claude API (Edge Function) | Manter (melhor qualidade para análise) | Interviewer, FoloUp |
+| Busca em playbook (RAG) | Não existe | Gemini Flash + FAISS | GPTInterviewer |
 
-**Decisão para Live Roleplay:** Manter separação atual (Gemini Live para conversa, Gemini Flash para coach, Claude para feedback). Adicionar: scoring por turno com Gemini Flash em paralelo (mesma chamada do coach, output estruturado separado), e RAG com FAISS para playbook de vendas.
+**Decisão para Live Roleplay:** Stack atual usa OpenAI Realtime API como modelo unificado (STT+LLM+TTS) para conversa principal, GPT-4o-mini para análises paralelas (coaching + emotion), e Claude para feedback pós-sessão. Análise de migração para stack modular (Deepgram STT → Gemini Flash LLM → ElevenLabs TTS) documentada em [ADR-002](docs/adr/002-stack-modular.md). Roadmap futuro: scoring por turno com GPT-4o-mini em paralelo, e RAG com FAISS para playbook de vendas.
 
 ---
 
