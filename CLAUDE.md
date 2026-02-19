@@ -154,6 +154,31 @@ cd frontend && npm run test:e2e
 cd frontend && npm run test:e2e:headed
 ```
 
+## Decisões Arquiteturais
+
+Decisões arquiteturais são documentadas como ADRs em `docs/adr/`.
+Consultar antes de propor mudanças de stack ou infraestrutura.
+
+| ADR | Decisão | Status |
+|-----|---------|--------|
+| [001](docs/adr/001-openai-realtime.md) | Migração Gemini → OpenAI Realtime | Aceito |
+| [002](docs/adr/002-stack-modular.md) | Análise de stack modular (Deepgram+Gemini+ElevenLabs) | Proposto |
+| [003](docs/adr/003-avatar-talkinghead.md) | Avatar: TalkingHead.js (3D estilizado) | Proposto |
+| [004](docs/adr/004-aws-sp-infra.md) | Infra: AWS sa-east-1 (EC2 t3.medium) | Proposto |
+| [005](docs/adr/005-pipecat-poc.md) | PoC paralelo com Pipecat | Proposto |
+
+## Documentação Técnica
+
+| Documento | Localização | Conteúdo |
+|-----------|-------------|----------|
+| Spec técnica (atual) | `docs/spec.md` | Stack, integrações, arquitetura do agent |
+| PRD evolutivo | `docs/prd/00-08` | 9 módulos da visão de produto |
+| DB architecture | `docs/database-architecture-v2.1.md` | Schema 12+ tabelas |
+| ADRs | `docs/adr/` | Decisões arquiteturais com contexto |
+| Benchmarks | `tests/benchmark/` | Testes comparativos de stack (latência, WER, custo) |
+| Spec MVP (histórico) | `docs/archive/spec-v1-mvp.md` | Spec original do MVP |
+| PRD MVP (histórico) | `docs/archive/prd-v1-mvp.md` | PRD original do MVP |
+
 ## Fluxo Principal
 
 1. Usuário entra com código de acesso

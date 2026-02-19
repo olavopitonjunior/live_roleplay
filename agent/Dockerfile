@@ -28,5 +28,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
-# Run the agent (LiveKit Agents CLI requires 'start' command)
-CMD ["python", "main.py", "start"]
+# Download model files (EOU turn detector ONNX weights) then start agent
+CMD ["sh", "-c", "python main.py download-files && python main.py start"]

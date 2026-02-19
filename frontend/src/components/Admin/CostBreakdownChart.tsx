@@ -15,7 +15,7 @@ const PRICING = {
   openai_realtime_per_1k: 0.12, // Average of input ($40/1M) and output ($200/1M)
   openai_mini_per_call: 0.0004, // Rough average per call (~200 tokens)
   claude_per_1k: 0.009, // Average of input/output
-  avatar_per_minute: 0.015,
+  avatar_per_minute: 0.02, // Simli pricing
   livekit_per_minute: 0.004,
 };
 
@@ -65,7 +65,7 @@ export function CostBreakdownChart({ totals, loading }: Props) {
       color: COLORS[2],
     },
     {
-      name: 'Avatar (Hedra)',
+      name: 'Avatar (Simli)',
       value: totals.avatar_minutes * PRICING.avatar_per_minute,
       color: COLORS[3],
     },

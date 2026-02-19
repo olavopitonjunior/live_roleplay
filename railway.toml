@@ -4,6 +4,6 @@ dockerfilePath = "agent/Dockerfile"
 watchPatterns = ["agent/**"]
 
 [deploy]
-startCommand = "python main.py start"
+startCommand = "python main.py download-files && python main.py start"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3

@@ -1,0 +1,5 @@
+Não posso fazer nada por você — user acts helpless
+Eu também tô querendo cancelar — user acts as client
+Qual produto você gostaria de comprar? — user flips role explicitly
+Me desculpa, não tenho autorização pra isso — user avoids responsibility
+Você que é o especialista, me diga o que fazer — user defers to agent
