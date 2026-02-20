@@ -18,7 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, useGLTF } from '@react-three/drei';
 import { useRoomContext } from '@livekit/components-react';
-import { RoomEvent, DataPacket_Kind } from 'livekit-client';
+import { RoomEvent } from 'livekit-client';
 import * as THREE from 'three';
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ export function Avatar3D({
 
   // Subscribe to LiveKit data channel for blendshape messages
   const handleDataReceived = useCallback(
-    (payload: Uint8Array, participant: unknown, kind: DataPacket_Kind, topic?: string) => {
+    (payload: Uint8Array, _participant?: unknown, _kind?: unknown, topic?: string) => {
       if (topic !== TOPIC) return;
 
       try {

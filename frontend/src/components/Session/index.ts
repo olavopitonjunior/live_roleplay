@@ -1,3 +1,5 @@
+export { AvatarContainer } from './AvatarContainer';
+export { Avatar3D } from './Avatar3D';
 export { AvatarView } from './AvatarView';
 export { EmotionMeter } from './EmotionMeter';
 export { MicrophoneIndicator } from './MicrophoneIndicator';

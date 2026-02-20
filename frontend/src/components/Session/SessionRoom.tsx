@@ -6,7 +6,7 @@ import {
   useConnectionState,
 } from '@livekit/components-react';
 import { ConnectionState, Room, RoomEvent } from 'livekit-client';
-import { AvatarView } from './AvatarView';
+import { AvatarContainer } from './AvatarContainer';
 import { MicrophoneIndicator } from './MicrophoneIndicator';
 import { SidePanel } from './SidePanel';
 import { EmotionMeter } from './EmotionMeter';
@@ -316,7 +316,7 @@ function DesktopSessionLayout({
             {/* 16:9 Aspect Ratio Container */}
             <div className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-2xl border border-neutral-800">
               {/* Avatar Video */}
-              <AvatarView />
+              <AvatarContainer />
 
               {/* Emotion Meter - Left side inside video */}
               <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10">

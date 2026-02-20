@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Feedback, Scenario, Evidence, SessionObjectionStatus, Omission } from '../../types';
+import type { Feedback, Scenario, Evidence, SessionObjectionStatus } from '../../types';
 import { ProgressCircle } from '../ui';
 import { CriteriaChecklist } from './CriteriaChecklist';
 import { RubricScoreCard } from './RubricScoreCard';
