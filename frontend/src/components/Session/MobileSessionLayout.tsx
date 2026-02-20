@@ -5,7 +5,7 @@ import {
   useConnectionState,
 } from '@livekit/components-react';
 import { ConnectionState } from 'livekit-client';
-import { AvatarView } from './AvatarView';
+import { AvatarContainer } from './AvatarContainer';
 import { MicrophoneIndicator } from './MicrophoneIndicator';
 import { SidePanel } from './SidePanel';
 import { EmotionMeter } from './EmotionMeter';
@@ -200,7 +200,7 @@ export function MobileSessionLayout({
         {activeTab === 'video' && (
           <div className="w-full h-full relative bg-black">
             {/* Avatar Video */}
-            <AvatarView />
+            <AvatarContainer />
 
             {/* Audio Renderer */}
             <RoomAudioRenderer />
