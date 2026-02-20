@@ -2,26 +2,43 @@
 Pipecat PoC Agent — Modular Voice Pipeline
 
 Implements a modular STT → LLM → TTS pipeline using Pipecat framework
-with LiveKit as the WebRTC transport layer.
+with LiveKit as the WebRTC transport layer. Supports multiple provider
+presets for A/B latency and quality comparison.
 
-Pipeline: Deepgram Nova-3 (STT) → Gemini 2.5 Flash (LLM) → ElevenLabs Flash v2.5 (TTS) → Simli Avatar (video)
+Pipelines:
+    default     — Deepgram Nova-3 → Gemini 2.5 Flash → ElevenLabs Flash v2.5
+    aws-full    — AWS Transcribe → Bedrock Claude → Polly Camila
+    aws-polly   — Deepgram → Gemini → Polly Camila
+    aws-bedrock — Deepgram → Bedrock Claude → ElevenLabs
+    nova-sonic  — Amazon Nova Sonic (speech-to-speech, single model)
 
-This is a PoC for ADR-005. It runs in parallel with the main agent (agent/)
-and connects to the same LiveKit Cloud rooms. The frontend works with either
-agent without modification.
+Avatar providers:
+    simli       — Simli 2D avatar (lip-sync from audio)
+    nvidia-a2f  — NVIDIA Audio2Face-3D + Three.js (blendshapes via data channel)
+    none        — Audio-only mode
+
+Emotion providers:
+    gpt4o       — GPT-4o-mini text-based analysis (default)
+    hume        — Hume AI prosody analysis (48 emotion dimensions from audio)
 
 Usage:
-    # Self-service test mode with avatar (auto-generates tokens, prints join URL):
+    # Default preset (Deepgram + Gemini + ElevenLabs + Simli):
     python main.py --scenario-id <uuid>
 
-    # Audio-only mode (no avatar, for latency comparison):
-    python main.py --scenario-id <uuid> --no-avatar
+    # AWS full pipeline:
+    python main.py --scenario-id <uuid> --provider-preset aws-full
 
-    # Explicit mode (bring your own token):
-    python main.py --room-url wss://... --token <jwt> --room-name <name> --scenario-id <uuid>
+    # Nova Sonic speech-to-speech (no separate STT/TTS):
+    python main.py --scenario-id <uuid> --provider-preset nova-sonic --no-avatar
 
-    # With Pipecat Flows (structured FSM for retention scenario):
-    python main.py --scenario-id <uuid> --use-flows
+    # Hume emotion detection:
+    python main.py --scenario-id <uuid> --emotion-provider hume
+
+    # Audio-only with AWS Polly TTS:
+    python main.py --scenario-id <uuid> --provider-preset aws-polly --no-avatar
+
+    # NVIDIA Audio2Face avatar:
+    python main.py --scenario-id <uuid> --avatar-provider nvidia-a2f
 """
 
 import argparse
@@ -44,11 +61,6 @@ from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
-from pipecat.services.deepgram.stt import DeepgramSTTService
-from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
-from pipecat.services.google.llm import GoogleLLMService
-from pipecat.services.simli.video import SimliVideoService
 from pipecat.transports.livekit.transport import LiveKitParams, LiveKitTransport
 
 # Shared modules from agent/
@@ -57,10 +69,26 @@ from prompts import build_agent_instructions
 # Local modules
 from processors import (
     AssistantTranscriptProcessor,
+    Audio2FaceProcessor,
     EmotionProcessor,
+    HumeEmotionProcessor,
+    LazySimliVideoService,
+    LiveKitVideoPublisher,
     TranscriptProcessor,
 )
-from supabase_client import fetch_scenario, save_transcript
+from providers import (
+    PROVIDER_PRESETS,
+    create_llm,
+    create_stt,
+    create_tts,
+    is_speech_to_speech,
+)
+from supabase_client import (
+    fetch_scenario,
+    save_transcript,
+    set_feedback_requested,
+    trigger_feedback_generation,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -96,9 +124,21 @@ async def run_session(
     difficulty: int = 3,
     session_id: str | None = None,
     use_flows: bool = False,
-    use_avatar: bool = True,
+    avatar_provider: str = "simli",
+    emotion_provider: str = "gpt4o",
+    provider_preset: str = "default",
 ) -> None:
     """Run a single Pipecat voice session."""
+
+    preset = PROVIDER_PRESETS[provider_preset]
+    use_avatar = avatar_provider != "none"
+    is_s2s = is_speech_to_speech(provider_preset)
+
+    logger.info(
+        f"Session config: preset={provider_preset} "
+        f"(stt={preset['stt']}, llm={preset['llm']}, tts={preset['tts']}) "
+        f"avatar={avatar_provider} emotion={emotion_provider}"
+    )
 
     # ── Fetch scenario ──────────────────────────────────────────────
     scenario = await fetch_scenario(scenario_id)
@@ -112,6 +152,18 @@ async def run_session(
         outcomes=scenario.get("outcomes", []),
         difficulty_level=difficulty,
     )
+
+    # Append TTS-specific rules (LLMs tend to include stage directions
+    # in parentheses which TTS would read aloud)
+    if not is_s2s:
+        instructions += (
+            "\n\n--- FORMATO DE RESPOSTA (CRITICO) ---\n"
+            "Suas respostas serao convertidas diretamente em audio por um sistema TTS.\n"
+            "NUNCA inclua direcoes de cena, indicacoes de tom ou acoes entre parenteses "
+            "como '(frustrado)', '(com calma)', '(sorrindo)', etc.\n"
+            "Fale DIRETAMENTE sem metadados de atuacao. Expresse emocoes apenas "
+            "pelo conteudo e escolha de palavras, nao por indicacoes entre parenteses."
+        )
 
     # ── LiveKit Transport ───────────────────────────────────────────
     transport_params = LiveKitParams(
@@ -129,13 +181,14 @@ async def run_session(
         ),
     )
 
-    # Enable video output when avatar is active
-    if use_avatar:
+    # Enable video output only for Simli (video-based avatar).
+    # nvidia-a2f sends blendshapes via data channel — no video track needed.
+    if avatar_provider == "simli":
         transport_params.camera_out_enabled = True
         transport_params.camera_out_is_live = True
         transport_params.camera_out_width = 512
         transport_params.camera_out_height = 512
-        logger.info("Avatar enabled — camera_out active (512x512)")
+        logger.info("Simli avatar — camera_out active (512x512)")
 
     transport = LiveKitTransport(
         url=room_url,
@@ -144,81 +197,129 @@ async def run_session(
         params=transport_params,
     )
 
-    # ── STT: Deepgram Nova-3 ────────────────────────────────────────
-    from deepgram import LiveOptions
+    # ── Create services via provider factories ──────────────────────
+    stt = create_stt(preset["stt"]) if not is_s2s else None
+    llm, context_aggregator = create_llm(preset["llm"], instructions)
+    tts = create_tts(preset["tts"]) if not is_s2s else None
 
-    stt = DeepgramSTTService(
-        api_key=os.getenv("DEEPGRAM_API_KEY"),
-        live_options=LiveOptions(
-            model="nova-3",
-            language="pt-BR",
-            smart_format=True,
-            punctuate=True,
-            endpointing=300,
-            utterance_end_ms="1500",
-            encoding="linear16",
-            sample_rate=16000,
-        ),
-    )
-
-    # ── LLM: Gemini 2.5 Flash ──────────────────────────────────────
-    llm = GoogleLLMService(
-        api_key=os.getenv("GOOGLE_API_KEY"),
-        model="gemini-2.5-flash",
-    )
-
-    # ── TTS: ElevenLabs Flash v2.5 ─────────────────────────────────
-    tts = ElevenLabsTTSService(
-        api_key=os.getenv("ELEVEN_API_KEY"),
-        voice_id=os.getenv("ELEVEN_VOICE_ID", ""),
-        model="eleven_flash_v2_5",
-    )
-
-    # ── Context aggregator ──────────────────────────────────────────
-    messages = [{"role": "system", "content": instructions}]
-    context = OpenAILLMContext(messages=messages)
-    context_aggregator = llm.create_context_aggregator(context)
-
-    # ── Avatar: Simli (optional) ────────────────────────────────────
+    # ── Avatar setup ────────────────────────────────────────────────
     simli = None
-    if use_avatar:
+    a2f_proc = None
+    if avatar_provider == "simli":
         simli_api_key = os.getenv("SIMLI_API_KEY")
         simli_face_id = os.getenv("SIMLI_FACE_ID", "")
         if simli_api_key and simli_face_id:
-            simli = SimliVideoService(
+            simli = LazySimliVideoService.create(
                 api_key=simli_api_key,
                 face_id=simli_face_id,
+                is_trinity_avatar=False,
             )
-            logger.info(f"Simli avatar initialized (face_id={simli_face_id[:8]}...)")
+            logger.info(f"Simli avatar configured (lazy init, face_id={simli_face_id[:8]}...)")
         else:
             logger.warning("SIMLI_API_KEY or SIMLI_FACE_ID not set — running without avatar")
+    elif avatar_provider == "nvidia-a2f":
+        nvidia_api_key = os.getenv("NVIDIA_API_KEY", "")
+        nvidia_function_id = os.getenv(
+            "NVIDIA_A2F_FUNCTION_ID",
+            Audio2FaceProcessor.DEFAULT_FUNCTION_ID,
+        )
+        if nvidia_api_key:
+            a2f_proc = Audio2FaceProcessor(
+                api_key=nvidia_api_key,
+                transport=transport,
+                function_id=nvidia_function_id,
+            )
+            logger.info(
+                f"NVIDIA Audio2Face configured (function_id={nvidia_function_id[:12]}...)"
+            )
+        else:
+            logger.warning("NVIDIA_API_KEY not set — running without avatar")
 
     # ── Custom processors ───────────────────────────────────────────
     transcript_proc = TranscriptProcessor(scenario=scenario)
     assistant_transcript_proc = AssistantTranscriptProcessor(
         transcript_proc=transcript_proc,
     )
-    emotion_proc = EmotionProcessor(scenario=scenario)
 
-    # ── Pipeline ────────────────────────────────────────────────────
-    # Order: input → STT → user_transcript → context.user → LLM →
-    #        assistant_transcript → emotion → TTS → [Simli] → output → context.assistant
-    pipeline_stages = [
-        transport.input(),
-        stt,
-        transcript_proc,
-        context_aggregator.user(),
-        llm,
-        assistant_transcript_proc,
-        emotion_proc,
-        tts,
-    ]
-    if simli:
-        pipeline_stages.append(simli)
-    pipeline_stages.extend([
-        transport.output(),
-        context_aggregator.assistant(),
-    ])
+    # Emotion processor — GPT-4o-mini (text) or Hume (prosody)
+    emotion_proc = None
+    hume_proc = None
+    if emotion_provider == "gpt4o":
+        emotion_proc = EmotionProcessor(
+            scenario=scenario,
+            transcript_proc=transcript_proc,
+            transport=transport,
+        )
+        logger.info("Emotion: GPT-4o-mini text analysis (every 2 turns)")
+    elif emotion_provider == "hume":
+        hume_api_key = os.getenv("HUME_API_KEY", "")
+        if hume_api_key:
+            hume_proc = HumeEmotionProcessor(
+                api_key=hume_api_key,
+                transport=transport,
+            )
+            logger.info("Emotion: Hume AI prosody analysis (every 5s of audio)")
+        else:
+            logger.warning("HUME_API_KEY not set — falling back to GPT-4o-mini")
+            emotion_proc = EmotionProcessor(
+                scenario=scenario,
+                transcript_proc=transcript_proc,
+                transport=transport,
+            )
+
+    # ── Build pipeline ──────────────────────────────────────────────
+    if is_s2s:
+        # Nova Sonic speech-to-speech: simplified pipeline
+        # Nova Sonic handles STT + LLM + TTS internally
+        pipeline_stages = [
+            transport.input(),
+        ]
+        if hume_proc:
+            pipeline_stages.append(hume_proc)
+        pipeline_stages.extend([
+            llm,
+            transport.output(),
+        ])
+        logger.info("Pipeline: transport.input → [hume] → nova_sonic → transport.output")
+    else:
+        # Standard modular pipeline: STT → LLM → TTS
+        pipeline_stages = [
+            transport.input(),
+        ]
+        # Hume emotion processor intercepts input audio before STT
+        if hume_proc:
+            pipeline_stages.append(hume_proc)
+        pipeline_stages.extend([
+            stt,
+            transcript_proc,
+            context_aggregator.user(),
+            llm,
+            assistant_transcript_proc,
+        ])
+        # GPT-4o emotion processor goes after LLM (text-based)
+        if emotion_proc:
+            pipeline_stages.append(emotion_proc)
+        pipeline_stages.append(tts)
+        # Avatar stages
+        if simli:
+            pipeline_stages.append(simli)
+            video_publisher = LiveKitVideoPublisher(transport=transport)
+            pipeline_stages.append(video_publisher)
+        if a2f_proc:
+            # A2F taps TTS audio and publishes blendshapes via data channel
+            # Audio still passes through to transport for playback
+            pipeline_stages.append(a2f_proc)
+        pipeline_stages.extend([
+            transport.output(),
+            context_aggregator.assistant(),
+        ])
+        avatar_label = "simli → video_pub" if simli else ("a2f" if a2f_proc else "none")
+        logger.info(
+            f"Pipeline: input → {'hume → ' if hume_proc else ''}"
+            f"stt → transcript → context.user → llm → "
+            f"assistant_transcript → {'emotion → ' if emotion_proc else ''}"
+            f"tts → [{avatar_label}] → output → context.assistant"
+        )
 
     pipeline = Pipeline(pipeline_stages)
 
@@ -232,7 +333,8 @@ async def run_session(
     )
 
     # ── Optional: Pipecat Flows ─────────────────────────────────────
-    if use_flows:
+    flow_manager = None
+    if use_flows and not is_s2s:
         try:
             from pipecat_flows import FlowManager
 
@@ -248,14 +350,16 @@ async def run_session(
             logger.info("Pipecat Flows enabled — using retention FSM")
         except ImportError:
             logger.warning("pipecat-ai-flows not installed — running without flows")
-            use_flows = False
 
     # ── Event handlers ──────────────────────────────────────────────
     @transport.event_handler("on_first_participant_joined")
     async def on_first_participant_joined(transport, participant_id):
         logger.info(f"First participant joined: {participant_id}")
 
-        if use_flows:
+        if is_s2s:
+            # Nova Sonic starts automatically on audio input
+            logger.info("Nova Sonic S2S — waiting for user audio input")
+        elif flow_manager is not None:
             logger.info("Initializing flow...")
             await flow_manager.initialize()
         else:
@@ -293,8 +397,28 @@ async def run_session(
     transcript = transcript_proc.get_transcript()
     logger.info(f"Session complete — {len(transcript)} transcript entries")
 
+    if is_s2s and not transcript:
+        logger.warning(
+            "Nova Sonic S2S: transcript is empty (TranscriptProcessor not in pipeline). "
+            "Feedback generation skipped."
+        )
+
     if session_id and transcript:
         await save_transcript(session_id, transcript)
+
+        # Validate conversation quality before triggering feedback
+        user_lines = [e for e in transcript if e["speaker"] == "user"]
+        avatar_lines = [e for e in transcript if e["speaker"] == "avatar"]
+        total_chars = sum(len(e["text"]) for e in transcript)
+
+        if len(user_lines) >= 3 and len(avatar_lines) >= 3 and total_chars >= 500:
+            await set_feedback_requested(session_id)
+            await trigger_feedback_generation(session_id)
+        else:
+            logger.warning(
+                f"Conversation too short for feedback "
+                f"({len(user_lines)}u/{len(avatar_lines)}a/{total_chars}c)"
+            )
 
 
 def main():
@@ -338,13 +462,43 @@ def main():
         default=False,
         help="Enable Pipecat Flows FSM for structured conversation",
     )
+    # Provider preset
+    parser.add_argument(
+        "--provider-preset",
+        choices=list(PROVIDER_PRESETS.keys()),
+        default="default",
+        help=(
+            "Provider preset for STT/LLM/TTS combination. "
+            "Choices: default, aws-full, aws-polly, aws-bedrock, nova-sonic"
+        ),
+    )
+    # Avatar provider
+    parser.add_argument(
+        "--avatar-provider",
+        choices=["simli", "nvidia-a2f", "none"],
+        default="simli",
+        help="Avatar provider: simli (2D lip-sync), nvidia-a2f (3D blendshapes), none (audio-only)",
+    )
+    # Emotion provider
+    parser.add_argument(
+        "--emotion-provider",
+        choices=["gpt4o", "hume"],
+        default="gpt4o",
+        help="Emotion detection: gpt4o (text-based), hume (prosody audio analysis)",
+    )
+    # Legacy flag (maps to --avatar-provider none)
     parser.add_argument(
         "--no-avatar",
         action="store_true",
         default=False,
-        help="Disable Simli avatar (audio-only mode for latency comparison)",
+        help="Disable avatar (shortcut for --avatar-provider none)",
     )
     args = parser.parse_args()
+
+    # Handle --no-avatar legacy flag
+    avatar_provider = args.avatar_provider
+    if args.no_avatar:
+        avatar_provider = "none"
 
     # ── Resolve room URL ─────────────────────────────────────────────
     room_url = args.room_url or os.getenv("LIVEKIT_URL", "")
@@ -362,9 +516,12 @@ def main():
         agent_token = generate_token("pipecat-agent", "Pipecat Agent", room_name)
         user_token = generate_token("test-user", "Test User", room_name)
 
-        print("\n" + "=" * 55)
+        preset = PROVIDER_PRESETS[args.provider_preset]
+        print("\n" + "=" * 60)
         print("  PIPECAT PoC — Live Test Ready")
         print(f"  Room: {room_name}")
+        print(f"  Preset: {args.provider_preset} ({preset['stt']}/{preset['llm']}/{preset['tts']})")
+        print(f"  Avatar: {avatar_provider} | Emotion: {args.emotion_provider}")
         print()
         print("  Join as user at: https://meet.livekit.io")
         print("    Tab: Custom")
@@ -372,7 +529,7 @@ def main():
         print(f"    Token: {user_token}")
         print()
         print(f"  User token (copy): {user_token}")
-        print("=" * 55 + "\n")
+        print("=" * 60 + "\n")
 
     asyncio.run(
         run_session(
@@ -383,7 +540,9 @@ def main():
             difficulty=args.difficulty,
             session_id=args.session_id,
             use_flows=args.use_flows,
-            use_avatar=not args.no_avatar,
+            avatar_provider=avatar_provider,
+            emotion_provider=args.emotion_provider,
+            provider_preset=args.provider_preset,
         )
     )
 
