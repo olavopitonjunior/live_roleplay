@@ -219,11 +219,18 @@ export interface SessionObjectionStatus {
 
 // Key moment in the session
 export interface KeyMoment {
-  type: 'positive' | 'negative' | 'opportunity' | 'objection' | 'empathy' | 'closing' | 'risk';
+  type: 'positive' | 'negative' | 'opportunity' | 'objection' | 'empathy' | 'closing' | 'risk' | 'omission';
   quote: string;
   explanation: string;
   timestamp_ms?: number;
   transcript_index?: number;
+}
+
+// Omission: something the salesperson should have mentioned but didn't
+export interface Omission {
+  topic: string;
+  expected_action: string;
+  impact: string;
 }
 
 export interface Feedback {
@@ -239,6 +246,7 @@ export interface Feedback {
   confidence_level?: ConfidenceLevel;
   transcript_coverage?: number;
   key_moments?: KeyMoment[];
+  omissions?: Omission[];
 }
 
 // Extended feedback with evidences and objection status

@@ -15,6 +15,7 @@ import { MobileSessionLayout } from './MobileSessionLayout';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { TranscriptProvider } from '../../hooks/useTranscript';
 import { LatencyProvider } from '../../hooks/useLatency';
+import { SessionCoachPanel } from './SessionCoachPanel';
 
 interface SessionRoomProps {
   token: string;
@@ -336,6 +337,11 @@ function DesktopSessionLayout({
                   <span className="text-white text-xs font-semibold uppercase">Ao Vivo</span>
                 </div>
               </div>
+            </div>
+
+            {/* Coach Panel - Below video */}
+            <div className="mt-3 max-w-md mx-auto w-full">
+              <SessionCoachPanel />
             </div>
           </div>
         </div>

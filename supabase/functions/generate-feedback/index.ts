@@ -57,10 +57,16 @@ interface ObjectionStatusResult {
 }
 
 interface KeyMoment {
-  type: "positive" | "negative" | "opportunity" | "objection" | "empathy" | "closing" | "risk";
+  type: "positive" | "negative" | "opportunity" | "objection" | "empathy" | "closing" | "risk" | "omission";
   quote: string;
   explanation: string;
   transcript_index?: number;
+}
+
+interface Omission {
+  topic: string;
+  expected_action: string;
+  impact: string;
 }
 
 // Session outcome types
@@ -90,6 +96,7 @@ interface FeedbackResponse {
   criteria_scores: CriteriaScore[];
   objection_statuses: ObjectionStatusResult[];
   key_moments: KeyMoment[];
+  omissions: Omission[];
   summary: string;
   confidence_level: "low" | "medium" | "high";
   transcript_coverage: number;
@@ -288,6 +295,12 @@ INSTRUCOES PARA SUA AVALIACAO:
    - Se o avatar encerrou com uma frase de fechamento/rejeicao, considere isso
    - Explique brevemente o motivo da determinacao em "outcome_reasoning"
 
+7. OMISSOES:
+   - Identifique topicos IMPORTANTES que o vendedor DEVERIA ter abordado mas NAO abordou
+   - Considere o contexto do cenario e as melhores praticas de vendas
+   - Para cada omissao, indique o topico, a acao esperada e o impacto da omissao
+   - Exemplos: nao perguntar sobre orcamento, nao confirmar proximo passo, nao explorar necessidades
+
 Retorne APENAS um JSON valido com esta estrutura:
 
 {
@@ -320,6 +333,13 @@ Retorne APENAS um JSON valido com esta estrutura:
       "quote": "Trecho exato",
       "explanation": "Por que foi importante",
       "transcript_index": 150
+    }
+  ],
+  "omissions": [
+    {
+      "topic": "Confirmacao do proximo passo",
+      "expected_action": "Confirmar agenda ou proximo contato antes de encerrar",
+      "impact": "Sem proximo passo definido, o lead pode esfriar"
     }
   ],
   "summary": "Resumo geral do desempenho em 2-3 frases",
@@ -709,6 +729,7 @@ serve(async (req: Request) => {
         confidence_level: confidenceLevel,
         transcript_coverage: transcriptCoverage,
         key_moments: feedbackData.key_moments || [],
+        omissions: feedbackData.omissions || [],
       })
       .select()
       .single();
@@ -902,6 +923,7 @@ serve(async (req: Request) => {
         confidence_level: confidenceLevel,
         transcript_coverage: transcriptCoverage,
         key_moments: feedbackData.key_moments || [],
+        omissions: feedbackData.omissions || [],
         objection_statuses: objectionStatuses,
         summary: feedbackData.summary,
         // Session outcome

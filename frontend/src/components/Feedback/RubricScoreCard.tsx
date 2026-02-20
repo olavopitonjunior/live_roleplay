@@ -16,6 +16,7 @@ const LEVEL_CONFIG: Record<RubricLevel, { label: string; color: string; bgColor:
 export function RubricScoreCard({ score, onEvidenceClick }: RubricScoreCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const config = LEVEL_CONFIG[score.level];
+  const criterionScore = score.level * 25; // 1=25, 2=50, 3=75, 4=100
 
   const handleEvidenceClick = () => {
     if (score.evidence_excerpt && onEvidenceClick &&
@@ -32,10 +33,10 @@ export function RubricScoreCard({ score, onEvidenceClick }: RubricScoreCardProps
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full p-4 flex items-start gap-3 text-left hover:bg-black/5 transition-colors"
       >
-        {/* Level indicator */}
+        {/* Score indicator */}
         <div className="flex flex-col items-center gap-1 min-w-[60px]">
           <div className={`text-2xl font-bold ${config.color}`}>
-            {score.level}/4
+            {criterionScore}
           </div>
           <span className={`text-xs font-medium px-2 py-0.5 rounded ${config.bgColor} ${config.color}`}>
             {config.label}
@@ -55,7 +56,7 @@ export function RubricScoreCard({ score, onEvidenceClick }: RubricScoreCardProps
           <div className="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
             <div
               className={`h-full ${config.barColor} transition-all duration-500`}
-              style={{ width: `${(score.level / 4) * 100}%` }}
+              style={{ width: `${criterionScore}%` }}
             />
           </div>
 
