@@ -2,7 +2,7 @@
 
 ## Status
 
-**Em andamento** — Data: 2026-02-17, atualizado 2026-02-20
+**Em andamento** — Data: 2026-02-17, atualizado 2026-02-21
 
 ## Contexto
 
@@ -150,26 +150,55 @@ Frontend Three.js renderer em `Avatar3D.tsx` usando React Three Fiber + ReadyPla
 - Feedback gerado automaticamente apos sessoes qualificadas (≥3 turnos, ≥500 chars)
 - `set_feedback_requested()` + `trigger_feedback_generation()` adicionados ao supabase_client
 
-### Fase 5 — Benchmark (pendente)
+### Fase 5 — Live Tests (2026-02-21)
 
-Matriz de testes planejada:
+Testes executados com o cenario "Retencao de Cliente Insatisfeito" (`cc2baea3`).
 
-| Config | STT | LLM | TTS | Avatar | Emotion |
-|--------|-----|-----|-----|--------|---------|
-| Baseline | Deepgram | Gemini | ElevenLabs | Simli | GPT-4o |
-| AWS Full | Transcribe | Bedrock | Polly | Simli | GPT-4o |
-| AWS Polly | Deepgram | Gemini | Polly | Simli | GPT-4o |
-| Nova Sonic | Nova Sonic S2S | — | — | none | GPT-4o |
-| Hume | Deepgram | Gemini | ElevenLabs | Simli | Hume |
-| NVIDIA A2F | Deepgram | Gemini | ElevenLabs | Audio2Face | GPT-4o |
-| Audio-only | Deepgram | Gemini | ElevenLabs | none | GPT-4o |
+#### Test A — Audio-only baseline (`--no-avatar`)
 
-Metricas a coletar: STT TTFB, LLM TTFB, TTS TTFB, E2E latencia, qualidade percebida.
+- **Resultado**: Idle timeout (ninguem entrou na sala em 5 min). Pipeline inicializou corretamente.
+- **Conclusao**: Infraestrutura funcional, validacao de setup.
 
-**Prerequisitos para benchmark:**
-- API keys: NVIDIA_API_KEY (build.nvidia.com), HUME_API_KEY (hume.ai), AWS credentials
-- ReadyPlayerMe GLB com morph targets ARKit em `/public/avatar.glb`
-- Frontend deps: `@react-three/fiber`, `@react-three/drei`, `three`
+#### Test B — Hume emotion detection (`--emotion-provider hume --no-avatar`)
+
+- **Resultado**: Pipeline funcional, 10 entradas de transcript, conversa end-to-end OK.
+- **STT TTFB**: ~743ms (Deepgram Nova-3)
+- **LLM TTFB**: ~1.1s (Gemini 2.5 Flash)
+- **TTS TTFB**: ~22ms (ElevenLabs Flash v2.5)
+- **Hume prosody**: **Zero resultados**. O `HumeEmotionProcessor` foi linkado no pipeline (`input → hume → stt → ...`) mas nao produziu nenhum log de prosodia. Possivel incompatibilidade de tipo de frame ou falha silenciosa na API WebSocket.
+- **Conclusao**: Pipeline de voz modular funciona perfeitamente. Hume precisa de debug adicional.
+
+#### Test C — NVIDIA Audio2Face (`--avatar-provider nvidia-a2f`)
+
+- **Resultado**: Pipeline funcional, 11 entradas de transcript, audio end-to-end OK.
+- **STT TTFB**: ~679ms (Deepgram)
+- **LLM TTFB**: 0.86-1.81s (Gemini)
+- **TTS TTFB**: 53-165ms (ElevenLabs)
+- **A2F gRPC**: Inicializou com sucesso, mas **PermissionDenied** ao tentar enviar audio:
+  ```
+  grpc_status:7, grpc_message:"failed to open stateful work request:
+  rpc error: code = PermissionDenied desc = Authorization failed"
+  ```
+- **Conclusao**: A integracao gRPC esta correta (conecta, abre stream, envia audio). A API key precisa de permissao especifica para o endpoint Audio2Face NIM. Audio continuou funcionando normalmente (A2F e nao-bloqueante).
+- **Emotion GPT-4o**: Funcionou — `Emotion: frustrated (intensity=0, trend=stable)`
+
+#### Resumo de Latencia (Pipeline Modular)
+
+| Componente | TTFB Medido | Notas |
+|-----------|-------------|-------|
+| Deepgram STT | 550-743ms | pt-BR, endpointing 300ms |
+| Gemini 2.5 Flash | 860-1810ms | Varia com contexto |
+| ElevenLabs TTS | 22-165ms | Flash v2.5, muito rapido |
+| **E2E estimado** | **~1.5-2.7s** | STT + LLM + TTS |
+
+**Nota**: E2E estimado nao inclui tempo de rede (WebRTC ~50-100ms) nem VAD (200ms start). Comparar com OpenAI Realtime: ~800ms E2E.
+
+#### Pendencias de Fase 5
+
+- **Hume debug**: Investigar por que `HumeEmotionProcessor.process_frame()` nao dispara analise
+- **NVIDIA A2F**: Obter API key com permissao para Audio2Face NIM endpoint
+- **AWS presets**: Nao testados (requer AWS credentials configurados)
+- **Nova Sonic S2S**: Nao testado (requer AWS credentials)
 
 ## Referencias
 
