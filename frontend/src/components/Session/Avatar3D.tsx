@@ -115,7 +115,8 @@ function AvatarModel({
     }
   });
 
-  return <primitive object={scene} position={[0, -0.6, 0]} />;
+  // ReadyPlayerMe full-body: head at ~y=1.55, lower model so head is at origin
+  return <primitive object={scene} position={[0, -1.55, 0]} />;
 }
 
 // ── Main component ─────────────────────────────────────────────────

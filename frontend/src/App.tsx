@@ -7,6 +7,7 @@ import { History } from './pages/History';
 import { Profile } from './pages/Profile';
 import { AdminScenarios } from './pages/Admin/Scenarios';
 import { ApiDashboard } from './pages/Admin/ApiDashboard';
+import { PipecatTest } from './pages/PipecatTest';
 import { ProtectedRoute } from './components/Auth';
 
 function App() {
@@ -80,6 +81,9 @@ function App() {
             </ProtectedRoute>
           }
         />
+
+        {/* Dev: Pipecat PoC test (no auth) */}
+        <Route path="/pipecat-test" element={<PipecatTest />} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
