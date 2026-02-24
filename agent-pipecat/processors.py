@@ -451,7 +451,7 @@ class HumeEmotionProcessor(FrameProcessor):
         self,
         api_key: str,
         transport: Optional[object] = None,
-        analyze_every_ms: int = 5000,
+        analyze_every_ms: int = 4500,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -462,11 +462,16 @@ class HumeEmotionProcessor(FrameProcessor):
         self._analyze_every_ms = analyze_every_ms
         self._sample_rate = 16000
         self._analyzing = False
+        self._first_frame_logged = False
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
         if isinstance(frame, InputAudioRawFrame):
+            if not self._first_frame_logged:
+                self._first_frame_logged = True
+                logger.info("Hume: first audio frame received (prosody analysis active)")
+
             # Use the frame's actual sample rate if available
             if hasattr(frame, "sample_rate") and frame.sample_rate:
                 self._sample_rate = frame.sample_rate
@@ -479,9 +484,14 @@ class HumeEmotionProcessor(FrameProcessor):
             if self._buffer_duration_ms >= self._analyze_every_ms and not self._analyzing:
                 # Set flag synchronously BEFORE scheduling task to prevent races
                 self._analyzing = True
-                audio_data = bytes(self._audio_buffer)
+                # Cap audio to 5s max (Hume limit) — buffer may exceed threshold
+                # while a previous analysis is in-flight
+                max_bytes = self._sample_rate * 2 * 5  # 5s of 16-bit mono
+                audio_data = bytes(self._audio_buffer[-max_bytes:])
                 self._audio_buffer.clear()
+                duration_ms = min(self._buffer_duration_ms, 5000.0)
                 self._buffer_duration_ms = 0.0
+                logger.info(f"Hume: analyzing {duration_ms:.0f}ms of audio ({len(audio_data)} bytes)")
                 asyncio.create_task(self._analyze_prosody(audio_data))
 
         await self.push_frame(frame, direction)
@@ -489,22 +499,37 @@ class HumeEmotionProcessor(FrameProcessor):
     async def _analyze_prosody(self, audio_data: bytes) -> None:
         """Send audio buffer to Hume Streaming API for prosody analysis."""
         try:
-            import aiohttp
+            import io
+            import wave
+            import websockets
 
-            b64_audio = base64.b64encode(audio_data).decode()
+            # Wrap raw PCM in WAV container (Hume requires a valid media file)
+            wav_buffer = io.BytesIO()
+            with wave.open(wav_buffer, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)  # 16-bit
+                wf.setframerate(self._sample_rate)
+                wf.writeframes(audio_data)
+            wav_bytes = wav_buffer.getvalue()
 
-            async with aiohttp.ClientSession() as session:
-                async with session.ws_connect(
-                    "wss://api.hume.ai/v0/stream/models",
-                    headers={"X-Hume-Api-Key": self._api_key},
-                ) as ws:
-                    await ws.send_json({
-                        "data": b64_audio,
-                        "models": {"prosody": {}},
-                        "raw_text": False,
-                    })
+            b64_audio = base64.b64encode(wav_bytes).decode()
 
-                    response = await ws.receive_json()
+            async with websockets.connect(
+                "wss://api.hume.ai/v0/stream/models",
+                additional_headers={"X-Hume-Api-Key": self._api_key},
+            ) as ws:
+                await ws.send(json.dumps({
+                    "data": b64_audio,
+                    "models": {"prosody": {}},
+                    "raw_text": False,
+                }))
+
+                response = json.loads(await ws.recv())
+
+            # Check for API error response
+            if "error" in response:
+                logger.error(f"Hume API error: {response['error']} (code={response.get('code', 'unknown')})")
+                return
 
             prosody = response.get("prosody", {})
             predictions = prosody.get("predictions", [])
@@ -543,7 +568,7 @@ class HumeEmotionProcessor(FrameProcessor):
             )
 
         except Exception as e:
-            logger.error(f"Hume analysis error: {e}")
+            logger.error(f"Hume analysis error ({type(e).__name__}): {e}")
         finally:
             self._analyzing = False
 

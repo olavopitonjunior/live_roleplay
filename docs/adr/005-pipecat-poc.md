@@ -197,9 +197,32 @@ Testes executados com o cenario "Retencao de Cliente Insatisfeito" (`cc2baea3`).
 
 **Nota**: E2E estimado nao inclui tempo de rede (WebRTC ~50-100ms) nem VAD (200ms start). Comparar com OpenAI Realtime: ~800ms E2E.
 
-#### Pendencias de Fase 5
+### Fase 5B — Hume Prosody Fix (completo, 2026-02-24)
 
-- **Hume debug**: Investigar por que `HumeEmotionProcessor.process_frame()` nao dispara analise
+Correcao do `HumeEmotionProcessor` que retornava zero resultados em todas as fases de teste.
+
+#### Bugs encontrados e corrigidos
+
+1. **WebSocket library**: `aiohttp.ws_connect()` causa 404 no endpoint Hume. Corrigido para usar `websockets.connect()` (mesma lib que o SDK oficial usa).
+2. **Audio format**: Hume requer arquivo de midia valido (WAV), nao PCM raw. Adicionado wrapper WAV via `wave` module antes do base64-encode.
+3. **Buffer overflow**: Buffer acumula alem de 5s durante analise in-flight. Adicionado cap de `max_bytes = sample_rate * 2 * 5` (5s de mono 16-bit) e threshold reduzido para 4500ms.
+
+#### Resultado do teste (2026-02-24)
+
+```
+Hume: first audio frame received (prosody analysis active)
+Hume: analyzing 4538ms of audio (145200 bytes)
+Hume prosody: Confusion=0.528 → hesitant | top3=[Confusion=0.528, Doubt=0.308, Surprise(neg)=0.278]
+```
+
+- 2 analises executadas — ambas com 4538ms, ambas sob o limite de 5s
+- Zero erros E0203 (audio too long)
+- Mapeamento Hume→simples funcional (Confusion → hesitant)
+- Atributos publicados via `set_attributes()` no LiveKit room
+
+#### Pendencias restantes
+
+- ~~**Hume debug**: Investigar por que `HumeEmotionProcessor.process_frame()` nao dispara analise~~ RESOLVIDO (2026-02-24)
 - ~~**NVIDIA A2F**: Obter API key com permissao para Audio2Face NIM endpoint~~ RESOLVIDO (2026-02-24)
 - **Frontend A2F render**: Validar que Avatar3D.tsx recebe blendshapes via data channel e anima o GLB
 - **AWS presets**: Nao testados (requer AWS credentials configurados)
