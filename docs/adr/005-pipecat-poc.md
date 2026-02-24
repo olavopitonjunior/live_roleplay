@@ -2,7 +2,7 @@
 
 ## Status
 
-**Em andamento** — Data: 2026-02-17, atualizado 2026-02-21
+**Em andamento** — Data: 2026-02-17, atualizado 2026-02-24
 
 ## Contexto
 
@@ -170,17 +170,21 @@ Testes executados com o cenario "Retencao de Cliente Insatisfeito" (`cc2baea3`).
 
 #### Test C — NVIDIA Audio2Face (`--avatar-provider nvidia-a2f`)
 
-- **Resultado**: Pipeline funcional, 11 entradas de transcript, audio end-to-end OK.
-- **STT TTFB**: ~679ms (Deepgram)
-- **LLM TTFB**: 0.86-1.81s (Gemini)
-- **TTS TTFB**: 53-165ms (ElevenLabs)
-- **A2F gRPC**: Inicializou com sucesso, mas **PermissionDenied** ao tentar enviar audio:
+- **Resultado (tentativa 1 — 2026-02-21)**: Pipeline funcional, 11 entradas de transcript. A2F gRPC inicializou mas retornou **PermissionDenied** — API key sem acesso ao NIM endpoint.
+- **Resultado (tentativa 2 — 2026-02-24, nova API key)**: **SUCESSO COMPLETO**. Pipeline funcional, 5 entradas de transcript.
+- **STT TTFB**: ~697ms (Deepgram)
+- **LLM TTFB**: 1.08-1.20s (Gemini)
+- **TTS TTFB**: 37-254ms (ElevenLabs)
+- **A2F gRPC**: Funcionou end-to-end:
   ```
-  grpc_status:7, grpc_message:"failed to open stateful work request:
-  rpc error: code = PermissionDenied desc = Authorization failed"
+  Audio2Face: new gRPC stream opened
+  Audio2Face: header received (71 blendshapes)
+  Audio2Face: 500 blendshape frames published
+  Audio2Face: end-of-audio sent, stream closed
   ```
-- **Conclusao**: A integracao gRPC esta correta (conecta, abre stream, envia audio). A API key precisa de permissao especifica para o endpoint Audio2Face NIM. Audio continuou funcionando normalmente (A2F e nao-bloqueante).
+- **71 blendshapes ARKit** recebidos (James model com tongue shapes). 500 frames publicados via data channel em ~2s de audio.
 - **Emotion GPT-4o**: Funcionou — `Emotion: frustrated (intensity=0, trend=stable)`
+- **Conclusao**: Integracao NVIDIA A2F completa. gRPC → blendshapes → data channel funciona. Proximo passo: validar frontend Avatar3D.tsx recebendo e renderizando os blendshapes.
 
 #### Resumo de Latencia (Pipeline Modular)
 
@@ -196,7 +200,8 @@ Testes executados com o cenario "Retencao de Cliente Insatisfeito" (`cc2baea3`).
 #### Pendencias de Fase 5
 
 - **Hume debug**: Investigar por que `HumeEmotionProcessor.process_frame()` nao dispara analise
-- **NVIDIA A2F**: Obter API key com permissao para Audio2Face NIM endpoint
+- ~~**NVIDIA A2F**: Obter API key com permissao para Audio2Face NIM endpoint~~ RESOLVIDO (2026-02-24)
+- **Frontend A2F render**: Validar que Avatar3D.tsx recebe blendshapes via data channel e anima o GLB
 - **AWS presets**: Nao testados (requer AWS credentials configurados)
 - **Nova Sonic S2S**: Nao testado (requer AWS credentials)
 
