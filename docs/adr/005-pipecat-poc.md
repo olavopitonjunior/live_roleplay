@@ -220,11 +220,27 @@ Hume prosody: Confusion=0.528 → hesitant | top3=[Confusion=0.528, Doubt=0.308,
 - Mapeamento Hume→simples funcional (Confusion → hesitant)
 - Atributos publicados via `set_attributes()` no LiveKit room
 
+### Fase 5C — Frontend Avatar3D Test Page (2026-02-24)
+
+Criacao de pagina de teste `/pipecat-test` para conectar o frontend React ao agent Pipecat sem o fluxo de sessao completo (Supabase auth, cenario, etc).
+
+#### Implementacao
+
+- `PipecatTest.tsx`: Pagina minimal que aceita `?token=xxx` e renderiza `<LiveKitRoom>` + `<AvatarContainer>` + `<RoomAudioRenderer>`
+- Rota `/pipecat-test` adicionada em `App.tsx` (sem auth)
+- Avatar3D: Corrigido posicionamento do modelo ReadyPlayerMe (`y=-0.6` → `y=-1.55`) para centralizar rosto
+
+#### Resultado do teste (2026-02-24)
+
+- **Test 1**: GLB carregou, modelo visivel, mas camera apontando para pernas (posicao errada). A2F backend publicou 71 blendshapes com sucesso.
+- **Test 2**: Correcao de camera aplicada. Gemini 429 rate limit (free tier, 20 req/dia esgotadas) impediu geracao de TTS/blendshapes.
+- **Conclusao parcial**: Pipeline A2F → data channel → Avatar3D funciona end-to-end. Falta validar animacao facial com camera corrigida (proximo teste com quota renovada).
+
 #### Pendencias restantes
 
 - ~~**Hume debug**: Investigar por que `HumeEmotionProcessor.process_frame()` nao dispara analise~~ RESOLVIDO (2026-02-24)
 - ~~**NVIDIA A2F**: Obter API key com permissao para Audio2Face NIM endpoint~~ RESOLVIDO (2026-02-24)
-- **Frontend A2F render**: Validar que Avatar3D.tsx recebe blendshapes via data channel e anima o GLB
+- **Frontend A2F render**: Validar animacao facial com camera corrigida (modelo carrega, blendshapes chegam, falta ver lip-sync)
 - **AWS presets**: Nao testados (requer AWS credentials configurados)
 - **Nova Sonic S2S**: Nao testado (requer AWS credentials)
 
