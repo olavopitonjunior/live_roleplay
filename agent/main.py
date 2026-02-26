@@ -518,7 +518,9 @@ async def _update_session_transcript_impl(
     session_id: str,
     transcript: str,
     status: str = "completed",
-    has_avatar_fallback: bool = False
+    has_avatar_fallback: bool = False,
+    emotion_history: list[dict] | None = None,
+    transcript_metadata: list[dict] | None = None,
 ) -> bool:
     """Internal implementation of update_session_transcript."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
@@ -540,6 +542,10 @@ async def _update_session_transcript_impl(
         "ended_at": datetime.now(timezone.utc).isoformat(),
         "has_avatar_fallback": has_avatar_fallback,
     }
+    if emotion_history:
+        payload["emotion_history"] = emotion_history
+    if transcript_metadata:
+        payload["transcript_metadata"] = transcript_metadata
 
     try:
         async with aiohttp.ClientSession() as http_session:
@@ -557,7 +563,9 @@ async def update_session_transcript(
     session_id: str,
     transcript: str,
     status: str = "completed",
-    has_avatar_fallback: bool = False
+    has_avatar_fallback: bool = False,
+    emotion_history: list[dict] | None = None,
+    transcript_metadata: list[dict] | None = None,
 ) -> bool:
     """Update session with transcript with retry."""
     result = await with_retry(
@@ -566,6 +574,8 @@ async def update_session_transcript(
         transcript,
         status,
         has_avatar_fallback,
+        emotion_history,
+        transcript_metadata,
         max_retries=3,
         delay=1.0,
         operation_name="update_session_transcript"
@@ -576,7 +586,9 @@ async def update_session_transcript(
 async def save_intermediate_transcript(
     session_id: str,
     transcript_lines: list[str],
-    status: str = "active"
+    status: str = "active",
+    emotion_history: list[dict] | None = None,
+    transcript_metadata: list[dict] | None = None,
 ) -> bool:
     """
     Save intermediate transcript during session to prevent data loss on crash.
@@ -604,6 +616,10 @@ async def save_intermediate_transcript(
         "status": status,
         "last_transcript_update": datetime.now(timezone.utc).isoformat(),
     }
+    if emotion_history:
+        payload["emotion_history"] = emotion_history
+    if transcript_metadata:
+        payload["transcript_metadata"] = transcript_metadata
 
     try:
         async with aiohttp.ClientSession() as http_session:
@@ -982,6 +998,12 @@ async def entrypoint(ctx: JobContext):
     # Transcript collection
     transcript_lines: list[str] = []
 
+    # Structured transcript metadata — richer data for feedback analysis
+    transcript_metadata: list[dict] = []
+
+    # Emotion history — persisted to DB for feedback analysis
+    emotion_history: list[dict] = []
+
     # Debounced transcript save - saves at most every 5 seconds
     _last_transcript_save_time: float = 0.0
 
@@ -996,7 +1018,7 @@ async def entrypoint(ctx: JobContext):
         _last_transcript_save_time = now
         try:
             _save_start = time.time()
-            await save_intermediate_transcript(session_id, transcript_lines)
+            await save_intermediate_transcript(session_id, transcript_lines, emotion_history=emotion_history, transcript_metadata=transcript_metadata)
             _save_ms = (time.time() - _save_start) * 1000
             asyncio.create_task(send_latency_event("transcript_save", _save_ms, "Transcript Save", f"{len(transcript_lines)} lines"))
         except Exception as e:
@@ -1118,6 +1140,14 @@ async def entrypoint(ctx: JobContext):
                 await ctx.room.local_participant.set_attributes(attrs)
             except Exception as attr_err:
                 logger.debug(f"Participant attributes update failed: {attr_err}")
+
+            # Persist to emotion_history for feedback analysis
+            emotion_history.append({
+                "t": datetime.now(timezone.utc).isoformat(),
+                "emotion": emotion,
+                "intensity": intensity or 50,
+                "turn": len(transcript_lines),
+            })
 
             logger.debug(f"Sent emotion: {emotion}, intensity={intensity}, trend={trend}, reason={reason}")
         except Exception as e:
@@ -1314,6 +1344,14 @@ async def entrypoint(ctx: JobContext):
 
                 # Add timestamped line to transcript
                 transcript_lines.append(format_transcript_line("Usuario", text))
+                # Structured metadata for feedback analysis
+                transcript_metadata.append({
+                    "speaker": "Usuario",
+                    "text": text,
+                    "timestamp": datetime.now(timezone.utc).isoformat(timespec='milliseconds'),
+                    "turn": len(transcript_lines),
+                    "char_count": len(text),
+                })
                 logger.info(f"Added user line to transcript, total lines: {len(transcript_lines)}")
                 # Save transcript immediately (debounced to prevent DB overload)
                 asyncio.create_task(save_transcript_debounced())
@@ -1486,11 +1524,24 @@ async def entrypoint(ctx: JobContext):
 
                 # Add timestamped line to transcript (WITHOUT emotion tag)
                 transcript_lines.append(format_transcript_line("Avatar", clean_text))
+                # Structured metadata for feedback analysis
+                _avatar_meta: dict = {
+                    "speaker": "Avatar",
+                    "text": clean_text,
+                    "timestamp": datetime.now(timezone.utc).isoformat(timespec='milliseconds'),
+                    "turn": len(transcript_lines),
+                    "char_count": len(clean_text),
+                }
+                if _last_user_speech_end_time > 0:
+                    _avatar_meta["response_latency_ms"] = round((_now - _last_user_speech_end_time) * 1000)
+                if emotion_tag_match:
+                    _avatar_meta["emotion_tag"] = emotion_tag_match.group(1).lower()
+                transcript_metadata.append(_avatar_meta)
                 logger.info(f"Avatar said: {clean_text[:100]}... (added to transcript, total lines: {len(transcript_lines)})")
 
                 # Save transcript incrementally every 3 messages to minimize data loss
                 if len(transcript_lines) % 3 == 0:
-                    asyncio.create_task(save_intermediate_transcript(session_id, transcript_lines))
+                    asyncio.create_task(save_intermediate_transcript(session_id, transcript_lines, transcript_metadata=transcript_metadata))
 
                 # Track output tokens for metrics
                 output_tokens = metrics.estimate_tokens(clean_text)
@@ -1595,7 +1646,12 @@ async def entrypoint(ctx: JobContext):
         full_transcript = "\n".join(transcript_lines)
         logger.info(f"Saving transcript ({len(transcript_lines)} lines, {len(full_transcript)} chars)")
 
-        success = await update_session_transcript(session_id, full_transcript, has_avatar_fallback=avatar_failed)
+        success = await update_session_transcript(
+            session_id, full_transcript,
+            has_avatar_fallback=avatar_failed,
+            emotion_history=emotion_history,
+            transcript_metadata=transcript_metadata,
+        )
         if success:
             logger.info("Transcript saved successfully")
 
@@ -1862,7 +1918,9 @@ async def entrypoint(ctx: JobContext):
                 try:
                     if transcript_lines and session_id:
                         await save_intermediate_transcript(
-                            session_id, transcript_lines, status="completed"
+                            session_id, transcript_lines, status="completed",
+                            emotion_history=emotion_history,
+                            transcript_metadata=transcript_metadata,
                         )
                         logger.info(f"Final transcript saved on close: {len(transcript_lines)} lines")
                 except Exception as e:
@@ -1951,7 +2009,7 @@ async def entrypoint(ctx: JobContext):
                 try:
                     await asyncio.sleep(30)  # Save every 30 seconds
                     if transcript_lines and session_id:
-                        await save_intermediate_transcript(session_id, transcript_lines)
+                        await save_intermediate_transcript(session_id, transcript_lines, emotion_history=emotion_history, transcript_metadata=transcript_metadata)
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
@@ -2129,7 +2187,9 @@ async def entrypoint(ctx: JobContext):
         try:
             if transcript_lines and session_id:
                 await save_intermediate_transcript(
-                    session_id, transcript_lines, status="completed"
+                    session_id, transcript_lines, status="completed",
+                    emotion_history=emotion_history,
+                    transcript_metadata=transcript_metadata,
                 )
                 logger.info(f"Finally: final transcript saved ({len(transcript_lines)} lines)")
         except Exception as e:

@@ -76,12 +76,8 @@ export function useFeedback() {
     const hasTranscript = await waitForTranscript(sessionId);
 
     if (!hasTranscript) {
-      setState((prev) => ({
-        ...prev,
-        waitingForTranscript: false,
-        error: 'Transcript da sessao nao disponivel. Tente novamente.',
-      }));
-      return false;
+      // Proceed anyway — Edge Function saves minimal template when transcript is missing
+      console.warn('Transcript not available after polling, proceeding with feedback generation');
     }
 
     setState((prev) => ({ ...prev, waitingForTranscript: false, generating: true }));
