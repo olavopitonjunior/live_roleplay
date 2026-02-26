@@ -29,4 +29,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
 # Download model files (EOU turn detector ONNX weights) then start agent
-CMD ["sh", "-c", "python main.py download-files && python main.py start"]
+# Use ; instead of && because download-files may exit non-zero even on success
+CMD ["sh", "-c", "python main.py download-files; python main.py start"]
