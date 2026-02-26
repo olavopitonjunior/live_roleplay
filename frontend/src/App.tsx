@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Login } from './pages/Login';
 import { Home } from './pages/Home';
@@ -7,8 +8,10 @@ import { History } from './pages/History';
 import { Profile } from './pages/Profile';
 import { AdminScenarios } from './pages/Admin/Scenarios';
 import { ApiDashboard } from './pages/Admin/ApiDashboard';
-import { PipecatTest } from './pages/PipecatTest';
 import { ProtectedRoute } from './components/Auth';
+
+// Lazy-load PipecatTest to code-split Three.js (~1.5 MB) from main bundle
+const PipecatTest = lazy(() => import('./pages/PipecatTest').then(m => ({ default: m.PipecatTest })));
 
 function App() {
   return (
@@ -82,8 +85,8 @@ function App() {
           }
         />
 
-        {/* Dev: Pipecat PoC test (no auth) */}
-        <Route path="/pipecat-test" element={<PipecatTest />} />
+        {/* Dev: Pipecat PoC test (no auth, lazy-loaded) */}
+        <Route path="/pipecat-test" element={<Suspense fallback={<div className="flex items-center justify-center h-screen text-white">Carregando...</div>}><PipecatTest /></Suspense>} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
