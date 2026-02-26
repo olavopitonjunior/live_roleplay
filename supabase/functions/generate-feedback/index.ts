@@ -446,13 +446,65 @@ function validateSession(
   };
 }
 
+/**
+ * Save a minimal feedback template when full evaluation is not possible.
+ * Returns HTTP 200 with a valid feedback structure (score 0, confidence low).
+ */
+async function saveMinimalFeedback(
+  supabase: ReturnType<typeof createClient>,
+  sessionId: string,
+  reason: string,
+  req: Request
+): Promise<Response> {
+  const summary = reason;
+  const { data: feedback, error } = await supabase
+    .from("feedbacks")
+    .insert({
+      session_id: sessionId,
+      criteria_results: [],
+      summary,
+      score: 0,
+      key_moments: [],
+      confidence_level: "low",
+      transcript_coverage: 0,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Failed to save minimal feedback:", error);
+    return corsErrorResponse("Failed to save feedback", 500, req);
+  }
+
+  console.log(`Minimal feedback saved for session ${sessionId}: ${reason}`);
+  return corsJsonResponse(
+    {
+      feedback_id: feedback.id,
+      criteria_results: [],
+      key_moments: [],
+      omissions: [],
+      summary,
+      score: 0,
+      confidence_level: "low",
+      transcript_coverage: 0,
+      minimal: true,
+    },
+    200,
+    req
+  );
+}
+
 serve(async (req: Request) => {
   // Handle CORS preflight
   const preflightResponse = handleCorsPreflightRequest(req);
   if (preflightResponse) return preflightResponse;
 
+  let session_id: string | undefined;
+  let supabase: ReturnType<typeof createClient> | undefined;
+
   try {
-    const { session_id }: RequestBody = await req.json();
+    const body: RequestBody = await req.json();
+    session_id = body.session_id;
     console.log("generate-feedback V2 called with session_id:", session_id);
 
     if (!session_id) {
@@ -463,7 +515,7 @@ serve(async (req: Request) => {
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Fetch session with scenario data
     console.log("Fetching session data...");
@@ -479,7 +531,9 @@ serve(async (req: Request) => {
         has_avatar_fallback,
         duration_seconds,
         access_code_id,
-        difficulty_level
+        difficulty_level,
+        emotion_history,
+        transcript_metadata
       `
       )
       .eq("id", session_id)
@@ -510,10 +564,15 @@ serve(async (req: Request) => {
       return corsErrorResponse("Feedback already exists for this session", 409, req);
     }
 
-    // Validate transcript exists
-    if (!session.transcript) {
-      console.error("No transcript for session:", session_id, "status:", session.status);
-      return corsErrorResponse("No transcript available for this session", 400, req);
+    // Handle missing or empty transcript — save minimal template instead of error
+    if (!session.transcript || session.transcript.trim().length === 0) {
+      console.warn("No transcript for session:", session_id, "— saving minimal feedback");
+      return await saveMinimalFeedback(
+        supabase,
+        session_id,
+        "Sessao sem conteudo suficiente para avaliacao. A conversa foi muito curta ou nao foi capturada.",
+        req
+      );
     }
 
     // Fetch scenario with rubrics using the view
@@ -599,7 +658,13 @@ serve(async (req: Request) => {
     // Initialize Anthropic client
     const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!anthropicApiKey) {
-      return corsErrorResponse("Anthropic API not configured", 500, req);
+      console.error("ANTHROPIC_API_KEY not configured, saving minimal feedback");
+      return await saveMinimalFeedback(
+        supabase,
+        session_id,
+        "Servico de analise temporariamente indisponivel. A transcricao foi registrada para revisao posterior.",
+        req
+      );
     }
 
     const anthropic = new Anthropic({ apiKey: anthropicApiKey });
@@ -660,8 +725,13 @@ serve(async (req: Request) => {
       }
       feedbackData = JSON.parse(jsonMatch[0]);
     } catch (parseError) {
-      console.error("Failed to parse Claude response:", responseText);
-      return corsErrorResponse("Failed to parse AI response", 500, req);
+      console.error("Failed to parse Claude response, saving minimal feedback:", responseText.substring(0, 200));
+      return await saveMinimalFeedback(
+        supabase,
+        session_id,
+        "Analise automatica indisponivel no momento. A transcricao foi registrada para revisao posterior.",
+        req
+      );
     }
 
     // Validate and normalize criteria scores
@@ -943,6 +1013,19 @@ serve(async (req: Request) => {
     );
   } catch (error) {
     console.error("Error in generate-feedback:", error);
+    // Try to save minimal feedback instead of returning error
+    if (session_id && supabase) {
+      try {
+        return await saveMinimalFeedback(
+          supabase,
+          session_id,
+          "Erro inesperado durante a analise. A transcricao foi registrada para revisao posterior.",
+          req
+        );
+      } catch (fallbackError) {
+        console.error("Failed to save fallback minimal feedback:", fallbackError);
+      }
+    }
     return corsErrorResponse(
       error instanceof Error ? error.message : "Internal server error",
       500,
@@ -956,7 +1039,7 @@ serve(async (req: Request) => {
  */
 async function handleLegacyEvaluation(
   supabase: ReturnType<typeof createClient>,
-  session: { id: string; transcript: string; scenario_id: string },
+  session: { id: string; transcript: string; scenario_id: string; emotion_history?: unknown[] | null; transcript_metadata?: unknown[] | null },
   scenario: {
     id: string;
     title: string;
@@ -981,18 +1064,30 @@ async function handleLegacyEvaluation(
 
   const criteria = scenario.evaluation_criteria || [];
   if (criteria.length === 0) {
-    return corsErrorResponse("No evaluation criteria defined", 400, req);
+    console.warn("No evaluation criteria for scenario:", scenario.id, "— saving minimal feedback");
+    return await saveMinimalFeedback(
+      supabase,
+      session.id,
+      "Cenario sem criterios de avaliacao definidos. A transcricao foi registrada para revisao.",
+      req
+    );
   }
 
   const criteriaText = criteria
     .map((c, i) => `${i + 1}. [${c.id}] ${c.description}`)
     .join("\n");
 
-  const prompt = buildLegacyPrompt(scenario, session.transcript!, criteriaText);
+  const prompt = buildLegacyPrompt(scenario, session.transcript!, criteriaText, session.emotion_history as any, session.transcript_metadata as any);
 
   const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!anthropicApiKey) {
-    return corsErrorResponse("Anthropic API not configured", 500, req);
+    console.error("ANTHROPIC_API_KEY not configured (legacy), saving minimal feedback");
+    return await saveMinimalFeedback(
+      supabase,
+      session.id,
+      "Servico de analise temporariamente indisponivel. A transcricao foi registrada para revisao posterior.",
+      req
+    );
   }
 
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
@@ -1017,7 +1112,13 @@ async function handleLegacyEvaluation(
     if (!jsonMatch) throw new Error("No JSON found");
     feedbackData = JSON.parse(jsonMatch[0]);
   } catch {
-    return corsErrorResponse("Failed to parse AI response", 500, req);
+    console.error("Failed to parse Claude legacy response, saving minimal feedback");
+    return await saveMinimalFeedback(
+      supabase,
+      session.id,
+      "Analise automatica indisponivel no momento. A transcricao foi registrada para revisao posterior.",
+      req
+    );
   }
 
   const normalizedResults = criteria.map((c) => {
@@ -1064,11 +1165,67 @@ async function handleLegacyEvaluation(
 /**
  * Build legacy prompt for pass/fail evaluation
  */
+function formatEmotionTimeline(emotionHistory: Array<{t: string; emotion: string; intensity: number; turn: number}> | null): string {
+  if (!emotionHistory || emotionHistory.length === 0) return "";
+  const timeline = emotionHistory.map((e) => {
+    const time = e.t ? new Date(e.t).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "?";
+    return `[${time}] ${e.emotion} (${e.intensity}%)`;
+  }).join(" → ");
+  return `\nEVOLUCAO EMOCIONAL DO CLIENTE (detectada por IA durante a sessao):
+${timeline}
+Use esta informacao para avaliar se o vendedor conseguiu melhorar o estado emocional do cliente ao longo da conversa.\n`;
+}
+
+function formatTranscriptInsights(
+  metadata: Array<{speaker: string; text: string; timestamp: string; turn: number; char_count: number; response_latency_ms?: number}> | null
+): string {
+  if (!metadata || metadata.length === 0) return "";
+
+  const userTurns = metadata.filter((m) => m.speaker === "Usuario");
+  const avatarTurns = metadata.filter((m) => m.speaker === "Avatar");
+
+  // Calculate average response lengths
+  const avgUserLen = userTurns.length > 0
+    ? Math.round(userTurns.reduce((sum, t) => sum + t.char_count, 0) / userTurns.length)
+    : 0;
+  const avgAvatarLen = avatarTurns.length > 0
+    ? Math.round(avatarTurns.reduce((sum, t) => sum + t.char_count, 0) / avatarTurns.length)
+    : 0;
+
+  // Calculate session duration from timestamps
+  let durationInfo = "";
+  if (metadata.length >= 2) {
+    const first = new Date(metadata[0].timestamp).getTime();
+    const last = new Date(metadata[metadata.length - 1].timestamp).getTime();
+    const durationSec = Math.round((last - first) / 1000);
+    if (durationSec > 0) {
+      durationInfo = `Duracao da conversa: ${Math.floor(durationSec / 60)}min ${durationSec % 60}s`;
+    }
+  }
+
+  // Find very short user responses (may indicate hesitation/disengagement)
+  const shortResponses = userTurns.filter((t) => t.char_count < 20);
+
+  let insights = `\nMETRICAS DA CONVERSA:\n`;
+  insights += `- Turnos: ${userTurns.length} do usuario, ${avatarTurns.length} do avatar\n`;
+  insights += `- Comprimento medio: usuario ${avgUserLen} chars, avatar ${avgAvatarLen} chars\n`;
+  if (durationInfo) insights += `- ${durationInfo}\n`;
+  if (shortResponses.length > 2) {
+    insights += `- ${shortResponses.length} respostas curtas do usuario (<20 chars) — pode indicar hesitacao ou desengajamento\n`;
+  }
+  insights += `Use estas metricas para contextualizar a qualidade do engajamento do vendedor.\n`;
+  return insights;
+}
+
 function buildLegacyPrompt(
   scenario: { context: string; ideal_outcome?: string },
   transcript: string,
-  criteriaText: string
+  criteriaText: string,
+  emotionHistory?: Array<{t: string; emotion: string; intensity: number; turn: number}> | null,
+  transcriptMetadata?: Array<{speaker: string; text: string; timestamp: string; turn: number; char_count: number; response_latency_ms?: number}> | null,
 ): string {
+  const emotionSection = formatEmotionTimeline(emotionHistory ?? null);
+  const metricsSection = formatTranscriptInsights(transcriptMetadata ?? null);
   return `Voce e um avaliador especializado em treinamentos de vendas.
 Analise a transcricao e avalie se cada criterio foi ATENDIDO (passed: true) ou NAO ATENDIDO (passed: false).
 
@@ -1077,7 +1234,7 @@ ${scenario.ideal_outcome ? `RESULTADO IDEAL: ${scenario.ideal_outcome}` : ""}
 
 CRITERIOS:
 ${criteriaText}
-
+${emotionSection}${metricsSection}
 TRANSCRICAO:
 ${transcript}
 
