@@ -1619,8 +1619,9 @@ async def entrypoint(ctx: JobContext):
         except Exception as e:
             logger.error(f"Error in conversation_item_added handler: {e}", exc_info=True)
 
-    # Initialize avatar using factory (supports simli, liveavatar, hedra)
-    avatar = create_avatar_session(scenario)
+    # Avatar suspended — audio-only mode (Hedra service paused)
+    # To re-enable: avatar = create_avatar_session(scenario)
+    avatar = None
 
     # Track if avatar failed (for has_avatar_fallback flag)
     avatar_failed = False
