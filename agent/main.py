@@ -2216,10 +2216,19 @@ if __name__ == "__main__":
     print(f"[STARTUP] LIVEKIT_API_SECRET={'SET' if os.getenv('LIVEKIT_API_SECRET') else 'MISSING'}")
     print(f"[STARTUP] OPENAI_API_KEY={'SET' if os.getenv('OPENAI_API_KEY') else 'MISSING'}")
     print(f"[STARTUP] Agent name: roleplay-agent")
-    print(f"[STARTUP] Starting cli.run_app()...")
+    print(f"[STARTUP] sys.argv: {sys.argv}")
+    print(f"[STARTUP] Starting cli.run_app()...", flush=True)
 
-    cli.run_app(WorkerOptions(
-        entrypoint_fnc=entrypoint,
-        agent_name="roleplay-agent",  # Named agent for explicit dispatch
-        shutdown_process_timeout=90,  # Extra time for farewell + drain + transcript save
-    ))
+    try:
+        cli.run_app(WorkerOptions(
+            entrypoint_fnc=entrypoint,
+            agent_name="roleplay-agent",  # Named agent for explicit dispatch
+            shutdown_process_timeout=90,  # Extra time for farewell + drain + transcript save
+        ))
+    except Exception as e:
+        print(f"[STARTUP] cli.run_app() CRASHED: {type(e).__name__}: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise
+    finally:
+        print(f"[STARTUP] cli.run_app() EXITED", flush=True)
