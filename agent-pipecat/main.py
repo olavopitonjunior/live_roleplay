@@ -14,7 +14,7 @@ Pipelines:
 
 Avatar providers:
     simli       — Simli 2D avatar (lip-sync from audio)
-    nvidia-a2f  — NVIDIA Audio2Face-3D + Three.js (blendshapes via data channel)
+    heygen      — HeyGen LiveAvatar (lip-sync from audio, photorealistic)
     none        — Audio-only mode
 
 Emotion providers:
@@ -37,8 +37,8 @@ Usage:
     # Audio-only with AWS Polly TTS:
     python main.py --scenario-id <uuid> --provider-preset aws-polly --no-avatar
 
-    # NVIDIA Audio2Face avatar:
-    python main.py --scenario-id <uuid> --avatar-provider nvidia-a2f
+    # HeyGen LiveAvatar:
+    python main.py --scenario-id <uuid> --avatar-provider heygen
 """
 
 import argparse
@@ -69,7 +69,6 @@ from prompts import build_agent_instructions
 # Local modules
 from processors import (
     AssistantTranscriptProcessor,
-    Audio2FaceProcessor,
     EmotionProcessor,
     HumeEmotionProcessor,
     LazySimliVideoService,
@@ -181,14 +180,14 @@ async def run_session(
         ),
     )
 
-    # Enable video output only for Simli (video-based avatar).
-    # nvidia-a2f sends blendshapes via data channel — no video track needed.
-    if avatar_provider == "simli":
+    # Enable video output for video-based avatars (Simli, HeyGen).
+    if avatar_provider in ("simli", "heygen"):
         transport_params.camera_out_enabled = True
         transport_params.camera_out_is_live = True
-        transport_params.camera_out_width = 512
-        transport_params.camera_out_height = 512
-        logger.info("Simli avatar — camera_out active (512x512)")
+        transport_params.camera_out_width = 1280 if avatar_provider == "heygen" else 512
+        transport_params.camera_out_height = 720 if avatar_provider == "heygen" else 512
+        res = "1280x720" if avatar_provider == "heygen" else "512x512"
+        logger.info(f"{avatar_provider} avatar — camera_out active ({res})")
 
     transport = LiveKitTransport(
         url=room_url,
@@ -204,7 +203,7 @@ async def run_session(
 
     # ── Avatar setup ────────────────────────────────────────────────
     simli = None
-    a2f_proc = None
+    heygen_service = None
     if avatar_provider == "simli":
         simli_api_key = os.getenv("SIMLI_API_KEY")
         simli_face_id = os.getenv("SIMLI_FACE_ID", "")
@@ -217,23 +216,34 @@ async def run_session(
             logger.info(f"Simli avatar configured (lazy init, face_id={simli_face_id[:8]}...)")
         else:
             logger.warning("SIMLI_API_KEY or SIMLI_FACE_ID not set — running without avatar")
-    elif avatar_provider == "nvidia-a2f":
-        nvidia_api_key = os.getenv("NVIDIA_API_KEY", "")
-        nvidia_function_id = os.getenv(
-            "NVIDIA_A2F_FUNCTION_ID",
-            Audio2FaceProcessor.DEFAULT_FUNCTION_ID,
-        )
-        if nvidia_api_key:
-            a2f_proc = Audio2FaceProcessor(
-                api_key=nvidia_api_key,
-                transport=transport,
-                function_id=nvidia_function_id,
+    elif avatar_provider == "heygen":
+        heygen_api_key = os.getenv("HEYGEN_LIVE_AVATAR_API_KEY")
+        # Default: HeyGen sandbox avatar from Pipecat examples
+        default_avatar = "dd73ea75-1218-4ef3-92ce-606d5f7fbc0a"
+        heygen_avatar_id = os.getenv("HEYGEN_AVATAR_ID", "") or default_avatar
+        is_sandbox = heygen_avatar_id == default_avatar
+        if heygen_api_key:
+            import aiohttp
+            from pipecat.services.heygen.video import HeyGenVideoService
+            from pipecat.services.heygen.api_liveavatar import LiveAvatarNewSessionRequest
+            from pipecat.services.heygen.client import ServiceType
+
+            heygen_http_session = aiohttp.ClientSession()
+            heygen_service = HeyGenVideoService(
+                api_key=heygen_api_key,
+                service_type=ServiceType.LIVE_AVATAR,
+                session=heygen_http_session,
+                session_request=LiveAvatarNewSessionRequest(
+                    avatar_id=heygen_avatar_id,
+                    is_sandbox=is_sandbox,
+                ),
             )
             logger.info(
-                f"NVIDIA Audio2Face configured (function_id={nvidia_function_id[:12]}...)"
+                f"HeyGen LiveAvatar configured "
+                f"(avatar_id={heygen_avatar_id[:8]}..., sandbox={is_sandbox})"
             )
         else:
-            logger.warning("NVIDIA_API_KEY not set — running without avatar")
+            logger.warning("HEYGEN_LIVE_AVATAR_API_KEY not set — running without avatar")
 
     # ── Custom processors ───────────────────────────────────────────
     transcript_proc = TranscriptProcessor(scenario=scenario)
@@ -305,15 +315,13 @@ async def run_session(
             pipeline_stages.append(simli)
             video_publisher = LiveKitVideoPublisher(transport=transport)
             pipeline_stages.append(video_publisher)
-        if a2f_proc:
-            # A2F taps TTS audio and publishes blendshapes via data channel
-            # Audio still passes through to transport for playback
-            pipeline_stages.append(a2f_proc)
+        if heygen_service:
+            pipeline_stages.append(heygen_service)
         pipeline_stages.extend([
             transport.output(),
             context_aggregator.assistant(),
         ])
-        avatar_label = "simli → video_pub" if simli else ("a2f" if a2f_proc else "none")
+        avatar_label = "simli → video_pub" if simli else ("heygen" if heygen_service else "none")
         logger.info(
             f"Pipeline: input → {'hume → ' if hume_proc else ''}"
             f"stt → transcript → context.user → llm → "
@@ -475,9 +483,9 @@ def main():
     # Avatar provider
     parser.add_argument(
         "--avatar-provider",
-        choices=["simli", "nvidia-a2f", "none"],
+        choices=["simli", "heygen", "none"],
         default="simli",
-        help="Avatar provider: simli (2D lip-sync), nvidia-a2f (3D blendshapes), none (audio-only)",
+        help="Avatar provider: simli (2D lip-sync), heygen (photorealistic), none (audio-only)",
     )
     # Emotion provider
     parser.add_argument(
