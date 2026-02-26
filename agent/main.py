@@ -2210,11 +2210,14 @@ if __name__ == "__main__":
     # Setup graceful shutdown handler before starting workers
     _setup_sigterm_handler()
 
-    # Health check server starts lazily from the first entrypoint call
-    # (runs on the worker's event loop, not the parent process)
+    # Diagnostic: confirm env vars before connecting to LiveKit
+    print(f"[STARTUP] LIVEKIT_URL={'SET' if os.getenv('LIVEKIT_URL') else 'MISSING'}")
+    print(f"[STARTUP] LIVEKIT_API_KEY={'SET' if os.getenv('LIVEKIT_API_KEY') else 'MISSING'}")
+    print(f"[STARTUP] LIVEKIT_API_SECRET={'SET' if os.getenv('LIVEKIT_API_SECRET') else 'MISSING'}")
+    print(f"[STARTUP] OPENAI_API_KEY={'SET' if os.getenv('OPENAI_API_KEY') else 'MISSING'}")
+    print(f"[STARTUP] Agent name: roleplay-agent")
+    print(f"[STARTUP] Starting cli.run_app()...")
 
-    # Agent name for explicit dispatch - agents with a name require
-    # explicit dispatch via token or API
     cli.run_app(WorkerOptions(
         entrypoint_fnc=entrypoint,
         agent_name="roleplay-agent",  # Named agent for explicit dispatch
