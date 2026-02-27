@@ -2211,6 +2211,14 @@ if __name__ == "__main__":
     # Setup graceful shutdown handler before starting workers
     _setup_sigterm_handler()
 
+    # Force 'start' subcommand — Railway's cached startCommand sends
+    # 'download-files' first, but the 'start' subcommand downloads
+    # model files on-demand anyway. This avoids the two-process issue
+    # where the second process never starts after download-files exits.
+    if len(sys.argv) > 1 and sys.argv[1] == "download-files":
+        print(f"[STARTUP] Overriding 'download-files' → 'start' (files download on-demand)", flush=True)
+        sys.argv[1] = "start"
+
     # Diagnostic: confirm env vars before connecting to LiveKit
     print(f"[STARTUP] LIVEKIT_URL={'SET' if os.getenv('LIVEKIT_URL') else 'MISSING'}")
     print(f"[STARTUP] LIVEKIT_API_KEY={'SET' if os.getenv('LIVEKIT_API_KEY') else 'MISSING'}")
@@ -2220,16 +2228,8 @@ if __name__ == "__main__":
     print(f"[STARTUP] sys.argv: {sys.argv}")
     print(f"[STARTUP] Starting cli.run_app()...", flush=True)
 
-    try:
-        cli.run_app(WorkerOptions(
-            entrypoint_fnc=entrypoint,
-            agent_name="roleplay-agent",  # Named agent for explicit dispatch
-            shutdown_process_timeout=90,  # Extra time for farewell + drain + transcript save
-        ))
-    except SystemExit as e:
-        print(f"[STARTUP] cli.run_app() SystemExit code={e.code}", flush=True)
-    except Exception as e:
-        print(f"[STARTUP] cli.run_app() CRASHED: {type(e).__name__}: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
-        raise
+    cli.run_app(WorkerOptions(
+        entrypoint_fnc=entrypoint,
+        agent_name="roleplay-agent",  # Named agent for explicit dispatch
+        shutdown_process_timeout=90,  # Extra time for farewell + drain + transcript save
+    ))
