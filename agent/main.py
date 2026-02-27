@@ -2226,10 +2226,10 @@ if __name__ == "__main__":
             agent_name="roleplay-agent",  # Named agent for explicit dispatch
             shutdown_process_timeout=90,  # Extra time for farewell + drain + transcript save
         ))
+    except SystemExit as e:
+        print(f"[STARTUP] cli.run_app() SystemExit code={e.code}", flush=True)
     except Exception as e:
         print(f"[STARTUP] cli.run_app() CRASHED: {type(e).__name__}: {e}", flush=True)
         import traceback
         traceback.print_exc()
         raise
-    finally:
-        print(f"[STARTUP] cli.run_app() EXITED", flush=True)
