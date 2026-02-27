@@ -30,5 +30,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
-# entrypoint.sh: downloads model files, then exec's into agent worker (PID 1)
-CMD ["./entrypoint.sh"]
+# Start agent directly — model files download on-demand during startup
+CMD ["python", "main.py", "start"]
