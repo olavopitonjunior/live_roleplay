@@ -17,6 +17,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code (from agent subfolder)
 COPY agent/*.py .
 COPY agent/.env* ./
+COPY agent/entrypoint.sh .
+RUN chmod +x entrypoint.sh
 
 # Ensure Python output is not buffered (critical for Docker/Railway log capture)
 ENV PYTHONUNBUFFERED=1
@@ -28,6 +30,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
-# Download model files (EOU turn detector ONNX weights) then start agent
-# Use ; instead of && because download-files may exit non-zero even on success
-CMD ["sh", "-c", "python main.py download-files; python main.py start"]
+# entrypoint.sh: downloads model files, then exec's into agent worker (PID 1)
+CMD ["./entrypoint.sh"]
