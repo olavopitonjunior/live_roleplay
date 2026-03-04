@@ -154,11 +154,14 @@ test.describe('Fase 3: Coach Orchestrator', () => {
       await coachTab.click();
     }
 
-    // Wait for coaching data
-    await page.waitForTimeout(5_000);
+    // Wait for coaching data (plan generation can take up to 15s on Railway)
+    await page.waitForTimeout(20_000);
 
-    // Check for coaching panel rendering (preloaded suggestions OR empty state)
-    const coachPanel = page.locator('text=Roteiro de Coaching').or(page.locator('text=Dicas de coaching'));
+    // Check for coaching panel rendering: methodology tracker, preloaded plan, or empty state
+    const coachPanel = page
+      .locator('text=Metodologia SPIN')
+      .or(page.locator('text=Roteiro de Coaching'))
+      .or(page.locator('text=Dicas de coaching'));
     const panelVisible = await coachPanel.first().isVisible().catch(() => false);
 
     // Panel should render without crashes
