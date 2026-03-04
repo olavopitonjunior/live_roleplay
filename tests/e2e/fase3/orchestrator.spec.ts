@@ -18,9 +18,9 @@ test.describe('Fase 3: Coach Orchestrator', () => {
     const status = await waitForSessionReady(page);
     if (!status.ready) test.skip(true, `Agent unavailable: ${status.error}`);
 
-    // Wait for greeting + coaching plan generation
+    // Wait for greeting + coaching plan generation (GPT-4o-mini can take 5-10s)
     await waitForAgentGreeting(page, 60_000);
-    await page.waitForTimeout(10_000);
+    await page.waitForTimeout(20_000);
 
     const preloaded = await getDataMessagesByType(page, 'preloaded_suggestions');
     expect(preloaded.length).toBeGreaterThan(0);
@@ -158,7 +158,7 @@ test.describe('Fase 3: Coach Orchestrator', () => {
     await page.waitForTimeout(5_000);
 
     // Check for coaching panel rendering (preloaded suggestions OR empty state)
-    const coachPanel = page.locator('text=Roteiro de Coaching, text=Dicas de coaching');
+    const coachPanel = page.locator('text=Roteiro de Coaching').or(page.locator('text=Dicas de coaching'));
     const panelVisible = await coachPanel.first().isVisible().catch(() => false);
 
     // Panel should render without crashes
@@ -190,7 +190,7 @@ test.describe('Fase 3: Coach Orchestrator', () => {
       'transcription', 'transcript', 'status', 'emotion',
       'ai_suggestion', 'coaching_processing', 'coaching_hint', 'coaching_state',
       'preloaded_suggestions', 'session_trajectory', 'suggestion_update',
-      'latency_event', 'avatar_status',
+      'latency_event', 'avatar_status', 'heartbeat',
     ];
     for (const msg of allMessages) {
       // All messages should be one of the known types
