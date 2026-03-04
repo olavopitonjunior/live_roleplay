@@ -1,20 +1,18 @@
 import { supabase } from './supabase';
-import type { LiveKitTokenResponse, SessionMode, CoachIntensity } from '../types';
+import type { LiveKitTokenResponse, SessionMode } from '../types';
 
 export const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || '';
 
 export async function createSessionToken(
   scenarioId: string,
   accessCode: string,
-  sessionMode: SessionMode = 'training',
-  coachIntensity: CoachIntensity = 'medium'
+  sessionMode: SessionMode = 'training'
 ): Promise<LiveKitTokenResponse> {
   const { data, error } = await supabase.functions.invoke('create-livekit-token', {
     body: {
       scenario_id: scenarioId,
       access_code: accessCode,
       session_mode: sessionMode,
-      coach_intensity: coachIntensity,
     },
   });
 

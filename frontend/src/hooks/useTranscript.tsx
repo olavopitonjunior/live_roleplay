@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { useRoomContext } from '@livekit/components-react';
 import { RoomEvent } from 'livekit-client';
+import type { PreloadedSuggestion, SessionTrajectory } from '../types';
 
 // Types
 export interface TranscriptMessage {
@@ -60,6 +61,8 @@ export interface CoachingState {
   avatar_word_count: number;
 }
 
+// PreloadedSuggestion and SessionTrajectory imported from '../types'
+
 interface TranscriptContextType {
   // Transcript data
   messages: TranscriptMessage[];
@@ -72,6 +75,10 @@ interface TranscriptContextType {
   aiSuggestion: AISuggestion | null;
   coachingState: CoachingState | null;
   isProcessing: boolean;
+
+  // Orchestrator data
+  preloadedSuggestions: PreloadedSuggestion[];
+  sessionTrajectory: SessionTrajectory | null;
 }
 
 const TranscriptContext = createContext<TranscriptContextType | null>(null);
@@ -96,6 +103,10 @@ export function TranscriptProvider({ children }: TranscriptProviderProps) {
   const [aiSuggestion, setAiSuggestion] = useState<AISuggestion | null>(null);
   const [coachingState, setCoachingState] = useState<CoachingState | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Orchestrator state
+  const [preloadedSuggestions, setPreloadedSuggestions] = useState<PreloadedSuggestion[]>([]);
+  const [sessionTrajectory, setSessionTrajectory] = useState<SessionTrajectory | null>(null);
 
   const room = useRoomContext();
 
@@ -207,6 +218,31 @@ export function TranscriptProvider({ children }: TranscriptProviderProps) {
             avatar_word_count: data.avatar_word_count || 0,
           });
         }
+
+        // Handle preloaded suggestions from orchestrator
+        if (data.type === 'preloaded_suggestions') {
+          setPreloadedSuggestions(data.suggestions || []);
+        }
+
+        // Handle session trajectory update from orchestrator
+        if (data.type === 'session_trajectory') {
+          setSessionTrajectory({
+            score: data.score,
+            trajectory: data.trajectory,
+            dimensions: data.dimensions || {},
+          });
+        }
+
+        // Handle suggestion lifecycle status update
+        if (data.type === 'suggestion_update') {
+          setPreloadedSuggestions(prev =>
+            prev.map(s =>
+              s.suggestion_id === data.suggestion_id
+                ? { ...s, status: data.status }
+                : s
+            )
+          );
+        }
       } catch {
         // Ignore non-JSON data
       }
@@ -227,6 +263,8 @@ export function TranscriptProvider({ children }: TranscriptProviderProps) {
     aiSuggestion,
     coachingState,
     isProcessing,
+    preloadedSuggestions,
+    sessionTrajectory,
   };
 
   return (

@@ -151,6 +151,8 @@ live_roleplay/
 │   ├── coaching.py                 # Coaching Layer 1 — detecção por keywords
 │   ├── requirements.txt            # Dependências Python
 │   ├── Dockerfile                  # Container para Railway
+│   ├── entrypoint.sh               # Script de inicialização (download + start)
+│   ├── railway.json                # Config Railway (startCommand, restartPolicy)
 │   └── scripts/                    # Scripts auxiliares do agent
 │
 ├── frontend/                       # React App (Vercel)
@@ -284,7 +286,8 @@ access_codes ──1:1──► user_learning_profiles
 ### Hedra Character-3
 
 - **Função:** Avatar com lip-sync em tempo real
-- **Status:** Desabilitado (`DISABLE_AVATAR=true`)
+- **Status:** SUSPENSO desde Feb 27 2026 (serviço Hedra pausado). Sessões rodam em audio-only mode.
+- **Desativação:** `avatar = None` em `agent/main.py` + `DISABLE_AVATAR=true` no Railway
 - **Plugin:** `livekit.plugins.hedra`
 - **Arquivo:** `agent/main.py`
 

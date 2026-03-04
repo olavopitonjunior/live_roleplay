@@ -59,7 +59,7 @@ test.describe('Fase 2B: Participant attributes', () => {
     authenticatedPage: page,
   }) => {
     await setupDataChannelCapture(page);
-    await startSession(page, { mode: 'training', coachIntensity: 'high' });
+    await startSession(page, { mode: 'training' });
 
     const status = await waitForSessionReady(page);
     if (!status.ready) test.skip(true, `Agent unavailable: ${status.error}`);

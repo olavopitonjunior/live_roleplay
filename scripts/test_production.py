@@ -74,7 +74,6 @@ class TestConfig:
     access_code: str = ""
     scenario_id: str = ""
     session_mode: str = "training"
-    coach_intensity: str = "medium"
     skip_audio: bool = False
     session_timeout: int = 60  # How long to keep session alive (seconds)
 
@@ -450,7 +449,6 @@ async def test_token_fetch(config: TestConfig, results: TestResults) -> tuple[st
         "scenario_id": config.scenario_id,
         "access_code": config.access_code,
         "session_mode": config.session_mode,
-        "coach_intensity": config.coach_intensity,
     })
 
     elapsed = time.time() - start
@@ -993,7 +991,7 @@ def main():
     print("=" * 60)
     print("  LIVE ROLEPLAY - Starting Production E2E Tests")
     print(f"  Scenario: {config.scenario_id}")
-    print(f"  Mode: {config.session_mode} | Coach: {config.coach_intensity}")
+    print(f"  Mode: {config.session_mode}")
     print(f"  Audio: {'ENABLED' if not config.skip_audio else 'DISABLED'}")
     print("=" * 60)
     print()

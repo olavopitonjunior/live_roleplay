@@ -68,8 +68,9 @@ from emotion_analyzer import (
 )
 from metrics_collector import get_metrics_collector, remove_metrics_collector, MetricsCollector
 from coaching import get_coaching_engine, reset_coaching_engine, CoachingHint, HintType
-from ai_coach import get_ai_coach, reset_ai_coach, AISuggestion
+from ai_coach import get_ai_coach, reset_ai_coach, AISuggestion, SuggestionType
 from conversation_coach import ConversationCoach
+from coach_orchestrator import CoachOrchestrator
 
 # Load environment variables
 load_dotenv()
@@ -415,6 +416,52 @@ async def fetch_scenario_outcomes(scenario_id: str) -> list[dict[str, Any]]:
     return result if result is not None else []
 
 
+async def _fetch_criterion_rubrics_impl(scenario_id: str) -> list[dict[str, Any]] | None:
+    """Internal implementation of fetch_criterion_rubrics."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        logger.error("Supabase credentials not configured")
+        return []
+
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    url = f"{SUPABASE_URL}/rest/v1/criterion_rubrics"
+    params = {
+        "scenario_id": f"eq.{scenario_id}",
+        "select": "criterion_id,criterion_name,criterion_description,weight,"
+                  "level_1_descriptor,level_2_descriptor,level_3_descriptor,level_4_descriptor,"
+                  "display_order",
+        "order": "display_order",
+    }
+
+    try:
+        async with aiohttp.ClientSession() as http_session:
+            async with http_session.get(url, headers=headers, params=params) as response:
+                if response.status != 200:
+                    logger.warning(f"Failed to fetch criterion rubrics: {response.status}")
+                    return []
+                data = await response.json()
+                return data if data else []
+    except Exception as e:
+        logger.warning(f"Error fetching criterion rubrics: {e}")
+        return []
+
+
+async def fetch_criterion_rubrics(scenario_id: str) -> list[dict[str, Any]]:
+    """Fetch evaluation rubrics for a scenario from Supabase."""
+    result = await with_retry(
+        _fetch_criterion_rubrics_impl,
+        scenario_id,
+        max_retries=2,
+        delay=1.0,
+        operation_name="fetch_criterion_rubrics"
+    )
+    return result if result is not None else []
+
+
 async def _fetch_difficulty_profile_impl(access_code_id: str) -> dict[str, Any] | None:
     """Internal implementation of fetch_difficulty_profile."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
@@ -590,6 +637,7 @@ async def save_intermediate_transcript(
     status: str = "active",
     emotion_history: list[dict] | None = None,
     transcript_metadata: list[dict] | None = None,
+    orchestrator_results: dict | None = None,
 ) -> bool:
     """
     Save intermediate transcript during session to prevent data loss on crash.
@@ -621,6 +669,10 @@ async def save_intermediate_transcript(
         payload["emotion_history"] = emotion_history
     if transcript_metadata:
         payload["transcript_metadata"] = transcript_metadata
+    if orchestrator_results and orchestrator_results.get("turns_evaluated", 0) > 0:
+        payload["session_trajectory"] = orchestrator_results.get("session_trajectory")
+        payload["turn_evaluations"] = orchestrator_results.get("turn_evaluations")
+        payload["coaching_plan"] = orchestrator_results.get("coaching_plan")
 
     try:
         async with aiohttp.ClientSession() as http_session:
@@ -887,16 +939,15 @@ async def entrypoint(ctx: JobContext):
         logger.error("No scenario_id in session")
         return
 
-    # PRD 08: Get session mode and coach intensity
+    # PRD 08: Get session mode (intensity removed — orchestrator controls behavior)
     session_mode = session_data.get("session_mode", "training")
-    coach_intensity = session_data.get("coach_intensity", "medium")
     coaching_enabled = session_mode == "training"
 
     # Get access_code_id for difficulty profile
     access_code_id = session_data.get("access_code_id")
 
     logger.info(f"Session ID: {session_id}, Scenario ID: {scenario_id}")
-    logger.info(f"Session mode: {session_mode}, Coach intensity: {coach_intensity}, Coaching enabled: {coaching_enabled}")
+    logger.info(f"Session mode: {session_mode}, Coaching enabled: {coaching_enabled}")
 
     # Fetch scenario from Supabase
     scenario = await fetch_scenario(scenario_id)
@@ -909,6 +960,10 @@ async def entrypoint(ctx: JobContext):
     # Fetch possible outcomes for this scenario
     outcomes = await fetch_scenario_outcomes(scenario_id)
     logger.info(f"Loaded {len(outcomes)} possible outcomes for scenario")
+
+    # Fetch criterion rubrics for coach orchestrator
+    criterion_rubrics = await fetch_criterion_rubrics(scenario_id)
+    logger.info(f"Loaded {len(criterion_rubrics)} criterion rubrics for scenario")
 
     # Fetch difficulty level - from session or user profile
     difficulty_level = session_data.get("difficulty_level")
@@ -996,6 +1051,9 @@ async def entrypoint(ctx: JobContext):
     # Proactive conversation coach (Layer 2: silence/hesitation, zero LLM cost)
     proactive_coach = ConversationCoach(stuck_timeout=10.0, hesitation_tokens=3)
 
+    # Coach Orchestrator — unified coaching layer (replaces 3 independent layers)
+    orchestrator = CoachOrchestrator()
+
     # Transcript collection
     transcript_lines: list[str] = []
 
@@ -1019,7 +1077,8 @@ async def entrypoint(ctx: JobContext):
         _last_transcript_save_time = now
         try:
             _save_start = time.time()
-            await save_intermediate_transcript(session_id, transcript_lines, emotion_history=emotion_history, transcript_metadata=transcript_metadata)
+            _orch_data = orchestrator.get_session_results() if orchestrator._active else None
+            await save_intermediate_transcript(session_id, transcript_lines, emotion_history=emotion_history, transcript_metadata=transcript_metadata, orchestrator_results=_orch_data)
             _save_ms = (time.time() - _save_start) * 1000
             asyncio.create_task(send_latency_event("transcript_save", _save_ms, "Transcript Save", f"{len(transcript_lines)} lines"))
         except Exception as e:
@@ -1150,6 +1209,9 @@ async def entrypoint(ctx: JobContext):
                 "turn": len(transcript_lines),
             })
 
+            # Update orchestrator emotion tracking
+            orchestrator.update_emotion(emotion)
+
             logger.debug(f"Sent emotion: {emotion}, intensity={intensity}, trend={trend}, reason={reason}")
         except Exception as e:
             logger.warning(f"Failed to send emotion: {e}")
@@ -1238,6 +1300,43 @@ async def entrypoint(ctx: JobContext):
             await ctx.room.local_participant.publish_data(data.encode('utf-8'))
         except Exception as e:
             logger.warning(f"Failed to send coaching processing: {e}")
+
+    async def send_orchestrator_trajectory():
+        """Send session trajectory update to frontend."""
+        try:
+            import json
+            msg = orchestrator.get_trajectory_message()
+            data = json.dumps(msg)
+            await ctx.room.local_participant.publish_data(data.encode('utf-8'))
+            logger.debug(f"Sent trajectory: score={msg['score']}, trajectory={msg['trajectory']}")
+        except Exception as e:
+            logger.warning(f"Failed to send trajectory: {e}")
+
+    async def send_preloaded_suggestions(suggestions: list[dict]):
+        """Send preloaded coaching suggestions to frontend."""
+        try:
+            import json
+            data = json.dumps({
+                "type": "preloaded_suggestions",
+                "suggestions": suggestions,
+            })
+            await ctx.room.local_participant.publish_data(data.encode('utf-8'))
+            logger.info(f"Sent {len(suggestions)} preloaded suggestions")
+        except Exception as e:
+            logger.warning(f"Failed to send preloaded suggestions: {e}")
+
+    async def send_suggestion_status_update(suggestion_id: str, status: str):
+        """Send suggestion lifecycle status update to frontend."""
+        try:
+            import json
+            data = json.dumps({
+                "type": "suggestion_update",
+                "suggestion_id": suggestion_id,
+                "status": status,
+            })
+            await ctx.room.local_participant.publish_data(data.encode('utf-8'))
+        except Exception as e:
+            logger.warning(f"Failed to send suggestion update: {e}")
 
     # Latency measurement helper
     async def send_latency_event(event: str, duration_ms: float, label: str, details: str = ""):
@@ -1363,6 +1462,81 @@ async def entrypoint(ctx: JobContext):
                     logger.info("User requested session end, will terminate after response")
                     asyncio.create_task(handle_early_end())
 
+                # ── Coach Orchestrator: evaluate user turn ──
+                if coaching_enabled:
+                    # Fast path: heuristic evaluation (<5ms, synchronous)
+                    _orch_eval = orchestrator.evaluate_user_turn_fast(text)
+                    orchestrator.reset_silence_timer()
+
+                    # Enrich transcript metadata with orchestrator snapshot
+                    if transcript_metadata:
+                        transcript_metadata[-1]["orchestrator_snapshot"] = orchestrator.get_snapshot()
+
+                    # Send trajectory update to frontend
+                    asyncio.create_task(send_orchestrator_trajectory())
+
+                    # Send suggestion status update if lifecycle changed
+                    if orchestrator._active_suggestion:
+                        _sug_lc = orchestrator._active_suggestion
+                        if _sug_lc.status in ("followed", "ignored"):
+                            asyncio.create_task(send_suggestion_status_update(
+                                _sug_lc.suggestion.id, _sug_lc.status
+                            ))
+                            # Activate next suggestion from plan
+                            _next_sug = orchestrator.activate_next_suggestion()
+                            if _next_sug:
+                                asyncio.create_task(send_ai_suggestion(_next_sug))
+
+                    # AI path: async evaluation + directive (every N turns or on deviation)
+                    async def orchestrator_ai_eval():
+                        try:
+                            ai_result = await orchestrator.evaluate_user_turn_ai(text)
+                            if ai_result:
+                                # Recalculated score — send updated trajectory
+                                await send_orchestrator_trajectory()
+
+                                # Build and inject avatar directive
+                                directive = orchestrator.build_directive_from_score()
+                                if directive:
+                                    await orchestrator.injection_queue.enqueue(directive)
+
+                                # Send AI-generated suggestion if available
+                                next_sug = ai_result.get("next_suggestion")
+                                if next_sug and next_sug.get("message"):
+                                    sug = AISuggestion(
+                                        id=f"orch_{int(time.time())}",
+                                        type=SuggestionType(next_sug.get("type", "technique")),
+                                        title=next_sug.get("type", "Sugestao").capitalize(),
+                                        message=next_sug["message"],
+                                        context=next_sug.get("context", ""),
+                                        priority=1,
+                                    )
+                                    await send_ai_suggestion(sug)
+                                    metrics.record_text_api_call(input_tokens=300, output_tokens=100)
+
+                            # Check output determination (last 20% of session)
+                            output_directive = orchestrator.check_output_determination()
+                            if output_directive:
+                                await orchestrator.injection_queue.enqueue(output_directive)
+                                logger.info(f"Orchestrator: output determined — {orchestrator._final_output_type}")
+
+                        except Exception as e:
+                            logger.warning(f"Orchestrator AI eval failed: {e}")
+
+                    asyncio.create_task(orchestrator_ai_eval())
+
+                    # Hesitation check via orchestrator
+                    _hesitation_nudge = orchestrator.check_hesitation(text)
+                    if _hesitation_nudge:
+                        _h = CoachingHint(
+                            id=f"orch_hesitation_{int(time.time())}",
+                            type=HintType.SUGGESTION,
+                            title="Elabore mais",
+                            message=_hesitation_nudge,
+                            priority=3,
+                        )
+                        asyncio.create_task(send_coaching_hint(_h))
+
                 # Layer 2: Proactive coach — hesitation detection (zero LLM cost)
                 if coaching_enabled:
                     proactive_coach.reset_timer()  # User spoke → reset silence watchdog
@@ -1479,6 +1653,10 @@ async def entrypoint(ctx: JobContext):
             if thinking_ms > 2000:
                 logger.warning(f"[Latency] Agent thinking took {thinking_ms:.0f}ms (>2s)")
 
+        # Feed orchestrator injection queue state machine
+        _state_str = ev.new_state.value if hasattr(ev.new_state, 'value') else str(ev.new_state)
+        orchestrator.injection_queue.on_agent_state_changed(_state_str)
+
     @session.on("conversation_item_added")
     def on_conversation_item(event):
         """Called when a new conversation item is added (user or assistant message)."""
@@ -1575,6 +1753,10 @@ async def entrypoint(ctx: JobContext):
 
                     asyncio.create_task(analyze_and_send_emotion())
 
+                # ── Coach Orchestrator: track avatar turn ──
+                if coaching_enabled:
+                    orchestrator.evaluate_avatar_turn_fast(clean_text)
+
                 # Analyze avatar message for coaching (objection detection) - only in training mode
                 if coaching_enabled:
                     async def analyze_avatar_coaching():
@@ -1633,6 +1815,9 @@ async def entrypoint(ctx: JobContext):
         nonlocal avatar_failed
         logger.info(f"on_shutdown called: session_id={session_id}, transcript_lines={len(transcript_lines)}, avatar_failed={avatar_failed}")
 
+        # Stop orchestrator
+        orchestrator.stop()
+
         if not session_id:
             logger.warning("No session_id available, cannot save transcript")
             return
@@ -1663,6 +1848,42 @@ async def entrypoint(ctx: JobContext):
                 logger.info(f"Metrics saved: ${metrics.calculate_cost_cents()/100:.4f} estimated cost")
             else:
                 logger.warning("Failed to save metrics")
+
+            # Save orchestrator results (session_trajectory, turn_evaluations, output)
+            orch_results = orchestrator.get_session_results()
+            if orch_results.get("turns_evaluated", 0) > 0:
+                try:
+                    import json as _json_orch
+                    _orch_headers = {
+                        "apikey": SUPABASE_SERVICE_KEY,
+                        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                        "Content-Type": "application/json",
+                        "Prefer": "return=minimal",
+                    }
+                    _orch_payload = {
+                        "session_trajectory": orch_results.get("session_trajectory"),
+                        "turn_evaluations": orch_results.get("turn_evaluations"),
+                        "final_output_type": orch_results.get("final_output_type"),
+                        "output_score": orch_results.get("output_score"),
+                        "coaching_plan": orch_results.get("coaching_plan"),
+                    }
+                    async with aiohttp.ClientSession() as _orch_http:
+                        async with _orch_http.patch(
+                            f"{SUPABASE_URL}/rest/v1/sessions",
+                            headers=_orch_headers,
+                            params={"id": f"eq.{session_id}"},
+                            json=_orch_payload,
+                        ) as _orch_resp:
+                            if _orch_resp.status in (200, 204):
+                                logger.info(
+                                    f"Orchestrator results saved: score={orch_results.get('output_score')}, "
+                                    f"output={orch_results.get('final_output_type')}, "
+                                    f"suggestions={orch_results.get('suggestions_followed')}/{orch_results.get('suggestions_total')}"
+                                )
+                            else:
+                                logger.warning(f"Failed to save orchestrator results: {_orch_resp.status}")
+                except Exception as _orch_err:
+                    logger.warning(f"Error saving orchestrator results: {_orch_err}")
 
             # Validate transcript before triggering feedback (avoids wasting Claude API calls)
             user_lines = [l for l in transcript_lines if "Usuario:" in l]
@@ -1810,16 +2031,31 @@ async def entrypoint(ctx: JobContext):
                 avatar_profile=scenario.get('avatar_profile', scenario.get('avatar_persona', '')),
                 expected_objections=scenario.get('expected_objections', ['preco', 'timing', 'necessidade']),
                 objectives=scenario.get('coaching_objectives', []),
-                intensity=coach_intensity,  # PRD 08, US-11
+                intensity="high",  # Always max — orchestrator controls behavior now
                 learning_profile=learning_profile  # Cross-session learning
             )
-            logger.info(f"AI Coach initialized with scenario context, intensity: {coach_intensity}, learning profile: {'loaded' if learning_profile else 'empty'}")
+            logger.info(f"AI Coach initialized with scenario context, learning profile: {'loaded' if learning_profile else 'empty'}")
 
             # Send initial coaching state to frontend
             await send_coaching_state()
             logger.info("Initial coaching state sent to frontend")
         else:
             logger.info("Evaluation mode - coaching disabled")
+
+        # Initialize Coach Orchestrator (unified coaching layer)
+        # Reuse session_timeout_seconds derived from scenario.duration_max_seconds (line ~1910)
+        _session_duration = session_timeout_seconds
+        orchestrator.start_session(
+            scenario=scenario,
+            outcomes=outcomes,
+            criterion_rubrics=criterion_rubrics,
+            learning_profile=learning_profile if coaching_enabled else None,
+            difficulty_level=difficulty_level,
+            session_mode=session_mode,
+            duration_seconds=_session_duration,
+        )
+        orchestrator.injection_queue.set_generate_reply(session.generate_reply)
+        logger.info(f"Coach Orchestrator initialized (mode={session_mode}, duration={_session_duration}s)")
 
         # Helper function to send avatar status to frontend
         async def send_avatar_status(status: str):
@@ -2088,29 +2324,51 @@ async def entrypoint(ctx: JobContext):
                 logger.info(f"DIAG: Total remote participants: {len(participants)}")
         asyncio.create_task(_log_room_state())
 
+        # ── Orchestrator: generate coaching plan + start anchoring ──
+        if coaching_enabled:
+            async def _orchestrator_startup():
+                try:
+                    # Generate pre-loaded coaching plan
+                    plan = await orchestrator.generate_coaching_plan()
+                    if plan:
+                        await send_preloaded_suggestions(plan)
+                        # Activate first suggestion
+                        first_sug = orchestrator.activate_next_suggestion()
+                        if first_sug:
+                            await send_ai_suggestion(first_sug)
+
+                    # Start context anchoring for long sessions
+                    orchestrator.start_anchoring()
+
+                    # Start silence watchdog via orchestrator
+                    async def _on_silence():
+                        nudge_text = "O cliente esta esperando — que tal fazer uma pergunta?"
+                        hint = CoachingHint(
+                            id=f"orch_silence_{int(time.time())}",
+                            type=HintType.SUGGESTION,
+                            title="Retome a conversa",
+                            message=nudge_text,
+                            priority=2,
+                        )
+                        await send_coaching_hint(hint)
+                    orchestrator.start_watchdog(_on_silence)
+                except Exception as e:
+                    logger.warning(f"Orchestrator startup failed: {e}")
+
+            asyncio.create_task(_orchestrator_startup())
+
         # Start timeout AFTER greeting (so greeting doesn't eat into conversation time)
         timeout_task = asyncio.create_task(session_timeout())
         logger.info(f"Session timeout started: {session_timeout_seconds}s (after greeting)")
 
-        # Generate initial coach suggestion proactively (no delay) - only in training mode
-        if coaching_enabled:
-            async def generate_initial_coach_suggestion():
-                """Generate and send initial coach suggestion when session starts."""
-                # REMOVED: await asyncio.sleep(2) - no delay needed
-                try:
-                    suggestion = await ai_coach.generate_initial_suggestion()
-                    if suggestion:
-                        await send_ai_suggestion(suggestion)
-                        logger.info(f"Initial coach suggestion sent: {suggestion.title}")
-                    else:
-                        logger.warning("Coach: No initial suggestion generated")
-                except Exception as e:
-                    logger.error(f"Coach: Failed to generate initial suggestion: {e}")
-
-            asyncio.create_task(generate_initial_coach_suggestion())
+        # NOTE: Old generate_initial_coach_suggestion removed — orchestrator's
+        # _orchestrator_startup generates the coaching plan and activates the first
+        # suggestion, making the old ai_coach initial suggestion redundant.
+        # Keeping both caused a race condition where two suggestions collided.
 
         # Start proactive coach watchdog (Layer 2: silence detection)
-        if coaching_enabled:
+        # Only if orchestrator is NOT active — orchestrator has its own watchdog
+        if coaching_enabled and not orchestrator._active:
             async def _on_silence_detected():
                 """Called by ConversationCoach when user is silent > stuck_timeout."""
                 nudge = proactive_coach.get_silence_nudge()
@@ -2188,10 +2446,12 @@ async def entrypoint(ctx: JobContext):
         # Final transcript save with 'completed' status (belt-and-suspenders with close handler)
         try:
             if transcript_lines and session_id:
+                _final_orch = orchestrator.get_session_results() if orchestrator else None
                 await save_intermediate_transcript(
                     session_id, transcript_lines, status="completed",
                     emotion_history=emotion_history,
                     transcript_metadata=transcript_metadata,
+                    orchestrator_results=_final_orch,
                 )
                 logger.info(f"Finally: final transcript saved ({len(transcript_lines)} lines)")
         except Exception as e:

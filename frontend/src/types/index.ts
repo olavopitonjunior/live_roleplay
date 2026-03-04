@@ -13,7 +13,6 @@ export interface AccessCode {
 
 // Session modes
 export type SessionMode = 'training' | 'evaluation';
-export type CoachIntensity = 'low' | 'medium' | 'high';
 export type ConfidenceLevel = 'low' | 'medium' | 'high';
 export type ObjectionSeverity = 'low' | 'medium' | 'high';
 export type ObjectionStatus = 'not_detected' | 'detected' | 'partial' | 'addressed';
@@ -149,10 +148,14 @@ export interface Session {
   status: 'active' | 'completed' | 'cancelled';
   // PRD 08: New fields
   session_mode?: SessionMode;
-  coach_intensity?: CoachIntensity;
   is_valid?: boolean | null;
   validation_reasons?: string[];
   has_avatar_fallback?: boolean;
+  session_trajectory?: any;
+  turn_evaluations?: any[];
+  final_output_type?: string;
+  output_score?: number;
+  coaching_plan?: any[];
 }
 
 // Session validation reason
@@ -345,4 +348,45 @@ export interface MetricsResponse {
     end_date: string | null;
     scenario_id: string | null;
   };
+}
+
+// ============================================
+// Coach Orchestrator types
+// ============================================
+
+export interface PreloadedSuggestion {
+  suggestion_id: string;
+  message: string;
+  type: string;
+  sent_at: string;
+  status: 'pending' | 'active' | 'followed' | 'ignored' | 'skipped';
+  adherence_score: number | null;
+  evaluation_reason: string | null;
+}
+
+export interface SessionTrajectory {
+  score: number;
+  trajectory: 'positive' | 'negative' | 'neutral';
+  dimensions: {
+    coach_adherence: number;
+    emotional_quality: number;
+    objection_handling: number;
+    conversation_quality: number;
+  };
+}
+
+export interface OrchestratorSnapshot {
+  session_score: number;
+  trajectory: string;
+  dimensions: Record<string, number>;
+  active_suggestion: {
+    id: string;
+    message: string;
+    status: string;
+  } | null;
+  spin_stage: string;
+  pending_objections: string[];
+  avatar_emotion: string;
+  avatar_directive_sent: boolean;
+  deviation: string | null;
 }

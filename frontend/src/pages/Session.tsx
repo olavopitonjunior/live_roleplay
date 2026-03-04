@@ -6,7 +6,7 @@ import { useAgentConnection } from '../hooks/useAgentConnection';
 import { SessionRoom, SessionLoading } from '../components/Session';
 import { Button } from '../components/ui';
 import { supabase } from '../lib/supabase';
-import type { SessionMode, CoachIntensity } from '../types';
+import type { SessionMode } from '../types';
 
 interface Scenario {
   id: string;
@@ -20,7 +20,6 @@ interface Scenario {
 
 interface LocationState {
   sessionMode?: SessionMode;
-  coachIntensity?: CoachIntensity;
 }
 
 export function Session() {
@@ -32,7 +31,6 @@ export function Session() {
   // Get session mode from navigation state (defaults to training)
   const locationState = location.state as LocationState | null;
   const sessionMode = locationState?.sessionMode || 'training';
-  const coachIntensity = locationState?.coachIntensity || 'medium';
   const {
     startSession,
     endSession,
@@ -106,7 +104,7 @@ export function Session() {
 
     const initSession = async () => {
       try {
-        await startSession(scenarioId, accessCode.code, sessionMode, coachIntensity);
+        await startSession(scenarioId, accessCode.code, sessionMode);
       } catch (err) {
         setInitError(
           err instanceof Error ? err.message : 'Falha ao iniciar sessao'
@@ -115,7 +113,7 @@ export function Session() {
     };
 
     initSession();
-  }, [scenarioId, accessCode, startSession, token, sessionMode, coachIntensity]);
+  }, [scenarioId, accessCode, startSession, token, sessionMode]);
 
   const handleSessionEnd = useCallback(
     async (durationSeconds: number) => {

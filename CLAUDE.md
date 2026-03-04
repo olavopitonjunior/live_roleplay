@@ -8,7 +8,7 @@ Plataforma de treinamento de vendas com roleplay AI em tempo real. Usuários pra
 - **Backend**: Supabase (PostgreSQL + Edge Functions + Auth)
 - **Agent**: Python 3.11+ com LiveKit Agents SDK
 - **AI**: OpenAI Realtime API (gpt-4o-realtime-preview) + GPT-4o-mini (analysis) + Claude (feedback)
-- **Avatar**: Hedra Character-3 (lip-sync em tempo real)
+- **Avatar**: Hedra Character-3 (SUSPENSO — audio-only mode desde Feb 27 2026)
 
 ## Estrutura do Projeto
 
@@ -185,7 +185,7 @@ Consultar antes de propor mudanças de stack ou infraestrutura.
 2. Seleciona cenário de treinamento
 3. Frontend solicita token LiveKit (Edge Function)
 4. Conecta à room WebRTC
-5. Agent inicia com OpenAI Realtime + Hedra
+5. Agent inicia com OpenAI Realtime (audio-only, Hedra suspenso)
 6. Sessão de roleplay (max 3 min)
 7. Transcript salvo, feedback gerado via Claude
 8. Usuário visualiza score e critérios
@@ -196,7 +196,7 @@ Ao fazer mudanças que afetam múltiplos serviços, verificar TODOS os deploys:
 
 | Serviço | Deploy Method | Auto-deploy? |
 |---------|--------------|--------------|
-| **Agent (Railway)** | `railway up` ou git push | Sim (git push) |
+| **Agent (Railway)** | `railway up` ou git push | Sim (git push). **ATENÇÃO**: `railway.json` startCommand overrides Dockerfile CMD. O `main.py` intercepta argv `download-files` → `start` para contornar. |
 | **Frontend (Vercel)** | `git push` para `main` | Sim (git push) |
 | **Edge Functions (Supabase)** | MCP `deploy_edge_function` ou `supabase functions deploy` | **NÃO** — deploy manual obrigatório |
 | **DB Migrations (Supabase)** | MCP `apply_migration` ou `supabase db push` | **NÃO** — deploy manual obrigatório |
