@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useScenarios } from '../hooks/useScenarios';
 import { useDifficultyProfile } from '../hooks/useDifficultyProfile';
 import { ScenarioList, ModeSelectionModal } from '../components/Scenarios';
-import type { Scenario, SessionMode, CoachIntensity } from '../types';
+import type { Scenario, SessionMode } from '../types';
 
 export function Home() {
   const navigate = useNavigate();
@@ -17,11 +17,11 @@ export function Home() {
     setSelectedScenario(scenario);
   };
 
-  const handleModeStart = (mode: SessionMode, coachIntensity?: CoachIntensity) => {
+  const handleModeStart = (mode: SessionMode) => {
     if (selectedScenario) {
       // Navigate with mode parameters via state
       navigate(`/session/${selectedScenario.id}`, {
-        state: { sessionMode: mode, coachIntensity }
+        state: { sessionMode: mode }
       });
     }
   };

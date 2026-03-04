@@ -40,10 +40,32 @@ const OBJECTION_LABELS: Record<string, string> = {
   trust: 'Confianca',
 };
 
+const SUGGESTION_STATUS_ICONS: Record<string, string> = {
+  pending: '',
+  active: '',
+  followed: '',
+  ignored: '',
+  skipped: '',
+};
+
+const SUGGESTION_STATUS_COLORS: Record<string, string> = {
+  pending: 'text-neutral-500',
+  active: 'text-primary-400',
+  followed: 'text-green-400',
+  ignored: 'text-orange-400',
+  skipped: 'text-neutral-600',
+};
+
+const TRAJECTORY_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
+  positive: { color: 'text-green-400', bg: 'bg-green-500', label: 'Positiva' },
+  negative: { color: 'text-red-400', bg: 'bg-red-500', label: 'Negativa' },
+  neutral: { color: 'text-yellow-400', bg: 'bg-yellow-500', label: 'Neutra' },
+};
+
 /**
- * CoachingPanel displays real-time coaching hints and AI suggestions.
+ * CoachingPanel displays real-time coaching hints, AI suggestions,
+ * preloaded coaching plan, and session trajectory.
  * Uses useTranscript hook to get data from shared context.
- * This ensures coaching data persists when switching tabs.
  */
 export function CoachingPanel() {
   const {
@@ -52,6 +74,8 @@ export function CoachingPanel() {
     aiSuggestion,
     coachingState,
     isProcessing,
+    preloadedSuggestions,
+    sessionTrajectory,
   } = useTranscript();
 
   const [copied, setCopied] = useState(false);
@@ -76,9 +100,55 @@ export function CoachingPanel() {
   const talkRatio = coachingState?.talk_ratio ?? 50;
   const methodology = coachingState?.methodology;
   const objections = coachingState?.objections ?? [];
+  const trajectory = sessionTrajectory;
+  const trajectoryStyle = trajectory ? TRAJECTORY_CONFIG[trajectory.trajectory] : null;
 
   return (
     <div className="h-full flex flex-col bg-neutral-900 text-white overflow-hidden">
+      {/* Session Trajectory Indicator */}
+      {trajectory && trajectoryStyle && (
+        <div className="p-2 border-b border-neutral-700 bg-neutral-800/80">
+          <div className="flex items-center justify-between mb-1.5">
+            <h3 className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider">
+              Trajetoria
+            </h3>
+            <span className={`text-xs font-bold ${trajectoryStyle.color}`}>
+              {Math.round(trajectory.score)}pts - {trajectoryStyle.label}
+            </span>
+          </div>
+          <div className="h-1.5 bg-neutral-700 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all duration-700 rounded-full ${trajectoryStyle.bg}`}
+              style={{ width: `${Math.min(100, Math.max(0, trajectory.score))}%` }}
+            />
+          </div>
+          {/* Dimension mini-bars */}
+          <div className="grid grid-cols-4 gap-1 mt-1.5">
+            {[
+              { key: 'coach_adherence', label: 'Coach' },
+              { key: 'emotional_quality', label: 'Emocao' },
+              { key: 'objection_handling', label: 'Objecoes' },
+              { key: 'conversation_quality', label: 'Conversa' },
+            ].map(({ key, label }) => {
+              const val = trajectory.dimensions?.[key as keyof typeof trajectory.dimensions] ?? 0;
+              return (
+                <div key={key} className="text-center">
+                  <div className="h-1 bg-neutral-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        val >= 0.7 ? 'bg-green-500' : val >= 0.4 ? 'bg-yellow-500' : 'bg-red-500'
+                      }`}
+                      style={{ width: `${val * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-[8px] text-neutral-500 leading-none">{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* AI Suggestion Banner (Priority - Most Prominent) */}
       {aiSuggestion && (
         <div className={`p-3 border-l-4 border-primary-500 bg-primary-500/20 animate-fade-in ${
@@ -158,6 +228,55 @@ export function CoachingPanel() {
 
       {/* Main Content - Scrollable */}
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
+        {/* Preloaded Coaching Plan */}
+        {preloadedSuggestions.length > 0 && (
+          <div className="bg-neutral-800/50 rounded-lg p-3 border border-neutral-700">
+            <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">
+              Roteiro de Coaching
+            </h3>
+            <div className="space-y-1.5">
+              {preloadedSuggestions.map((s, i) => {
+                const statusIcon = SUGGESTION_STATUS_ICONS[s.status] || '';
+                const statusColor = SUGGESTION_STATUS_COLORS[s.status] || 'text-neutral-500';
+                const isActive = s.status === 'active';
+                const isDone = s.status === 'followed';
+                const isIgnored = s.status === 'ignored' || s.status === 'skipped';
+
+                return (
+                  <div
+                    key={s.suggestion_id}
+                    className={`flex items-start gap-2 p-1.5 rounded transition-all ${
+                      isActive ? 'bg-primary-500/10 border border-primary-500/30' :
+                      isDone ? 'opacity-60' :
+                      isIgnored ? 'opacity-40' :
+                      ''
+                    }`}
+                  >
+                    <span className={`text-sm flex-shrink-0 mt-0.5 ${statusColor}`}>
+                      {statusIcon}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs leading-snug ${
+                        isActive ? 'text-primary-300 font-medium' :
+                        isDone ? 'text-green-400 line-through' :
+                        isIgnored ? 'text-neutral-500 line-through' :
+                        'text-neutral-400'
+                      }`}>
+                        {i + 1}. {s.message}
+                      </p>
+                      {isActive && (
+                        <span className="text-[10px] text-primary-400 mt-0.5 inline-block">
+                          ativo agora
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Methodology Tracker (SPIN) */}
         {methodology && (
           <div className="bg-neutral-800/50 rounded-lg p-3 border border-neutral-700">
@@ -271,7 +390,7 @@ export function CoachingPanel() {
         )}
 
         {/* Empty state */}
-        {!methodology && hints.length === 0 && !aiSuggestion && (
+        {!methodology && hints.length === 0 && !aiSuggestion && preloadedSuggestions.length === 0 && (
           <div className="text-center py-8 text-neutral-500">
             <svg className="w-10 h-10 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}

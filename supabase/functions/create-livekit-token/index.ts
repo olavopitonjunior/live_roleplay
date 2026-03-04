@@ -42,13 +42,11 @@ function checkRateLimit(key: string): boolean {
 }
 
 type SessionMode = "training" | "evaluation";
-type CoachIntensity = "low" | "medium" | "high";
 
 interface RequestBody {
   scenario_id: string;
   access_code: string;
   session_mode?: SessionMode;
-  coach_intensity?: CoachIntensity;
 }
 
 interface TokenResponse {
@@ -92,7 +90,6 @@ serve(async (req: Request) => {
       scenario_id,
       access_code,
       session_mode = "training",
-      coach_intensity = "medium",
     }: RequestBody = await req.json();
 
     if (!scenario_id || !access_code) {
@@ -173,7 +170,6 @@ serve(async (req: Request) => {
       livekit_room_name: roomName,
       status: "active",
       session_mode: session_mode,
-      coach_intensity: coach_intensity,
       difficulty_level: difficultyLevel,
     });
 
@@ -199,14 +195,13 @@ serve(async (req: Request) => {
       ai_voice: scenarioData.ai_voice || "echo",
       avatar_provider: scenarioData.avatar_provider || null,
       avatar_id: scenarioData.avatar_id || null,
-      // PRD 08: Session mode and coach intensity
+      // PRD 08: Session mode
       session_mode: session_mode,
-      coach_intensity: coach_intensity,
       // Difficulty level for adaptive difficulty
       difficulty_level: difficultyLevel,
     });
 
-    console.log(`Session created, room: ${roomName}, agent: ${AGENT_NAME}, mode: ${session_mode}, intensity: ${coach_intensity}, difficulty: ${difficultyLevel}`);
+    console.log(`Session created, room: ${roomName}, agent: ${AGENT_NAME}, mode: ${session_mode}, difficulty: ${difficultyLevel}`);
 
     // --- API-based agent dispatch ---
     const livekitUrl = Deno.env.get("LIVEKIT_URL");

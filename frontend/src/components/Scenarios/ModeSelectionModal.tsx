@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import type { Scenario, SessionMode, CoachIntensity } from '../../types';
+import type { Scenario, SessionMode } from '../../types';
 
 interface ModeSelectionModalProps {
   scenario: Scenario;
-  onStart: (mode: SessionMode, coachIntensity?: CoachIntensity) => void;
+  onStart: (mode: SessionMode) => void;
   onCancel: () => void;
   difficultyLevel?: number;
 }
@@ -23,10 +23,9 @@ export function ModeSelectionModal({ scenario, onStart, onCancel, difficultyLeve
   const [selectedMode, setSelectedMode] = useState<SessionMode>(
     scenario.default_session_mode || 'training'
   );
-  const [coachIntensity, setCoachIntensity] = useState<CoachIntensity>('medium');
 
   const handleStart = () => {
-    onStart(selectedMode, selectedMode === 'training' ? coachIntensity : undefined);
+    onStart(selectedMode);
   };
 
   return (
@@ -175,36 +174,6 @@ export function ModeSelectionModal({ scenario, onStart, onCancel, difficultyLeve
             </button>
           </div>
 
-          {/* Coach Intensity (only for training mode) */}
-          {selectedMode === 'training' && (
-            <div className="mt-5 pt-5 border-t border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">
-                Intensidade do Coach
-              </h3>
-              <div className="flex gap-2">
-                {(['low', 'medium', 'high'] as CoachIntensity[]).map((intensity) => (
-                  <button
-                    key={intensity}
-                    onClick={() => setCoachIntensity(intensity)}
-                    className={`flex-1 py-2.5 px-3 rounded-lg text-sm font-medium transition-all ${
-                      coachIntensity === intensity
-                        ? 'bg-yellow-400 text-black'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {intensity === 'low' && 'Minimo'}
-                    {intensity === 'medium' && 'Moderado'}
-                    {intensity === 'high' && 'Maximo'}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-gray-400 mt-2">
-                {coachIntensity === 'low' && 'Apenas dicas criticas quando necessario.'}
-                {coachIntensity === 'medium' && 'Equilibrio entre autonomia e orientacao.'}
-                {coachIntensity === 'high' && 'Orientacao constante para aprendizado intensivo.'}
-              </p>
-            </div>
-          )}
         </div>
 
         {/* Footer */}

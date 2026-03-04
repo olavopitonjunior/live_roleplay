@@ -159,7 +159,8 @@ function findQuoteIndex(transcript: string, quote: string): number {
 function buildRubricEvaluationPrompt(
   scenario: ScenarioWithRubrics,
   transcript: string,
-  outcomes: ScenarioOutcome[] = []
+  outcomes: ScenarioOutcome[] = [],
+  orchestratorInsights: string = ""
 ): string {
   const criteriaSection = scenario.criteria_with_rubrics
     .map(
@@ -262,7 +263,7 @@ ${outcomesSection}
 TRANSCRICAO DA CONVERSA:
 ═══════════════════════════════════════════════════════════════
 ${transcript}
-
+${orchestratorInsights}
 ═══════════════════════════════════════════════════════════════
 INSTRUCOES PARA SUA AVALIACAO:
 ═══════════════════════════════════════════════════════════════
@@ -533,7 +534,10 @@ serve(async (req: Request) => {
         access_code_id,
         difficulty_level,
         emotion_history,
-        transcript_metadata
+        transcript_metadata,
+        session_trajectory,
+        turn_evaluations,
+        coaching_plan
       `
       )
       .eq("id", session_id)
@@ -652,8 +656,11 @@ serve(async (req: Request) => {
 
     console.log(`Loaded ${outcomes.length} possible outcomes for scenario`);
 
-    // Build prompt with rubrics and outcomes
-    const prompt = buildRubricEvaluationPrompt(scenarioWithRubrics, session.transcript, outcomes);
+    // Build orchestrator insights from session data
+    const orchestratorInsights = formatOrchestratorInsights(session);
+
+    // Build prompt with rubrics, outcomes, and orchestrator insights
+    const prompt = buildRubricEvaluationPrompt(scenarioWithRubrics, session.transcript, outcomes, orchestratorInsights);
 
     // Initialize Anthropic client
     const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -1215,6 +1222,125 @@ function formatTranscriptInsights(
   }
   insights += `Use estas metricas para contextualizar a qualidade do engajamento do vendedor.\n`;
   return insights;
+}
+
+// deno-lint-ignore no-explicit-any
+function formatOrchestratorInsights(session: any): string {
+  const trajectory = session?.session_trajectory;
+  const turnEvals: Array<{
+    turn: number;
+    speaker: string;
+    coach_adherence: number;
+    emotional_quality: number;
+    objection_handling: number;
+    conversation_quality: number;
+    weighted_score: number;
+    deviation: string | null;
+  }> = session?.turn_evaluations;
+  const coachingPlan: Array<{
+    suggestion_id: string;
+    status: string;
+    adherence_score: number | null;
+  }> = session?.coaching_plan;
+
+  if (!trajectory && (!turnEvals || turnEvals.length === 0) && (!coachingPlan || coachingPlan.length === 0)) {
+    return "";
+  }
+
+  let output = `\n═══════════════════════════════════════════════════════════════
+INSIGHTS DO ORQUESTRADOR (coletados em tempo real pelo AI coach):
+═══════════════════════════════════════════════════════════════\n`;
+
+  // 1. Score evolution over turns
+  if (turnEvals && turnEvals.length > 0) {
+    output += `\nEVOLUCAO DE SCORE POR TURNO:\n`;
+    // Group consecutive turns into ranges with similar trajectory
+    let rangeStart = turnEvals[0];
+    let rangePrev = turnEvals[0];
+    for (let i = 1; i <= turnEvals.length; i++) {
+      const curr = i < turnEvals.length ? turnEvals[i] : null;
+      const prevScore = rangePrev.weighted_score;
+      const startScore = rangeStart.weighted_score;
+      // Determine trajectory direction for the range
+      const diff = prevScore - startScore;
+      const direction = diff > 5 ? "subindo" : diff < -5 ? "caindo" : "estavel";
+
+      if (!curr || Math.abs(curr.weighted_score - prevScore) > 15) {
+        // Close the current range
+        if (rangeStart.turn === rangePrev.turn) {
+          output += `- Turno ${rangeStart.turn}: score ${startScore} (${direction})\n`;
+        } else {
+          output += `- Turno ${rangeStart.turn}-${rangePrev.turn}: score ${startScore}→${prevScore} (${direction})\n`;
+        }
+        if (curr) {
+          rangeStart = curr;
+        }
+      }
+      if (curr) {
+        rangePrev = curr;
+      }
+    }
+  }
+
+  // 2. Coach adherence rate
+  if (coachingPlan && coachingPlan.length > 0) {
+    const followed = coachingPlan.filter(
+      (s) => s.status === "followed" || s.status === "completed"
+    ).length;
+    const total = coachingPlan.length;
+    const rate = total > 0 ? Math.round((followed / total) * 100) : 0;
+    output += `\nADERENCIA AO COACHING:\n`;
+    output += `- ${followed}/${total} sugestoes seguidas (${rate}%)\n`;
+    // List individual suggestions
+    for (const s of coachingPlan) {
+      const scoreLabel = s.adherence_score !== null ? ` (score: ${s.adherence_score})` : "";
+      output += `  - ${s.suggestion_id}: ${s.status}${scoreLabel}\n`;
+    }
+  }
+
+  // 3. Critical deviations from turn_evaluations
+  if (turnEvals && turnEvals.length > 0) {
+    const deviations = turnEvals.filter(
+      (t) => t.deviation !== null && t.deviation !== undefined && t.deviation !== ""
+    );
+    if (deviations.length > 0) {
+      output += `\nDESVIOS CRITICOS:\n`;
+      for (const d of deviations) {
+        output += `- Turno ${d.turn}: ${d.deviation} (score: ${d.weighted_score})\n`;
+      }
+    }
+  }
+
+  // 4. Objection timeline from turn_evaluations
+  if (turnEvals && turnEvals.length > 0) {
+    const objectionTurns = turnEvals.filter((t) => t.objection_handling > 0);
+    if (objectionTurns.length > 0) {
+      output += `\nTIMELINE DE OBJECOES:\n`;
+      for (const t of objectionTurns) {
+        const quality =
+          t.objection_handling >= 80 ? "bem tratada" :
+          t.objection_handling >= 50 ? "parcialmente tratada" :
+          "mal tratada";
+        output += `- Turno ${t.turn}: objection_handling=${t.objection_handling}% (${quality})\n`;
+      }
+    }
+  }
+
+  // 5. Output determination (trajectory + threshold)
+  if (trajectory) {
+    output += `\nDETERMINACAO DE RESULTADO:\n`;
+    output += `- Score cumulativo: ${trajectory.cumulative}\n`;
+    output += `- Trajetoria: ${trajectory.trajectory}\n`;
+    output += `- Turnos avaliados: ${trajectory.turns_evaluated}\n`;
+    const threshold = trajectory.positive_threshold;
+    const isPositive = trajectory.cumulative >= threshold;
+    output += `- Threshold positivo: ${threshold}\n`;
+    output += `- Resultado: ${isPositive ? "POSITIVO" : "NEGATIVO"} (score ${trajectory.cumulative} ${isPositive ? ">=" : "<"} threshold ${threshold})\n`;
+  }
+
+  output += `\nUse estes dados do orquestrador para corroborar ou questionar sua propria avaliacao baseada na transcricao. Se houver divergencia entre sua analise e os dados do orquestrador, mencione isso na avaliacao.\n`;
+
+  return output;
 }
 
 function buildLegacyPrompt(

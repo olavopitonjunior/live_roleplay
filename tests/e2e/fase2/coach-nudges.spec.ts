@@ -12,7 +12,7 @@ test.describe('Fase 2A: ConversationCoach nudges', () => {
     authenticatedPage: page,
   }) => {
     await setupDataChannelCapture(page);
-    await startSession(page, { mode: 'training', coachIntensity: 'high' });
+    await startSession(page, { mode: 'training',  });
 
     const status = await waitForSessionReady(page);
     if (!status.ready) test.skip(true, `Agent unavailable: ${status.error}`);
@@ -50,7 +50,7 @@ test.describe('Fase 2A: ConversationCoach nudges', () => {
 
   test('coaching hints should have proper structure', async ({ authenticatedPage: page }) => {
     await setupDataChannelCapture(page);
-    await startSession(page, { mode: 'training', coachIntensity: 'high' });
+    await startSession(page, { mode: 'training',  });
 
     const status = await waitForSessionReady(page);
     if (!status.ready) test.skip(true, `Agent unavailable: ${status.error}`);

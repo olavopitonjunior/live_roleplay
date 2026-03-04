@@ -77,10 +77,9 @@ export async function startSession(
   options: {
     scenarioIndex?: number;
     mode?: 'training' | 'evaluation';
-    coachIntensity?: 'low' | 'medium' | 'high';
   } = {}
 ): Promise<void> {
-  const { scenarioIndex = 0, mode = 'training', coachIntensity } = options;
+  const { scenarioIndex = 0, mode = 'training' } = options;
 
   // Ensure we're on home
   await page.waitForURL('**/home', { timeout: 15_000 });
@@ -101,16 +100,6 @@ export async function startSession(
     await modal.locator('button:has-text("Modo Avaliacao")').click();
   } else {
     await modal.locator('button:has-text("Modo Treino")').click();
-  }
-
-  // Select coach intensity (only in training mode)
-  if (mode === 'training' && coachIntensity) {
-    const intensityMap = {
-      low: 'Minimo',
-      medium: 'Moderado',
-      high: 'Maximo',
-    };
-    await modal.locator(`button:has-text("${intensityMap[coachIntensity]}")`).click();
   }
 
   // Start session
