@@ -337,43 +337,47 @@ NAO use aspas. NAO adicione prefixos como "Vendedor:" ou "Eu:". Apenas a fala.""
 AUDIO_DIR = Path(__file__).parent / "test_audio_samples"
 
 
-def text_to_audio_frames_gtts(text: str) -> list[rtc.AudioFrame]:
-    """Convert text to audio frames using gTTS + ffmpeg."""
-    import tempfile
-    import subprocess
-
+async def text_to_audio_frames_openai(text: str, client: AsyncOpenAI) -> list[rtc.AudioFrame]:
+    """Convert text to audio frames using OpenAI TTS API (pcm output, no ffmpeg needed)."""
     try:
-        from gtts import gTTS
-    except ImportError:
-        return generate_silence_frames(3.0)
-
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as mp3f:
-        mp3_path = mp3f.name
-
-    wav_path = mp3_path.replace(".mp3", ".wav")
-
-    try:
-        tts = gTTS(text=text, lang="pt-br")
-        tts.save(mp3_path)
-
-        result = subprocess.run(
-            ["ffmpeg", "-i", mp3_path, "-ar", "48000", "-ac", "1",
-             "-acodec", "pcm_s16le", wav_path, "-y"],
-            capture_output=True, text=True,
+        response = await client.audio.speech.create(
+            model="tts-1",
+            voice="onyx",
+            input=text,
+            response_format="pcm",  # raw 24kHz 16-bit mono PCM
         )
-        if result.returncode != 0:
-            return generate_silence_frames(3.0)
+        raw_pcm = response.content
 
-        return load_wav_frames(wav_path)
+        # OpenAI PCM is 24kHz 16-bit mono — resample to 48kHz for LiveKit
+        samples_24k = struct.unpack(f"<{len(raw_pcm)//2}h", raw_pcm)
+
+        # Simple 2x upsample (24k→48k) via sample duplication
+        samples_48k = []
+        for s in samples_24k:
+            samples_48k.append(s)
+            samples_48k.append(s)
+
+        # Pack into 20ms frames at 48kHz
+        samples_per_frame = 48000 * 20 // 1000  # 960 samples per 20ms
+        frames = []
+        for i in range(0, len(samples_48k), samples_per_frame):
+            chunk = samples_48k[i:i + samples_per_frame]
+            if len(chunk) < samples_per_frame:
+                chunk = list(chunk) + [0] * (samples_per_frame - len(chunk))
+            # Pack chunk as raw int16 LE bytes and create frame from bytes
+            chunk_bytes = struct.pack(f"<{len(chunk)}h", *chunk)
+            frame = rtc.AudioFrame(
+                data=chunk_bytes,
+                sample_rate=48000,
+                num_channels=1,
+                samples_per_channel=samples_per_frame,
+            )
+            frames.append(frame)
+
+        return frames
     except Exception as e:
-        logger.warning(f"TTS failed: {e}")
+        logger.warning(f"OpenAI TTS failed: {e}")
         return generate_silence_frames(3.0)
-    finally:
-        for p in [mp3_path, wav_path]:
-            try:
-                os.unlink(p)
-            except OSError:
-                pass
 
 
 def load_wav_frames(filepath: str, frame_duration_ms: int = 20) -> list[rtc.AudioFrame]:
@@ -638,7 +642,7 @@ async def run_simulation(
             turn_count += 1
 
             # Convert to audio and send
-            audio_frames = text_to_audio_frames_gtts(user_text)
+            audio_frames = await text_to_audio_frames_openai(user_text, simulator._client)
             for frame in audio_frames:
                 await audio_source.capture_frame(frame)
                 await asyncio.sleep(0.018)  # ~20ms per frame
