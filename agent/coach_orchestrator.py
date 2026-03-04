@@ -633,7 +633,7 @@ class CoachOrchestrator:
                     temperature=0.5,
                     max_tokens=800,
                 ),
-                timeout=8.0,
+                timeout=15.0,
             )
             text = response.choices[0].message.content if response.choices else None
             if not text:
