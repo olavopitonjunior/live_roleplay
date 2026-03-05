@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { Login } from './pages/Login';
 import { Home } from './pages/Home';
 import { Session } from './pages/Session';
@@ -91,6 +92,7 @@ function App() {
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <SpeedInsights />
     </BrowserRouter>
   );
 }
