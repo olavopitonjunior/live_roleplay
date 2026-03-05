@@ -6,17 +6,7 @@ import { useAgentConnection } from '../hooks/useAgentConnection';
 import { SessionRoom, SessionLoading } from '../components/Session';
 import { Button } from '../components/ui';
 import { supabase } from '../lib/supabase';
-import type { SessionMode } from '../types';
-
-interface Scenario {
-  id: string;
-  title: string;
-  description: string;
-  context: string;
-  persona_name: string;
-  persona_style: string;
-  duration_max_seconds?: number;
-}
+import type { SessionMode, Scenario } from '../types';
 
 interface LocationState {
   sessionMode?: SessionMode;
@@ -182,6 +172,10 @@ export function Session() {
       <SessionLoading
         scenarioTitle={scenario?.title}
         scenarioContext={scenario?.context}
+        characterName={scenario?.character_name}
+        characterRole={scenario?.character_role}
+        sessionType={scenario?.session_type}
+        targetDurationSeconds={locationState?.durationSeconds || scenario?.target_duration_seconds}
         connectionState={agentState}
         hasToken={!!token}
         error={agentError}
@@ -201,7 +195,7 @@ export function Session() {
       onSessionEnd={handleSessionEnd}
       scenarioTitle={scenario?.title}
       scenarioContext={scenario?.context}
-      maxDuration={locationState?.durationSeconds || scenario?.duration_max_seconds || 180}
+      maxDuration={locationState?.durationSeconds || scenario?.target_duration_seconds || 180}
       existingRoom={connectedRoom} // Pass existing room to avoid agent disconnect
     />
   );

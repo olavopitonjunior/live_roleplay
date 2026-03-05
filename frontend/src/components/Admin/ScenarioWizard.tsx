@@ -97,6 +97,7 @@ const emptyFormData: ScenarioFormData = {
   personality: '',
   user_objective: '',
   opening_line: '',
+  session_type: null,
 };
 
 // --- Sub-components ---
@@ -159,6 +160,181 @@ function StepIndicator({ current, maxReached }: { current: 1 | 2 | 3; maxReached
   );
 }
 
+// --- Prompt Preview ---
+
+const SESSION_TYPE_BEHAVIORS: Record<string, string> = {
+  cold_call: 'COLD CALL: NAO espera a ligacao, surpresa/desconfianca',
+  apresentacao: 'APRESENTACAO: Reuniao agendada, receptivo mas exigente',
+  negociacao: 'NEGOCIACAO: Defende posicao, exige contrapartidas',
+  retencao: 'RETENCAO: Cliente insatisfeito querendo cancelar',
+  entrevista: 'ENTREVISTA: Candidato sendo avaliado',
+  discovery: 'DISCOVERY: Reuniao exploratoria, cetico',
+};
+
+function buildRolePreview(fd: ScenarioFormData): string {
+  const name = fd.character_name || '[sem nome]';
+  const role = fd.character_role || '[sem papel definido]';
+  return `Voce e ${name}, ${role}.\nO USUARIO e quem esta vendendo/oferecendo suporte para VOCE.\n\n[+ 12 regras anti-inversao de papel]`;
+}
+
+function buildPersonalityPreview(fd: ScenarioFormData): string {
+  const parts: string[] = [];
+  if (fd.personality) parts.push(`Personalidade: ${fd.personality}`);
+  else parts.push('[Personalidade nao definida — usando avatar_profile como fallback]');
+  if (fd.communication_style) {
+    const cs = fd.communication_style;
+    const styleParts: string[] = [];
+    if (cs.formality) styleParts.push(`formalidade ${cs.formality}`);
+    if (cs.verbosity) styleParts.push(`verbosidade ${cs.verbosity}`);
+    if (styleParts.length) parts.push(`Estilo: ${styleParts.join(', ')}`);
+  }
+  if (fd.typical_phrases?.length) {
+    parts.push(`Frases tipicas: ${fd.typical_phrases.map(p => `"${p}"`).join(', ')}`);
+  }
+  if (fd.initial_emotion) parts.push(`Emocao inicial: ${fd.initial_emotion}`);
+  if (fd.avatar_profile) parts.push(`\nPerfil: ${fd.avatar_profile.substring(0, 120)}...`);
+  return parts.join('\n') || '[Nenhum campo de personalidade definido]';
+}
+
+function buildContextPreview(fd: ScenarioFormData): string {
+  const parts: string[] = [];
+  if (fd.character_name) parts.push(`LEMBRETE: Voce e ${fd.character_name}.`);
+  parts.push(fd.context || '[Contexto vazio]');
+  if (fd.session_type && SESSION_TYPE_BEHAVIORS[fd.session_type]) {
+    parts.push(`\n[Comportamento: ${SESSION_TYPE_BEHAVIORS[fd.session_type]}]`);
+  }
+  if (fd.market_context) parts.push(`\nContexto de mercado: ${typeof fd.market_context === 'object' ? JSON.stringify(fd.market_context) : fd.market_context}`);
+  if (fd.backstory) parts.push(`\nHistorico: ${fd.backstory}`);
+  if (fd.user_objective) parts.push(`\nObjetivo do usuario: ${fd.user_objective}`);
+  return parts.join('\n');
+}
+
+function buildInstructionsPreview(fd: ScenarioFormData): string {
+  const parts: string[] = [];
+  const objections = fd.objections.filter(o => o.description.trim());
+  parts.push('Objecoes:');
+  if (objections.length > 0) {
+    objections.forEach(o => parts.push(`  - ${o.description}`));
+  } else {
+    parts.push('  [Nenhuma objecao configurada]');
+  }
+  if (fd.hidden_objective) parts.push(`\nObjetivo oculto: ${fd.hidden_objective}`);
+  if (fd.knowledge_limits) parts.push(`\nLimites de conhecimento: ${typeof fd.knowledge_limits === 'object' ? JSON.stringify(fd.knowledge_limits) : fd.knowledge_limits}`);
+  if (fd.opening_line) parts.push(`\nFrase de abertura: "${fd.opening_line}"`);
+  return parts.join('\n');
+}
+
+function buildFlowPreview(fd: ScenarioFormData): string {
+  const parts: string[] = [];
+  const phases = fd.phase_flow?.phases;
+  if (phases?.length) {
+    parts.push('Fases da conversa:');
+    phases.forEach((p, i) => {
+      const dur = p.duration_pct ? ` (~${p.duration_pct}%)` : '';
+      parts.push(`  ${i + 1}. ${p.name}${dur}${p.behavior ? `: ${p.behavior}` : ''}`);
+    });
+  }
+  const stages = fd.difficulty_escalation?.stages;
+  if (stages?.length) {
+    parts.push('\nEscalacao de dificuldade:');
+    stages.forEach(s => {
+      parts.push(`  - Quando: ${s.threshold} -> ${s.behavior_change}`);
+    });
+  }
+  if (fd.success_condition) parts.push(`\nCondicao de sucesso: ${fd.success_condition}`);
+  if (fd.end_condition) parts.push(`\nCondicao de encerramento: ${fd.end_condition}`);
+  if (parts.length === 0) parts.push('[Nenhum fluxo estruturado — usando nivel de dificuldade padrao]');
+  return parts.join('\n');
+}
+
+function buildSafetyPreview(fd: ScenarioFormData): string {
+  const parts: string[] = [];
+  parts.push('16 regras de seguranca ativas:');
+  parts.push('  1-7.  Anti-inversao de papel');
+  parts.push('  8.    Nao mencionar IA/sistema/prompt');
+  parts.push('  9.    Portugues exclusivo');
+  parts.push('  10-11. Interjeicoes + emocao variada');
+  parts.push('  12.   Perguntas pessoais OK');
+  parts.push('  13.   Linguagem profissional (sem palavroes)');
+  parts.push('  14.   Nao se auto-responder');
+  parts.push('  15.   Nao revelar info de sistema');
+  parts.push('  16.   Respeitar duracao-alvo');
+  parts.push('');
+  if (fd.opening_line) {
+    parts.push(`Abertura: "${fd.opening_line}"`);
+  } else if (fd.session_type === 'cold_call') {
+    parts.push('Abertura (padrao cold_call): "Alo? Quem fala?"');
+  } else if (fd.session_type) {
+    const defaults: Record<string, string> = {
+      entrevista: 'Apresentacao breve como candidato',
+      negociacao: 'Retomar contexto da negociacao',
+      apresentacao: 'Cumprimentar e dizer que esperava a reuniao',
+      discovery: 'Cumprimento neutro + proposito da reuniao',
+      retencao: 'Dizer que quer cancelar/resolver problema',
+    };
+    parts.push(`Abertura (padrao ${fd.session_type}): ${defaults[fd.session_type] || 'Frase adequada ao contexto'}`);
+  } else {
+    parts.push('Abertura: [Frase generica de cumprimento]');
+  }
+  return parts.join('\n');
+}
+
+const PREVIEW_SECTIONS = [
+  { id: 'role', title: 'PAPEL', build: buildRolePreview },
+  { id: 'personality', title: 'PERSONALIDADE', build: buildPersonalityPreview },
+  { id: 'context', title: 'CONTEXTO', build: buildContextPreview },
+  { id: 'instructions', title: 'OBJECOES & FINAIS', build: buildInstructionsPreview },
+  { id: 'flow', title: 'FLUXO & DIFICULDADE', build: buildFlowPreview },
+  { id: 'safety', title: 'REGRAS & ABERTURA', build: buildSafetyPreview },
+] as const;
+
+function PromptPreviewPanel({ formData }: { formData: ScenarioFormData }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(['role', 'safety']));
+
+  const toggle = (id: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-gray-500 mb-3">
+        Visualizacao das 6 secoes do prompt que o avatar recebe. Campos vazios aparecem em destaque.
+      </p>
+      {PREVIEW_SECTIONS.map(section => {
+        const content = section.build(formData);
+        const isOpen = expanded.has(section.id);
+        const hasEmpty = content.includes('[') && content.includes(']');
+        return (
+          <div key={section.id} className="rounded-lg overflow-hidden border border-gray-700">
+            <button
+              type="button"
+              onClick={() => toggle(section.id)}
+              className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium transition-colors ${
+                hasEmpty ? 'bg-amber-900/30 text-amber-300' : 'bg-gray-800 text-gray-300'
+              }`}
+            >
+              <span>{section.title}{hasEmpty ? ' (campos vazios)' : ''}</span>
+              <svg className={`w-3.5 h-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {isOpen && (
+              <pre className="bg-gray-900 text-gray-100 font-mono text-xs p-3 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                {content}
+              </pre>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // --- Main Component ---
 
 interface ScenarioWizardProps {
@@ -193,6 +369,7 @@ export function ScenarioWizard({
 
   // Advanced mode toggle (Step 3)
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   // Initialize on open
   useEffect(() => {
@@ -869,6 +1046,27 @@ export function ScenarioWizard({
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:border-black focus:ring-0 transition-colors outline-none"
               />
             </div>
+          </div>
+
+          {/* Section: Prompt Preview */}
+          <div className="border-t border-gray-200 pt-4">
+            <button
+              type="button"
+              onClick={() => setShowPreview(!showPreview)}
+              className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              <svg className={`w-4 h-4 transition-transform ${showPreview ? 'rotate-90' : ''}`}
+                fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+              </svg>
+              Visualizar Prompt Compilado
+            </button>
+
+            {showPreview && (
+              <div className="mt-4">
+                <PromptPreviewPanel formData={formData} />
+              </div>
+            )}
           </div>
 
           {/* Section B: Advanced Mode */}

@@ -14,9 +14,47 @@ const LOADING_STEPS: LoadingStep[] = [
   { id: 'ready', label: 'Pronto', description: 'Avatar pronto para comecar' },
 ];
 
+function getSessionTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    cold_call: 'Cold Call',
+    interview: 'Entrevista',
+    entrevista: 'Entrevista',
+    negotiation: 'Negociacao',
+    negociacao: 'Negociacao',
+    retention: 'Retencao',
+    retencao: 'Retencao',
+    prospeccao_consultiva: 'Discovery',
+    discovery: 'Discovery',
+    apresentacao: 'Apresentacao',
+    presentation: 'Apresentacao',
+  };
+  return map[type] || type;
+}
+
+function getSessionTip(type: string): string {
+  const tips: Record<string, string> = {
+    cold_call: 'O avatar NAO espera sua ligacao. Conquiste a atencao nos primeiros 30 segundos ou ele pode desligar.',
+    apresentacao: 'O avatar esta esperando esta reuniao. Conduza a conversa e apresente seu valor.',
+    presentation: 'O avatar esta esperando esta reuniao. Conduza a conversa e apresente seu valor.',
+    negociacao: 'Prepare argumentos solidos. O avatar vai defender sua posicao e exigir contrapartidas.',
+    negotiation: 'Prepare argumentos solidos. O avatar vai defender sua posicao e exigir contrapartidas.',
+    retencao: 'O avatar quer cancelar. Demonstre empatia e ofereca solucoes concretas.',
+    retention: 'O avatar quer cancelar. Demonstre empatia e ofereca solucoes concretas.',
+    entrevista: 'O avatar e um candidato. Faca perguntas abertas para avaliar competencias.',
+    interview: 'O avatar e um candidato. Faca perguntas abertas para avaliar competencias.',
+    discovery: 'O avatar aceitou uma reuniao exploratoria. Identifique necessidades antes de propor solucoes.',
+    prospeccao_consultiva: 'O avatar aceitou uma reuniao exploratoria. Identifique necessidades antes de propor solucoes.',
+  };
+  return tips[type] || 'Mantenha o foco no objetivo e conduza a conversa de forma profissional.';
+}
+
 interface SessionLoadingProps {
   scenarioTitle?: string;
   scenarioContext?: string;
+  characterName?: string | null;
+  characterRole?: string | null;
+  sessionType?: string | null;
+  targetDurationSeconds?: number | null;
   connectionState?: AgentConnectionState;
   hasToken?: boolean;
   error?: string | null;
@@ -27,6 +65,10 @@ interface SessionLoadingProps {
 export function SessionLoading({
   scenarioTitle,
   scenarioContext,
+  characterName,
+  characterRole,
+  sessionType,
+  targetDurationSeconds,
   connectionState = 'idle',
   hasToken = false,
   error = null,
@@ -204,24 +246,61 @@ export function SessionLoading({
           </div>
         )}
 
-        {/* Scenario info */}
-        {(scenarioTitle || scenarioContext) && (
-          <div className="bg-neutral-900 rounded-xl p-4 border border-neutral-800">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-yellow-400">📋</span>
-              <span className="text-sm text-neutral-400">Cenario</span>
+        {/* Scenario info card */}
+        {scenarioTitle && (
+          <div className="bg-neutral-900 rounded-xl p-5 border border-neutral-800">
+            {/* Header: Title + session type badge */}
+            <div className="flex items-start justify-between gap-2 mb-3">
+              <h3 className="text-lg font-semibold text-white">{scenarioTitle}</h3>
+              {sessionType && (
+                <span className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-neutral-700 text-neutral-300 font-medium">
+                  {getSessionTypeLabel(sessionType)}
+                </span>
+              )}
             </div>
 
-            {scenarioTitle && (
-              <h3 className="text-lg font-semibold text-white mb-2">
-                {scenarioTitle}
-              </h3>
+            {/* Character info */}
+            {characterName && (
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-full bg-yellow-400/20 flex items-center justify-center">
+                  <span className="text-yellow-400 text-sm">🎭</span>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-white">{characterName}</p>
+                  {characterRole && (
+                    <p className="text-xs text-neutral-400">{characterRole}</p>
+                  )}
+                </div>
+              </div>
             )}
 
+            {/* Context (truncated) */}
             {scenarioContext && (
-              <p className="text-sm text-neutral-400 line-clamp-3">
+              <p className="text-sm text-neutral-400 line-clamp-2 mb-3">
                 {scenarioContext}
               </p>
+            )}
+
+            {/* Duration badge */}
+            {targetDurationSeconds && (
+              <div className="flex items-center gap-4 text-xs text-neutral-500 mb-3">
+                <span className="flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {Math.floor(targetDurationSeconds / 60)} min
+                </span>
+              </div>
+            )}
+
+            {/* Session tip */}
+            {sessionType && (
+              <div className="p-3 bg-neutral-800/50 rounded-lg border border-neutral-700/50">
+                <p className="text-xs text-yellow-400/80 font-medium mb-1">Dica</p>
+                <p className="text-xs text-neutral-400">
+                  {getSessionTip(sessionType)}
+                </p>
+              </div>
             )}
           </div>
         )}

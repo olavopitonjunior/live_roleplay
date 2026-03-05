@@ -57,7 +57,7 @@ except ImportError as e:
     hedra = None
     print(f"[STARTUP] Hedra plugin NOT available: {e}")
 
-from prompts import build_agent_instructions
+from prompts import build_agent_instructions, build_greeting_instruction
 from emotion_analyzer import (
     analyze_emotion,
     analyze_emotion_sync,
@@ -2326,9 +2326,10 @@ async def entrypoint(ctx: JobContext):
         max_greeting_attempts = 3
         for _g_attempt in range(max_greeting_attempts):
             try:
-                logger.info(f"Triggering greeting (attempt {_g_attempt + 1}/{max_greeting_attempts})...")
+                greeting_instruction = build_greeting_instruction(scenario)
+                logger.info(f"Triggering greeting (attempt {_g_attempt + 1}/{max_greeting_attempts}): {greeting_instruction[:80]}...")
                 session.generate_reply(
-                    instructions="Cumprimente o usuario de forma breve e natural. Seja direto e amigavel."
+                    instructions=greeting_instruction
                 )
                 logger.info(f"Greeting triggered successfully on attempt {_g_attempt + 1}")
                 break
