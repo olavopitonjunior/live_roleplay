@@ -79,7 +79,47 @@ export type AiVoice = 'echo' | 'ash' | 'shimmer' | 'sage' | 'coral';
 export type GeminiVoice = AiVoice;
 
 // Available avatar providers
-export type AvatarProvider = 'simli' | 'liveavatar' | 'hedra';
+export type AvatarProvider = 'simli' | 'liveavatar' | 'hedra' | 'none';
+
+// AGENTS-EVOLUTION: Structured scenario field types
+export interface PhaseFlowPhase {
+  name: string;
+  duration_pct: number;
+  triggers: string[];
+}
+
+export interface PhaseFlow {
+  phases: PhaseFlowPhase[];
+}
+
+export interface EmotionalReactivityTrigger {
+  event: string;
+  reaction: string;
+  intensity: number;
+}
+
+export interface EmotionalReactivity {
+  triggers: EmotionalReactivityTrigger[];
+}
+
+export interface CommunicationStyle {
+  formality: string;
+  verbosity: string;
+  patterns: string[];
+}
+
+export interface DifficultyEscalationStage {
+  threshold: string;
+  behavior_change: string;
+}
+
+export interface DifficultyEscalation {
+  stages: DifficultyEscalationStage[];
+}
+
+export interface CriteriaWeights {
+  [criterionId: string]: number;
+}
 
 export interface Scenario {
   id: string;
@@ -101,6 +141,36 @@ export interface Scenario {
   duration_min_seconds?: number;
   duration_max_seconds?: number;
   default_session_mode?: SessionMode;
+  // AGENTS-EVOLUTION Phase 1: Structured fields
+  // Bloco Situacao
+  session_type?: string | null;
+  market_context?: Record<string, unknown> | null;
+  user_objective?: string | null;
+  target_duration_seconds?: number | null;
+  opening_line?: string | null;
+  success_condition?: string | null;
+  end_condition?: string | null;
+  // Bloco Personagem
+  character_name?: string | null;
+  character_role?: string | null;
+  personality?: string | null;
+  hidden_objective?: string | null;
+  initial_emotion?: string | null;
+  emotional_reactivity?: EmotionalReactivity | null;
+  communication_style?: CommunicationStyle | null;
+  typical_phrases?: string[] | null;
+  knowledge_limits?: Record<string, unknown> | null;
+  backstory?: string | null;
+  // Bloco Avaliacao
+  criteria_weights?: CriteriaWeights | null;
+  positive_indicators?: string[] | null;
+  negative_indicators?: string[] | null;
+  // Comportamento Dinamico
+  phase_flow?: PhaseFlow | null;
+  difficulty_escalation?: DifficultyEscalation | null;
+  // Versionamento
+  version?: number;
+  version_history?: unknown[];
 }
 
 // Extended scenario with rubrics and detailed objections (from view)
@@ -118,6 +188,30 @@ export interface GeneratedScenario {
   evaluation_criteria: EvaluationCriterion[];
   ideal_outcome: string;
   suggested_voice: AiVoice;
+  // AGENTS-EVOLUTION: New structured fields (all optional in generated output)
+  suggested_category?: string;
+  character_name?: string;
+  character_role?: string;
+  personality?: string;
+  user_objective?: string;
+  opening_line?: string;
+  hidden_objective?: string;
+  initial_emotion?: string;
+  emotional_reactivity?: EmotionalReactivity;
+  communication_style?: CommunicationStyle;
+  typical_phrases?: string[];
+  knowledge_limits?: Record<string, unknown>;
+  backstory?: string;
+  session_type?: string;
+  market_context?: Record<string, unknown>;
+  target_duration_seconds?: number;
+  success_condition?: string;
+  end_condition?: string;
+  phase_flow?: PhaseFlow;
+  difficulty_escalation?: DifficultyEscalation;
+  criteria_weights?: CriteriaWeights;
+  positive_indicators?: string[];
+  negative_indicators?: string[];
 }
 
 // Request for scenario generation
@@ -134,6 +228,29 @@ export interface SuggestedScenarioFields {
   evaluation_criteria: EvaluationCriterion[];
   ideal_outcome: string;
   suggested_voice: AiVoice;
+  // AGENTS-EVOLUTION: New structured fields
+  character_name?: string;
+  character_role?: string;
+  personality?: string;
+  user_objective?: string;
+  opening_line?: string;
+  hidden_objective?: string;
+  initial_emotion?: string;
+  emotional_reactivity?: EmotionalReactivity;
+  communication_style?: CommunicationStyle;
+  typical_phrases?: string[];
+  knowledge_limits?: Record<string, unknown>;
+  backstory?: string;
+  session_type?: string;
+  market_context?: Record<string, unknown>;
+  target_duration_seconds?: number;
+  success_condition?: string;
+  end_condition?: string;
+  phase_flow?: PhaseFlow;
+  difficulty_escalation?: DifficultyEscalation;
+  criteria_weights?: CriteriaWeights;
+  positive_indicators?: string[];
+  negative_indicators?: string[];
 }
 
 // Session types

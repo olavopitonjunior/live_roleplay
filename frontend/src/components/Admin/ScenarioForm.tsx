@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Modal, ModalFooter } from '../ui/Modal';
 import { Button } from '../ui';
 import { supabase } from '../../lib/supabase';
-import type { Scenario, Objection, EvaluationCriterion, AiVoice, GeneratedScenario, AvatarProvider, SuggestedScenarioFields } from '../../types';
+import type { Scenario, Objection, EvaluationCriterion, AiVoice, GeneratedScenario, AvatarProvider, SuggestedScenarioFields, EmotionalReactivity, CommunicationStyle, PhaseFlow, DifficultyEscalation, CriteriaWeights } from '../../types';
 
 // Available AI voices (OpenAI Realtime)
 const AI_VOICES: { value: AiVoice; label: string; description: string }[] = [
@@ -14,7 +14,8 @@ const AI_VOICES: { value: AiVoice; label: string; description: string }[] = [
 ];
 
 const AVATAR_PROVIDERS: { value: AvatarProvider; label: string; description: string }[] = [
-  { value: 'hedra', label: 'Hedra', description: 'Avatar padrao com lip-sync (Character-3)' },
+  { value: 'none', label: 'Nenhum', description: 'Somente audio (avatar suspenso)' },
+  { value: 'hedra', label: 'Hedra', description: 'Avatar com lip-sync (suspenso)' },
   { value: 'simli', label: 'Simli', description: 'Avatar legacy' },
   { value: 'liveavatar', label: 'HeyGen (LiveAvatar)', description: 'Avatar legacy' },
 ];
@@ -42,6 +43,30 @@ export interface ScenarioFormData {
   avatar_provider: AvatarProvider | null;
   avatar_id: string;
   is_active: boolean;
+  // AGENTS-EVOLUTION: New structured fields (pass-through)
+  target_duration_seconds: number | null;
+  character_name: string;
+  character_role: string;
+  personality: string;
+  user_objective: string;
+  opening_line: string;
+  // Hidden fields (set by AI, passed through on save)
+  hidden_objective?: string | null;
+  initial_emotion?: string | null;
+  emotional_reactivity?: EmotionalReactivity | null;
+  communication_style?: CommunicationStyle | null;
+  typical_phrases?: string[] | null;
+  knowledge_limits?: Record<string, unknown> | null;
+  backstory?: string | null;
+  session_type?: string | null;
+  market_context?: Record<string, unknown> | null;
+  success_condition?: string | null;
+  end_condition?: string | null;
+  phase_flow?: PhaseFlow | null;
+  difficulty_escalation?: DifficultyEscalation | null;
+  criteria_weights?: CriteriaWeights | null;
+  positive_indicators?: string[] | null;
+  negative_indicators?: string[] | null;
 }
 
 const emptyFormData: ScenarioFormData = {
@@ -54,9 +79,15 @@ const emptyFormData: ScenarioFormData = {
   ideal_outcome: '',
   simli_face_id: '',
   ai_voice: 'echo',
-  avatar_provider: 'hedra',
+  avatar_provider: 'none',
   avatar_id: '',
   is_active: true,
+  target_duration_seconds: 180,
+  character_name: '',
+  character_role: '',
+  personality: '',
+  user_objective: '',
+  opening_line: '',
 };
 
 // Field types that can be generated individually
@@ -159,6 +190,29 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
           if (fields.suggested_voice !== undefined) {
             updated.ai_voice = fields.suggested_voice;
           }
+          // Pass through new structured fields from AI
+          if (fields.character_name !== undefined) updated.character_name = fields.character_name;
+          if (fields.character_role !== undefined) updated.character_role = fields.character_role;
+          if (fields.personality !== undefined) updated.personality = fields.personality;
+          if (fields.user_objective !== undefined) updated.user_objective = fields.user_objective;
+          if (fields.opening_line !== undefined) updated.opening_line = fields.opening_line;
+          if (fields.hidden_objective !== undefined) updated.hidden_objective = fields.hidden_objective;
+          if (fields.initial_emotion !== undefined) updated.initial_emotion = fields.initial_emotion;
+          if (fields.emotional_reactivity !== undefined) updated.emotional_reactivity = fields.emotional_reactivity;
+          if (fields.communication_style !== undefined) updated.communication_style = fields.communication_style;
+          if (fields.typical_phrases !== undefined) updated.typical_phrases = fields.typical_phrases;
+          if (fields.knowledge_limits !== undefined) updated.knowledge_limits = fields.knowledge_limits;
+          if (fields.backstory !== undefined) updated.backstory = fields.backstory;
+          if (fields.session_type !== undefined) updated.session_type = fields.session_type;
+          if (fields.market_context !== undefined) updated.market_context = fields.market_context;
+          if (fields.target_duration_seconds !== undefined) updated.target_duration_seconds = fields.target_duration_seconds;
+          if (fields.success_condition !== undefined) updated.success_condition = fields.success_condition;
+          if (fields.end_condition !== undefined) updated.end_condition = fields.end_condition;
+          if (fields.phase_flow !== undefined) updated.phase_flow = fields.phase_flow;
+          if (fields.difficulty_escalation !== undefined) updated.difficulty_escalation = fields.difficulty_escalation;
+          if (fields.criteria_weights !== undefined) updated.criteria_weights = fields.criteria_weights;
+          if (fields.positive_indicators !== undefined) updated.positive_indicators = fields.positive_indicators;
+          if (fields.negative_indicators !== undefined) updated.negative_indicators = fields.negative_indicators;
 
           return updated;
         });
@@ -212,6 +266,29 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
           evaluation_criteria: fields.evaluation_criteria,
           ideal_outcome: fields.ideal_outcome,
           ai_voice: fields.suggested_voice || prev.ai_voice,
+          // Pass through new structured fields
+          character_name: fields.character_name || prev.character_name,
+          character_role: fields.character_role || prev.character_role,
+          personality: fields.personality || prev.personality,
+          user_objective: fields.user_objective || prev.user_objective,
+          opening_line: fields.opening_line || prev.opening_line,
+          hidden_objective: fields.hidden_objective ?? prev.hidden_objective,
+          initial_emotion: fields.initial_emotion ?? prev.initial_emotion,
+          emotional_reactivity: fields.emotional_reactivity ?? prev.emotional_reactivity,
+          communication_style: fields.communication_style ?? prev.communication_style,
+          typical_phrases: fields.typical_phrases ?? prev.typical_phrases,
+          knowledge_limits: fields.knowledge_limits ?? prev.knowledge_limits,
+          backstory: fields.backstory ?? prev.backstory,
+          session_type: fields.session_type ?? prev.session_type,
+          market_context: fields.market_context ?? prev.market_context,
+          target_duration_seconds: fields.target_duration_seconds ?? prev.target_duration_seconds,
+          success_condition: fields.success_condition ?? prev.success_condition,
+          end_condition: fields.end_condition ?? prev.end_condition,
+          phase_flow: fields.phase_flow ?? prev.phase_flow,
+          difficulty_escalation: fields.difficulty_escalation ?? prev.difficulty_escalation,
+          criteria_weights: fields.criteria_weights ?? prev.criteria_weights,
+          positive_indicators: fields.positive_indicators ?? prev.positive_indicators,
+          negative_indicators: fields.negative_indicators ?? prev.negative_indicators,
         }));
       } else {
         throw new Error('Resposta invalida do servidor');
@@ -232,7 +309,7 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
       if (generatedData) {
         setFormData({
           title: generatedData.title,
-          category: '',
+          category: generatedData.suggested_category || '',
           context: generatedData.context,
           avatar_profile: generatedData.avatar_profile,
           objections: generatedData.objections,
@@ -240,9 +317,31 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
           ideal_outcome: generatedData.ideal_outcome,
           simli_face_id: '',
           ai_voice: generatedData.suggested_voice || 'echo',
-          avatar_provider: 'hedra',
+          avatar_provider: 'none',
           avatar_id: '',
           is_active: true,
+          target_duration_seconds: generatedData.target_duration_seconds ?? 180,
+          character_name: generatedData.character_name || '',
+          character_role: generatedData.character_role || '',
+          personality: generatedData.personality || '',
+          user_objective: generatedData.user_objective || '',
+          opening_line: generatedData.opening_line || '',
+          hidden_objective: generatedData.hidden_objective,
+          initial_emotion: generatedData.initial_emotion,
+          emotional_reactivity: generatedData.emotional_reactivity,
+          communication_style: generatedData.communication_style,
+          typical_phrases: generatedData.typical_phrases,
+          knowledge_limits: generatedData.knowledge_limits,
+          backstory: generatedData.backstory,
+          session_type: generatedData.session_type,
+          market_context: generatedData.market_context,
+          success_condition: generatedData.success_condition,
+          end_condition: generatedData.end_condition,
+          phase_flow: generatedData.phase_flow,
+          difficulty_escalation: generatedData.difficulty_escalation,
+          criteria_weights: generatedData.criteria_weights,
+          positive_indicators: generatedData.positive_indicators,
+          negative_indicators: generatedData.negative_indicators,
         });
       } else if (scenario && (mode === 'edit' || mode === 'duplicate')) {
         setFormData({
@@ -259,9 +358,31 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
           ideal_outcome: scenario.ideal_outcome || '',
           simli_face_id: scenario.simli_face_id || '',
           ai_voice: scenario.ai_voice || 'echo',
-          avatar_provider: scenario.avatar_provider || 'hedra',
+          avatar_provider: scenario.avatar_provider || 'none',
           avatar_id: scenario.avatar_id || '',
           is_active: scenario.is_active,
+          target_duration_seconds: scenario.target_duration_seconds ?? 180,
+          character_name: scenario.character_name || '',
+          character_role: scenario.character_role || '',
+          personality: scenario.personality || '',
+          user_objective: scenario.user_objective || '',
+          opening_line: scenario.opening_line || '',
+          hidden_objective: scenario.hidden_objective,
+          initial_emotion: scenario.initial_emotion,
+          emotional_reactivity: scenario.emotional_reactivity,
+          communication_style: scenario.communication_style,
+          typical_phrases: scenario.typical_phrases,
+          knowledge_limits: scenario.knowledge_limits,
+          backstory: scenario.backstory,
+          session_type: scenario.session_type,
+          market_context: scenario.market_context,
+          success_condition: scenario.success_condition,
+          end_condition: scenario.end_condition,
+          phase_flow: scenario.phase_flow,
+          difficulty_escalation: scenario.difficulty_escalation,
+          criteria_weights: scenario.criteria_weights,
+          positive_indicators: scenario.positive_indicators,
+          negative_indicators: scenario.negative_indicators,
         });
       } else {
         setFormData(emptyFormData);
@@ -285,10 +406,6 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
     }
     if (!formData.avatar_profile.trim()) {
       setError('Perfil do avatar e obrigatorio');
-      return;
-    }
-    if (formData.avatar_provider !== 'simli' && !formData.avatar_id.trim()) {
-      setError('Avatar ID e obrigatorio para o provedor selecionado');
       return;
     }
 
@@ -486,6 +603,98 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
           )}
         </div>
 
+        {/* User Objective */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Objetivo do Usuario
+          </label>
+          <input
+            type="text"
+            value={formData.user_objective}
+            onChange={(e) => setFormData(prev => ({ ...prev, user_objective: e.target.value }))}
+            placeholder="Ex: Convencer o cliente a agendar uma reuniao de demonstracao"
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
+                       focus:border-black focus:ring-0 transition-colors outline-none"
+          />
+        </div>
+
+        {/* Character Name + Role + Duration */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nome do Personagem
+            </label>
+            <input
+              type="text"
+              value={formData.character_name}
+              onChange={(e) => setFormData(prev => ({ ...prev, character_name: e.target.value }))}
+              placeholder="Ex: Roberto Silva"
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
+                         focus:border-black focus:ring-0 transition-colors outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Cargo / Papel
+            </label>
+            <input
+              type="text"
+              value={formData.character_role}
+              onChange={(e) => setFormData(prev => ({ ...prev, character_role: e.target.value }))}
+              placeholder="Ex: Diretor de TI"
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
+                         focus:border-black focus:ring-0 transition-colors outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Duracao da Sessao
+            </label>
+            <select
+              value={formData.target_duration_seconds ?? 180}
+              onChange={(e) => setFormData(prev => ({ ...prev, target_duration_seconds: Number(e.target.value) }))}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
+                         focus:border-black focus:ring-0 transition-colors outline-none bg-white"
+            >
+              <option value={60}>1 minuto</option>
+              <option value={120}>2 minutos</option>
+              <option value={180}>3 minutos (padrao)</option>
+              <option value={240}>4 minutos</option>
+              <option value={300}>5 minutos</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Personality */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Personalidade
+          </label>
+          <textarea
+            value={formData.personality}
+            onChange={(e) => setFormData(prev => ({ ...prev, personality: e.target.value }))}
+            placeholder="2-3 frases descrevendo como o personagem se comporta e se comunica..."
+            rows={2}
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
+                       focus:border-black focus:ring-0 transition-colors outline-none resize-none"
+          />
+        </div>
+
+        {/* Opening Line */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Fala de Abertura
+          </label>
+          <input
+            type="text"
+            value={formData.opening_line}
+            onChange={(e) => setFormData(prev => ({ ...prev, opening_line: e.target.value }))}
+            placeholder="Ex: Ola, voce deve ser o consultor que me ligou ontem, certo?"
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
+                       focus:border-black focus:ring-0 transition-colors outline-none"
+          />
+        </div>
+
         {/* Avatar Profile */}
         <div>
           <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
@@ -517,7 +726,7 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
               Provedor do Avatar
             </label>
             <select
-              value={formData.avatar_provider || 'hedra'}
+              value={formData.avatar_provider || 'none'}
               onChange={(e) =>
                 setFormData(prev => ({
                   ...prev,
@@ -587,7 +796,7 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
                 type="text"
                 value={formData.avatar_id}
                 onChange={(e) => setFormData(prev => ({ ...prev, avatar_id: e.target.value }))}
-                placeholder="Obrigatorio para HeyGen/Hedra"
+                placeholder="Opcional — somente se avatar ativo"
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
                            focus:border-black focus:ring-0 transition-colors outline-none"
               />

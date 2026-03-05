@@ -15,7 +15,7 @@ test.describe('Smoke tests — no agent required', () => {
     await expect(page.locator('text=Escolha')).toBeVisible({ timeout: 10_000 });
 
     // Should see at least one scenario card
-    const cards = page.locator('button.group');
+    const cards = page.locator('button.group.w-full');
     await expect(cards.first()).toBeVisible({ timeout: 15_000 });
 
     const count = await cards.count();
@@ -23,11 +23,11 @@ test.describe('Smoke tests — no agent required', () => {
   });
 
   test('scenario card opens mode selection modal', async ({ authenticatedPage: page }) => {
-    // Wait for scenarios
-    await page.waitForSelector('button.group', { timeout: 15_000 });
+    // Wait for scenarios (w-full distinguishes ScenarioCard from category headers)
+    await page.waitForSelector('button.group.w-full', { timeout: 15_000 });
 
     // Click first scenario
-    await page.locator('button.group').first().click();
+    await page.locator('button.group.w-full').first().click();
 
     // Modal should appear
     const modal = page.locator('div.fixed.inset-0.z-50');
@@ -41,8 +41,8 @@ test.describe('Smoke tests — no agent required', () => {
   test('mode modal shows training and evaluation options', async ({
     authenticatedPage: page,
   }) => {
-    await page.waitForSelector('button.group', { timeout: 15_000 });
-    await page.locator('button.group').first().click();
+    await page.waitForSelector('button.group.w-full', { timeout: 15_000 });
+    await page.locator('button.group.w-full').first().click();
 
     const modal = page.locator('div.fixed.inset-0.z-50');
     await expect(modal).toBeVisible({ timeout: 5_000 });
@@ -51,16 +51,16 @@ test.describe('Smoke tests — no agent required', () => {
     await expect(modal.locator('text=Modo Treino')).toBeVisible();
     // Evaluation mode
     await expect(modal.locator('text=Modo Avaliacao')).toBeVisible();
-    // Coach intensity section (visible in training mode)
-    await expect(modal.locator('text=Intensidade do Coach')).toBeVisible();
+    // Difficulty level section
+    await expect(modal.locator('text=Nivel de Dificuldade')).toBeVisible();
     // Cancel and start buttons
     await expect(modal.locator('text=Cancelar')).toBeVisible();
     await expect(modal.locator('text=Iniciar Sessao')).toBeVisible();
   });
 
   test('cancel button closes modal', async ({ authenticatedPage: page }) => {
-    await page.waitForSelector('button.group', { timeout: 15_000 });
-    await page.locator('button.group').first().click();
+    await page.waitForSelector('button.group.w-full', { timeout: 15_000 });
+    await page.locator('button.group.w-full').first().click();
 
     const modal = page.locator('div.fixed.inset-0.z-50');
     await expect(modal).toBeVisible({ timeout: 5_000 });
@@ -73,8 +73,8 @@ test.describe('Smoke tests — no agent required', () => {
   });
 
   test('session page loads after clicking start', async ({ authenticatedPage: page }) => {
-    await page.waitForSelector('button.group', { timeout: 15_000 });
-    await page.locator('button.group').first().click();
+    await page.waitForSelector('button.group.w-full', { timeout: 15_000 });
+    await page.locator('button.group.w-full').first().click();
 
     const modal = page.locator('div.fixed.inset-0.z-50');
     await expect(modal).toBeVisible({ timeout: 5_000 });
