@@ -17,11 +17,10 @@ export function Home() {
     setSelectedScenario(scenario);
   };
 
-  const handleModeStart = (mode: SessionMode) => {
+  const handleModeStart = (mode: SessionMode, durationSeconds: number) => {
     if (selectedScenario) {
-      // Navigate with mode parameters via state
       navigate(`/session/${selectedScenario.id}`, {
-        state: { sessionMode: mode }
+        state: { sessionMode: mode, durationSeconds }
       });
     }
   };

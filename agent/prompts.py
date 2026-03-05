@@ -149,12 +149,38 @@ def _build_personality_section(scenario: dict[str, Any]) -> str:
         if personality:
             parts.append(f"Personalidade: {personality}")
         if communication_style:
-            parts.append(f"Estilo de comunicacao: {communication_style}")
+            if isinstance(communication_style, dict):
+                formality = communication_style.get('formality', '')
+                verbosity = communication_style.get('verbosity', '')
+                patterns = communication_style.get('patterns', [])
+                style_parts = []
+                if formality:
+                    style_parts.append(f"formalidade {formality}")
+                if verbosity:
+                    style_parts.append(f"verbosidade {verbosity}")
+                if style_parts:
+                    parts.append(f"Estilo de comunicacao: {', '.join(style_parts)}")
+                if patterns:
+                    parts.append(f"Padroes: {', '.join(patterns)}")
+            else:
+                parts.append(f"Estilo de comunicacao: {communication_style}")
         if initial_emotion:
             parts.append(f"Emocao inicial: {initial_emotion}")
         if typical_phrases and isinstance(typical_phrases, list) and len(typical_phrases) > 0:
             phrases_str = ", ".join([f'"{p}"' for p in typical_phrases])
             parts.append(f"Frases tipicas: {phrases_str}")
+
+        # Emotional reactivity triggers
+        emotional_reactivity = scenario.get('emotional_reactivity')
+        if emotional_reactivity and isinstance(emotional_reactivity, dict):
+            triggers = emotional_reactivity.get('triggers', [])
+            if triggers:
+                parts.append("\nReatividade emocional:")
+                for t in triggers:
+                    event = t.get('event', '')
+                    reaction = t.get('reaction', '')
+                    if event and reaction:
+                        parts.append(f"  - Se {event}: {reaction}")
 
         # Also include avatar_profile as supplementary if present
         avatar_profile = scenario.get('avatar_profile', '')
@@ -173,13 +199,53 @@ def _build_personality_section(scenario: dict[str, Any]) -> str:
 def _build_context_section(scenario: dict[str, Any]) -> str:
     """
     Build the CONTEXTO section from structured fields + existing context.
+    Includes session_type-specific behavior instructions.
     """
     context = scenario.get('context', 'Cenario de treinamento geral.')
+    session_type = scenario.get('session_type')
+    character_name = scenario.get('character_name')
     market_context = scenario.get('market_context')
     backstory = scenario.get('backstory')
     user_objective = scenario.get('user_objective')
 
-    parts = [context]
+    parts = []
+
+    # Guard: reinforce avatar identity
+    if character_name:
+        parts.append(f"LEMBRETE: Voce e {character_name}. O texto abaixo descreve SUA situacao.\n")
+
+    parts.append(context)
+
+    # Session type specific behavior instructions
+    if session_type == 'cold_call':
+        parts.append("""
+COMPORTAMENTO DE COLD CALL:
+- Voce NAO estava esperando esta ligacao
+- Demonstre surpresa/desconfianca ao atender ("Quem fala?", "Como conseguiu meu numero?")
+- Nao de abertura facil — o vendedor precisa conquistar sua atencao
+- Pode ameacar desligar se nao houver valor claro nos primeiros 30 segundos
+- Seu tom inicial e de interrupcao — voce estava fazendo outra coisa""")
+    elif session_type in ('interview', 'entrevista'):
+        parts.append("""
+COMPORTAMENTO DE ENTREVISTA:
+- Voce esta sendo entrevistado/avaliado
+- Responda as perguntas do entrevistador naturalmente
+- Apresente suas objecoes e duvidas como um candidato real faria
+- Demonstre suas insegurancas e motivacoes conforme seu perfil""")
+    elif session_type in ('negotiation', 'negociacao'):
+        parts.append("""
+COMPORTAMENTO DE NEGOCIACAO:
+- Voce esta em uma negociacao ativa
+- Defenda sua posicao mas esteja aberto a bons argumentos
+- Use dados e comparacoes para justificar suas exigencias
+- Nao ceda facilmente — exija contrapartidas""")
+    elif session_type in ('retention', 'retencao'):
+        parts.append("""
+COMPORTAMENTO DE RETENCAO:
+- Voce e um cliente insatisfeito querendo cancelar/sair
+- Comece firme na decisao de cancelar
+- So mude de ideia se o atendente demonstrar empatia real e oferecer solucao concreta
+- Desabafe sobre a experiencia ruim antes de ouvir propostas""")
 
     if market_context:
         parts.append(f"\nContexto de mercado: {market_context}")
@@ -262,28 +328,65 @@ def _build_flow_section(
         # Always include difficulty level as baseline
         parts.append(f"NIVEL DE DIFICULDADE: {difficulty_level}/10")
 
-        if emotional_reactivity:
+        # Parse emotional_reactivity triggers (JSONB: {triggers: [{event, reaction, intensity}]})
+        if emotional_reactivity and isinstance(emotional_reactivity, dict):
+            triggers = emotional_reactivity.get('triggers', [])
+            if triggers:
+                parts.append("\nReatividade emocional:")
+                for t in triggers:
+                    event = t.get('event', '')
+                    reaction = t.get('reaction', '')
+                    if event and reaction:
+                        parts.append(f"  - Se {event}: {reaction}")
+        elif emotional_reactivity and isinstance(emotional_reactivity, str):
             parts.append(f"\nReatividade emocional: {emotional_reactivity}")
 
-        if phase_flow and isinstance(phase_flow, list) and len(phase_flow) > 0:
+        # Parse phase_flow phases (JSONB: {phases: [{name, duration_pct, triggers}]} or list)
+        phases = []
+        if phase_flow:
+            if isinstance(phase_flow, dict):
+                phases = phase_flow.get('phases', [])
+            elif isinstance(phase_flow, list):
+                phases = phase_flow
+        if phases:
             parts.append("\nFases da conversa:")
-            for i, phase in enumerate(phase_flow, 1):
+            for i, phase in enumerate(phases, 1):
                 phase_name = phase.get('name', f'Fase {i}')
-                phase_desc = phase.get('description', '')
-                if phase_desc:
-                    parts.append(f"  {i}. {phase_name}: {phase_desc}")
-                else:
-                    parts.append(f"  {i}. {phase_name}")
-
-        if difficulty_escalation and isinstance(difficulty_escalation, dict):
-            trigger = difficulty_escalation.get('trigger', '')
-            behavior = difficulty_escalation.get('behavior', '')
-            if trigger or behavior:
-                parts.append("\nEscalacao de dificuldade:")
-                if trigger:
-                    parts.append(f"  Gatilho: {trigger}")
+                behavior = phase.get('behavior', '')
+                duration = phase.get('duration_pct') or phase.get('duration_seconds')
+                phase_triggers = phase.get('triggers', [])
+                line = f"  {i}. {phase_name}"
+                if duration:
+                    if isinstance(duration, (int, float)) and duration <= 100:
+                        line += f" (~{duration}%)"
+                    else:
+                        line += f" (~{duration}s)"
                 if behavior:
-                    parts.append(f"  Comportamento: {behavior}")
+                    line += f": {behavior}"
+                parts.append(line)
+                if phase_triggers:
+                    parts.append(f"     Transicao: {', '.join(str(t) for t in phase_triggers[:2])}")
+
+        # Parse difficulty_escalation stages (JSONB: {stages: [{threshold, behavior_change}]})
+        if difficulty_escalation and isinstance(difficulty_escalation, dict):
+            stages = difficulty_escalation.get('stages', [])
+            if stages:
+                parts.append("\nEscalacao de dificuldade:")
+                for stage in stages:
+                    threshold = stage.get('threshold', '')
+                    behavior_change = stage.get('behavior_change', '')
+                    if threshold and behavior_change:
+                        parts.append(f"  - Quando: {threshold} -> {behavior_change}")
+            else:
+                # Legacy format: single trigger/behavior
+                trigger = difficulty_escalation.get('trigger', '')
+                behavior = difficulty_escalation.get('behavior', '')
+                if trigger or behavior:
+                    parts.append("\nEscalacao de dificuldade:")
+                    if trigger:
+                        parts.append(f"  Gatilho: {trigger}")
+                    if behavior:
+                        parts.append(f"  Comportamento: {behavior}")
 
         if success_condition:
             parts.append(f"\nCondicao de sucesso: {success_condition}")
@@ -323,10 +426,17 @@ def _build_safety_section(scenario: dict[str, Any]) -> str:
     """
     Build the SEGURANCA section: role-inversion prevention rules (unchanged).
     """
-    # Determine opening instruction based on structured field
+    # Determine opening instruction based on structured field or session_type
     opening_line = scenario.get('opening_line')
+    session_type = scenario.get('session_type')
     if opening_line:
         opening_instruction = f'Inicie com: "{opening_line}"'
+    elif session_type == 'cold_call':
+        opening_instruction = 'Inicie com: "Alo? Quem fala?"'
+    elif session_type in ('interview', 'entrevista'):
+        opening_instruction = 'Aguarde o entrevistador ou inicie com apresentacao breve.'
+    elif session_type in ('negotiation', 'negociacao'):
+        opening_instruction = 'Inicie retomando o contexto da negociacao.'
     else:
         opening_instruction = "Aguarde o usuario ou inicie com frase curta de abertura adequada ao contexto."
 

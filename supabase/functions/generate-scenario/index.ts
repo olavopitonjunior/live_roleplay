@@ -367,6 +367,10 @@ Cada campo deve ser preenchido com conteudo relevante e coerente.
    - Descricao detalhada da situacao (2-3 paragrafos)
    - Inclua: quem e o cliente, qual produto/servico, situacao atual
    - Seja especifico sobre o momento da venda/negociacao
+   CRITICO: O campo context DEVE ser escrito da perspectiva do AVATAR (o personagem/cliente/prospect/candidato).
+   Comece SEMPRE com "Voce e [nome do personagem], [idade], [cargo/papel]..."
+   NUNCA use "Voce e o vendedor/corretor/entrevistador/recrutador..." — o USUARIO e quem vende/entrevista/recruta.
+   O context descreve a situacao do AVATAR, nao do usuario.
 
 3. PERFIL DO AVATAR (avatar_profile):
    - Nome, idade e cargo do cliente
@@ -396,6 +400,10 @@ Cada campo deve ser preenchido com conteudo relevante e coerente.
    - sage: voz masculina grave e autoritaria
    - coral: voz feminina madura e profissional
    - Escolha baseada no perfil do personagem
+   CRITICO: A voz DEVE corresponder ao genero do personagem.
+   Personagem masculino → echo (jovem), ash (maduro), ou sage (grave)
+   Personagem feminino → shimmer (jovem) ou coral (madura)
+   NUNCA atribua voz feminina a personagem masculino ou vice-versa.
 
 --- CAMPOS NOVOS (AGENTS-EVOLUTION Phase 2) ---
 

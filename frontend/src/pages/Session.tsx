@@ -20,6 +20,7 @@ interface Scenario {
 
 interface LocationState {
   sessionMode?: SessionMode;
+  durationSeconds?: number;
 }
 
 export function Session() {
@@ -199,7 +200,7 @@ export function Session() {
       onSessionEnd={handleSessionEnd}
       scenarioTitle={scenario?.title}
       scenarioContext={scenario?.context}
-      maxDuration={scenario?.duration_max_seconds || 180}
+      maxDuration={locationState?.durationSeconds || scenario?.duration_max_seconds || 180}
       existingRoom={connectedRoom} // Pass existing room to avoid agent disconnect
     />
   );
