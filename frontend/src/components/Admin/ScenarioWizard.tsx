@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabase';
 import type {
   Scenario, AiVoice, GeneratedScenario,
   AvatarProvider, SuggestedScenarioFields, ScenarioFormData,
-  GenerateScenarioRequest,
+  GenerateScenarioRequest, CharacterGender,
 } from '../../types';
 
 // --- Constants ---
@@ -43,6 +43,32 @@ const DIFFICULTIES = [
   { value: 'hard', label: 'Dificil', description: 'Cliente resistente, objecoes complexas' },
 ];
 
+const SESSION_TYPES = [
+  { value: 'cold_call', label: 'Cold Call', description: 'Avatar NAO espera a ligacao' },
+  { value: 'apresentacao', label: 'Apresentacao', description: 'Reuniao agendada' },
+  { value: 'negociacao', label: 'Negociacao', description: 'Negociacao ativa' },
+  { value: 'retencao', label: 'Retencao', description: 'Cliente quer cancelar' },
+  { value: 'entrevista', label: 'Entrevista', description: 'Candidato sendo avaliado' },
+  { value: 'discovery', label: 'Discovery', description: 'Reuniao exploratoria' },
+];
+
+const GENDERS: { value: CharacterGender; label: string }[] = [
+  { value: 'male', label: 'Masculino' },
+  { value: 'female', label: 'Feminino' },
+];
+
+const FEMALE_VOICES: AiVoice[] = ['shimmer', 'coral'];
+const MALE_VOICES: AiVoice[] = ['echo', 'ash', 'sage'];
+
+function getVoicesForGender(gender: CharacterGender): typeof AI_VOICES {
+  const allowed = gender === 'female' ? FEMALE_VOICES : MALE_VOICES;
+  return AI_VOICES.filter(v => allowed.includes(v.value));
+}
+
+function getDefaultVoiceForGender(gender: CharacterGender): AiVoice {
+  return gender === 'female' ? 'shimmer' : 'echo';
+}
+
 const DURATION_OPTIONS = [
   { value: 60, label: '1 minuto' },
   { value: 120, label: '2 minutos' },
@@ -65,6 +91,7 @@ const emptyFormData: ScenarioFormData = {
   avatar_id: '',
   is_active: true,
   target_duration_seconds: 180,
+  character_gender: 'male',
   character_name: '',
   character_role: '',
   personality: '',
@@ -187,6 +214,7 @@ export function ScenarioWizard({
         avatar_id: scenario.avatar_id || '',
         is_active: scenario.is_active,
         target_duration_seconds: scenario.target_duration_seconds ?? 180,
+        character_gender: scenario.character_gender || 'male',
         character_name: scenario.character_name || '',
         character_role: scenario.character_role || '',
         personality: scenario.personality || '',
@@ -251,6 +279,11 @@ export function ScenarioWizard({
 
     if (result.data) {
       const gen = result.data;
+      const genGender = gen.character_gender || 'male';
+      const genVoice = gen.suggested_voice || getDefaultVoiceForGender(genGender);
+      // Enforce voice-gender match
+      const allowedVoices = genGender === 'female' ? FEMALE_VOICES : MALE_VOICES;
+      const safeVoice = allowedVoices.includes(genVoice) ? genVoice : getDefaultVoiceForGender(genGender);
       setFormData({
         title: gen.title,
         category: gen.suggested_category || '',
@@ -260,11 +293,12 @@ export function ScenarioWizard({
         evaluation_criteria: gen.evaluation_criteria,
         ideal_outcome: gen.ideal_outcome,
         simli_face_id: '',
-        ai_voice: gen.suggested_voice || 'echo',
+        ai_voice: safeVoice,
         avatar_provider: 'none',
         avatar_id: '',
         is_active: true,
         target_duration_seconds: gen.target_duration_seconds ?? 180,
+        character_gender: genGender,
         character_name: gen.character_name || '',
         character_role: gen.character_role || '',
         personality: gen.personality || '',
@@ -315,7 +349,11 @@ export function ScenarioWizard({
           if (fields.objections !== undefined) updated.objections = fields.objections;
           if (fields.evaluation_criteria !== undefined) updated.evaluation_criteria = fields.evaluation_criteria;
           if (fields.ideal_outcome !== undefined) updated.ideal_outcome = fields.ideal_outcome;
-          if (fields.suggested_voice !== undefined) updated.ai_voice = fields.suggested_voice;
+          if (fields.character_gender !== undefined) updated.character_gender = fields.character_gender;
+          if (fields.suggested_voice !== undefined) {
+            const allowed = updated.character_gender === 'female' ? FEMALE_VOICES : MALE_VOICES;
+            updated.ai_voice = allowed.includes(fields.suggested_voice) ? fields.suggested_voice : getDefaultVoiceForGender(updated.character_gender);
+          }
           if (fields.character_name !== undefined) updated.character_name = fields.character_name;
           if (fields.character_role !== undefined) updated.character_role = fields.character_role;
           if (fields.personality !== undefined) updated.personality = fields.personality;
@@ -366,13 +404,19 @@ export function ScenarioWizard({
 
       if (data?.fields) {
         const fields = data.fields as SuggestedScenarioFields;
-        setFormData(prev => ({
+        setFormData(prev => {
+          const newGender = fields.character_gender || prev.character_gender;
+          const allowedV = newGender === 'female' ? FEMALE_VOICES : MALE_VOICES;
+          const suggestedV = fields.suggested_voice || prev.ai_voice;
+          const safeV = allowedV.includes(suggestedV) ? suggestedV : getDefaultVoiceForGender(newGender);
+          return {
           ...prev,
           avatar_profile: fields.avatar_profile,
           objections: fields.objections,
           evaluation_criteria: fields.evaluation_criteria,
           ideal_outcome: fields.ideal_outcome,
-          ai_voice: fields.suggested_voice || prev.ai_voice,
+          ai_voice: safeV,
+          character_gender: newGender,
           character_name: fields.character_name || prev.character_name,
           character_role: fields.character_role || prev.character_role,
           personality: fields.personality || prev.personality,
@@ -395,7 +439,7 @@ export function ScenarioWizard({
           criteria_weights: fields.criteria_weights ?? prev.criteria_weights,
           positive_indicators: fields.positive_indicators ?? prev.positive_indicators,
           negative_indicators: fields.negative_indicators ?? prev.negative_indicators,
-        }));
+        };});
       } else {
         throw new Error('Resposta invalida do servidor');
       }
@@ -676,6 +720,60 @@ export function ScenarioWizard({
               </div>
             </div>
 
+            {/* Gender + Session Type + Voice */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Genero do Personagem</label>
+                <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+                  {GENDERS.map(g => (
+                    <button
+                      key={g.value} type="button"
+                      onClick={() => {
+                        const allowed = g.value === 'female' ? FEMALE_VOICES : MALE_VOICES;
+                        setFormData(prev => ({
+                          ...prev,
+                          character_gender: g.value,
+                          ai_voice: allowed.includes(prev.ai_voice) ? prev.ai_voice : getDefaultVoiceForGender(g.value),
+                        }));
+                      }}
+                      className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
+                        formData.character_gender === g.value
+                          ? 'bg-black text-white'
+                          : 'bg-white text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Sessao</label>
+                <select
+                  value={formData.session_type || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, session_type: e.target.value || null }))}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:border-black focus:ring-0 transition-colors outline-none bg-white"
+                >
+                  <option value="">Nao definido</option>
+                  {SESSION_TYPES.map(st => (
+                    <option key={st.value} value={st.value}>{st.label} — {st.description}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Voz</label>
+                <select
+                  value={formData.ai_voice}
+                  onChange={(e) => setFormData(prev => ({ ...prev, ai_voice: e.target.value as AiVoice }))}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:border-black focus:ring-0 transition-colors outline-none bg-white"
+                >
+                  {getVoicesForGender(formData.character_gender).map(v => (
+                    <option key={v.value} value={v.value}>{v.label} - {v.description}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             {/* Personality */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Personalidade</label>
@@ -880,7 +978,7 @@ export function ScenarioWizard({
                       onChange={(e) => setFormData(prev => ({ ...prev, ai_voice: e.target.value as AiVoice }))}
                       className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:border-black focus:ring-0 transition-colors outline-none bg-white"
                     >
-                      {AI_VOICES.map(v => <option key={v.value} value={v.value}>{v.label} - {v.description}</option>)}
+                      {getVoicesForGender(formData.character_gender).map(v => <option key={v.value} value={v.value}>{v.label} - {v.description}</option>)}
                     </select>
                   </div>
                   <div>

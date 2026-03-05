@@ -1,12 +1,20 @@
 import { useState } from 'react';
-import type { Scenario, SessionMode } from '../../types';
+import type { Scenario, SessionMode, AiVoice, CharacterGender } from '../../types';
 
 interface ModeSelectionModalProps {
   scenario: Scenario;
-  onStart: (mode: SessionMode, durationSeconds: number) => void;
+  onStart: (mode: SessionMode, durationSeconds: number, voiceOverride?: AiVoice) => void;
   onCancel: () => void;
   difficultyLevel?: number;
 }
+
+const VOICE_OPTIONS: { value: AiVoice; label: string; gender: CharacterGender }[] = [
+  { value: 'echo', label: 'Echo — Amigavel', gender: 'male' },
+  { value: 'ash', label: 'Ash — Seria', gender: 'male' },
+  { value: 'sage', label: 'Sage — Assertiva', gender: 'male' },
+  { value: 'shimmer', label: 'Shimmer — Suave', gender: 'female' },
+  { value: 'coral', label: 'Coral — Expressiva', gender: 'female' },
+];
 
 const DURATION_OPTIONS = [
   { label: '1 min', seconds: 60 },
@@ -50,8 +58,13 @@ export function ModeSelectionModal({ scenario, onStart, onCancel, difficultyLeve
   const defaultDuration = scenario.target_duration_seconds || 180;
   const [selectedDuration, setSelectedDuration] = useState(defaultDuration);
 
+  const gender: CharacterGender = scenario.character_gender || 'male';
+  const availableVoices = VOICE_OPTIONS.filter(v => v.gender === gender);
+  const [selectedVoice, setSelectedVoice] = useState<AiVoice>(scenario.ai_voice || availableVoices[0]?.value || 'echo');
+
   const handleStart = () => {
-    onStart(selectedMode, selectedDuration);
+    const voiceOverride = selectedVoice !== scenario.ai_voice ? selectedVoice : undefined;
+    onStart(selectedMode, selectedDuration, voiceOverride);
   };
 
   return (
@@ -147,6 +160,28 @@ export function ModeSelectionModal({ scenario, onStart, onCancel, difficultyLeve
               ))}
             </div>
           </div>
+
+          {/* Voice Selector */}
+          {availableVoices.length > 1 && (
+            <div className="mb-5">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Voz do personagem</h3>
+              <div className="flex gap-2">
+                {availableVoices.map((v) => (
+                  <button
+                    key={v.value}
+                    onClick={() => setSelectedVoice(v.value)}
+                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                      selectedVoice === v.value
+                        ? 'bg-black text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Selecione o modo</h3>
 

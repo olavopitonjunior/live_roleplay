@@ -25,6 +25,11 @@ interface EvaluationCriterion {
   description: string;
 }
 
+type AiVoice = "echo" | "ash" | "sage" | "shimmer" | "coral";
+type CharacterGender = "male" | "female";
+const FEMALE_VOICES: AiVoice[] = ["shimmer", "coral"];
+const MALE_VOICES: AiVoice[] = ["echo", "ash", "sage"];
+
 interface ScenarioData {
   title: string;
   category?: string | null;
@@ -35,6 +40,7 @@ interface ScenarioData {
   ideal_outcome?: string | null;
   simli_face_id?: string | null;
   ai_voice?: string | null;
+  character_gender?: CharacterGender | null;
   avatar_provider?: string | null;
   avatar_id?: string | null;
   is_active: boolean;
@@ -100,6 +106,7 @@ const STRUCTURED_FIELDS = [
   "opening_line",
   "success_condition",
   "end_condition",
+  "character_gender",
   "character_name",
   "character_role",
   "personality",
@@ -235,6 +242,19 @@ async function handleCreate(supabase: any, body: CreateRequest, req: Request) {
     );
   }
 
+  // Validate voice-gender consistency
+  if (data.character_gender && data.ai_voice) {
+    const allowed = data.character_gender === "female" ? FEMALE_VOICES : MALE_VOICES;
+    if (!allowed.includes(data.ai_voice as AiVoice)) {
+      return corsErrorResponse(
+        `Voice "${data.ai_voice}" is incompatible with gender "${data.character_gender}". ` +
+        `Allowed voices: ${allowed.join(", ")}`,
+        400,
+        req
+      );
+    }
+  }
+
   // Build insert payload with structured fields
   const insertPayload = {
     title: data.title.trim(),
@@ -367,6 +387,21 @@ async function handleUpdate(supabase: any, body: UpdateRequest, req: Request) {
   // Apply structured fields
   const structuredUpdates = extractStructuredFields(data);
   Object.assign(updates, structuredUpdates);
+
+  // Validate voice-gender consistency (use updated or existing values)
+  const finalGender = (updates.character_gender ?? existing.character_gender) as CharacterGender | null;
+  const finalVoice = (updates.ai_voice ?? existing.ai_voice) as AiVoice | null;
+  if (finalGender && finalVoice) {
+    const allowed = finalGender === "female" ? FEMALE_VOICES : MALE_VOICES;
+    if (!allowed.includes(finalVoice)) {
+      return corsErrorResponse(
+        `Voice "${finalVoice}" is incompatible with gender "${finalGender}". ` +
+        `Allowed voices: ${allowed.join(", ")}`,
+        400,
+        req
+      );
+    }
+  }
 
   // Increment version and add updated_at timestamp
   updates.version = currentVersion + 1;

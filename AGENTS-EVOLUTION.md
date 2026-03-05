@@ -29,11 +29,19 @@ REGRA: Mantenha compatibilidade com o que ja funciona. Sessoes existentes, feedb
 
 ---
 
-## FASE 1: Schema e Modelo de Dados
+## FASE 1: Schema e Modelo de Dados [COMPLETE — Mar 5 2026]
 
 **Objetivo**: Expandir o banco para suportar a nova estrutura de cenarios, coach e relatorio sem quebrar nada existente.
 
 **Sintoma do problema atual**: Cenarios tem apenas `context`, `avatar_profile`, `objections` e `evaluation_criteria`. Todo comportamento dinamico vive hard-coded em `prompts.py`. Nao ha versionamento. Sessoes nao registram modo (solo/coach) nem eventos do coach.
+
+**O que foi implementado:**
+- 22 campos estruturados adicionados a `scenarios` (session_type, character_name, character_role, personality, hidden_objective, initial_emotion, emotional_reactivity, communication_style, typical_phrases, knowledge_limits, backstory, market_context, user_objective, target_duration_seconds, opening_line, success_condition, end_condition, criteria_weights, positive_indicators, negative_indicators, phase_flow, difficulty_escalation, version)
+- `sessions` expandida: scenario_version, coach_events, phase_transitions, tool_activations
+- `feedbacks` expandida: narrative_feedback, assistance_data, next_steps, difficulty_context, session_validity, session_validity_reason, manager_notes
+- Migrations: 021 (sessions/feedbacks expansion), 022 (fix all 16 scenario contexts + backfill structured fields)
+
+**Deferido:** Tabela `scenario_versions` separada. Versionamento implementado via coluna `version` + snapshot JSONB no `manage-scenario` Edge Function.
 
 ### O que implementar
 
@@ -254,11 +262,22 @@ INSTRUCAO: Apos aplicar as migrations, preencher os novos campos dos cenarios ex
 
 ---
 
-## FASE 2: Builder de Cenarios e Compilacao de Prompt
+## FASE 2: Builder de Cenarios e Compilacao de Prompt [PARTIAL — Mar 5 2026]
 
 **Objetivo**: Implementar o fluxo de criacao de cenarios (input minimo → previa conversacional → campos editaveis) e a compilacao do system prompt a partir dos campos estruturados.
 
 **Dependencia**: Fase 1 completa (schema expandido).
+
+**Status de implementacao:**
+- ✅ `generate-scenario` redesenhada com todos os 30+ campos + guardrails (perspectiva do avatar, correspondencia voz-genero)
+- ✅ `build_agent_instructions()` reescrita com 6 secoes (role, personality, context, instructions, flow, safety), compilacao de campos estruturados, fallbacks para cenarios antigos
+- ✅ Versionamento on save (manage-scenario: snapshot + increment)
+- ✅ Frontend: ModeSelectionModal com seletor de duracao + info do personagem
+- ✅ Frontend: ScenarioCard com badges de personagem/duracao/tipo de sessao
+- ✅ create-livekit-token passa scenario_version + target_duration_seconds ao agent
+- ❌ Fluxo de previa conversacional (Step 2 — pendente)
+- ❌ Accordion modo avancado no ScenarioWizard (Step 3 — pendente)
+- ❌ Adaptacao do suggest-scenario-fields (pendente)
 
 ### O que implementar
 

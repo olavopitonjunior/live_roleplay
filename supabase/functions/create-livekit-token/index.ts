@@ -43,10 +43,15 @@ function checkRateLimit(key: string): boolean {
 
 type SessionMode = "training" | "evaluation";
 
+type AiVoice = "echo" | "ash" | "sage" | "shimmer" | "coral";
+const FEMALE_VOICES: AiVoice[] = ["shimmer", "coral"];
+const MALE_VOICES: AiVoice[] = ["echo", "ash", "sage"];
+
 interface RequestBody {
   scenario_id: string;
   access_code: string;
   session_mode?: SessionMode;
+  voice_override?: AiVoice;
 }
 
 interface TokenResponse {
@@ -90,6 +95,7 @@ serve(async (req: Request) => {
       scenario_id,
       access_code,
       session_mode = "training",
+      voice_override,
     }: RequestBody = await req.json();
 
     if (!scenario_id || !access_code) {
@@ -122,7 +128,7 @@ serve(async (req: Request) => {
     // Validate scenario exists and is active, fetch avatar/voice settings
     const { data: scenarioData, error: scenarioError } = await supabase
       .from("scenarios")
-      .select("id, title, simli_face_id, ai_voice, avatar_provider, avatar_id, version, target_duration_seconds")
+      .select("id, title, simli_face_id, ai_voice, avatar_provider, avatar_id, version, target_duration_seconds, character_gender")
       .eq("id", scenario_id)
       .eq("is_active", true)
       .single();
@@ -188,12 +194,25 @@ serve(async (req: Request) => {
       return corsErrorResponse("LiveKit not configured", 500, req);
     }
 
+    // Validate voice_override matches character gender
+    let effectiveVoice = scenarioData.ai_voice || "echo";
+    if (voice_override) {
+      const gender = scenarioData.character_gender || "male";
+      const allowed = gender === "female" ? FEMALE_VOICES : MALE_VOICES;
+      if (allowed.includes(voice_override)) {
+        effectiveVoice = voice_override;
+        console.log(`[VOICE] Override accepted: ${voice_override} for gender ${gender}`);
+      } else {
+        console.warn(`[VOICE] Override rejected: ${voice_override} incompatible with gender ${gender}`);
+      }
+    }
+
     // Prepare metadata for agent (passed via room metadata, not dispatch)
     const agentMetadata = JSON.stringify({
       scenario_id: scenario_id,
       session_id: sessionId,
       simli_face_id: scenarioData.simli_face_id || null,
-      ai_voice: scenarioData.ai_voice || "echo",
+      ai_voice: effectiveVoice,
       avatar_provider: scenarioData.avatar_provider || null,
       avatar_id: scenarioData.avatar_id || null,
       // PRD 08: Session mode

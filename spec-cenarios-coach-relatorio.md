@@ -4,6 +4,17 @@ Data: Marco 2026
 Versao: 1.0
 Status: Para implementacao via Claude Code
 
+## Status de Implementacao
+
+| Camada | Status | Data | Notas |
+|--------|--------|------|-------|
+| Cenarios — Schema (22 campos) | ✅ Completo | Mar 5 2026 | Migrations 021-022. Todos os campos JSONB estruturados |
+| Cenarios — Compilacao de prompt | ✅ Completo | Mar 5 2026 | prompts.py 6 secoes, session_type awareness, fallbacks |
+| Cenarios — Builder UX | ⚠️ Parcial | Mar 5 2026 | Duration selector + character info. Falta previa conversacional |
+| Coach — Orchestrator unificado | ✅ Completo | Mar 4 2026 | ADR-006. InjectionQueue + gating por agent state |
+| Coach — HUD e ferramentas | ❌ Pendente | — | Fase 3: teleprompter, interpret, timeout, phase detection |
+| Relatorio — 5 camadas | ❌ Pendente | — | Fase 4: narrative, key moments, evolution, coach analysis |
+
 ---
 
 ## 1. Visao Geral

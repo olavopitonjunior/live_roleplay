@@ -41,7 +41,7 @@
 │  └───┬────┘  │  │  │Auth      │  │
 │      │       │  │  ├──────────┤  │
 └──────┼───────┘  │  │Edge Func │  │
-       │          │  │(5 funcs) │  │
+       │          │  │(6 funcs) │  │
        │          │  └──────────┘  │
        ▼          └────────────────┘
 ┌─────────────────────────────────────────────────────┐
@@ -57,19 +57,16 @@
 │  │  └────────────┘  │ ├──────────────────┤   │  │   │
 │  │                   │ │Silero VAD        │   │  │   │
 │  │  ┌────────────┐  │ ├──────────────────┤   │  │   │
-│  │  │AI Coach    │  │ │Hedra Character-3 │   │  │   │
-│  │  │(GPT-4o-mini│  │ │(lip-sync avatar) │   │  │   │
-│  │  │ streaming) │  │ │[DISABLED]        │   │  │   │
+│  │  │Coach       │  │ │Hedra Character-3 │   │  │   │
+│  │  │Orchestrator│  │ │(lip-sync avatar) │   │  │   │
+│  │  │(unified)   │  │ │[DISABLED]        │   │  │   │
 │  │  ├────────────┤  │ └──────────────────┘   │  │   │
 │  │  │Emotion     │  └────────────────────────┘  │   │
 │  │  │Analyzer    │                               │   │
 │  │  │(GPT-4o-mini│  ┌────────────────────────┐  │   │
 │  │  │ async)     │  │ Metrics Collector      │  │   │
-│  │  ├────────────┤  │ (custos por sessão)    │  │   │
-│  │  │Conversation│  └────────────────────────┘  │   │
-│  │  │Coach       │                               │   │
-│  │  │(heuristic) │                               │   │
-│  │  └────────────┘                               │   │
+│  │  └────────────┘  │ (custos por sessão)    │  │   │
+│  │                   └────────────────────────┘  │   │
 │  └──────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────┘
        │                      │
@@ -143,12 +140,10 @@
 live_roleplay/
 ├── agent/                          # Agent Python (Railway)
 │   ├── main.py                     # Orquestração LiveKit + OpenAI Realtime + Hedra
-│   ├── prompts.py                  # Construção de prompts dinâmicos por cenário
-│   ├── conversation_coach.py       # Coaching Layer 2 — hesitação e silêncio (heurístico)
-│   ├── ai_coach.py                 # Coaching Layer 3 — sugestões GPT-4o-mini (streaming)
+│   ├── prompts.py                  # Compilação de prompts a partir de campos estruturados (6 seções)
+│   ├── coach_orchestrator.py       # Coaching unificado: keywords + AI + silêncio + SPIN (ADR-006)
 │   ├── emotion_analyzer.py         # Análise emocional GPT-4o-mini (8 estados)
 │   ├── metrics_collector.py        # Coleta de métricas e custos por sessão
-│   ├── coaching.py                 # Coaching Layer 1 — detecção por keywords
 │   ├── requirements.txt            # Dependências Python
 │   ├── Dockerfile                  # Container para Railway
 │   ├── entrypoint.sh               # Script de inicialização (download + start)
@@ -222,12 +217,12 @@ A arquitetura de banco de dados completa está documentada em `docs/database-arc
 | Categoria | Tabela | Descrição |
 |-----------|--------|-----------|
 | **Acesso** | `access_codes` | Códigos de login (trial/enterprise) |
-| **Conteúdo** | `scenarios` | Cenários de treinamento com contexto, perfil e objeções |
+| **Conteúdo** | `scenarios` | Cenários com 22+ campos estruturados (contexto, personagem, fluxo, avaliação, versionamento) |
 | | `criterion_rubrics` | Rubricas de avaliação 1-4 por critério |
 | | `scenario_objections` | Objeções com keywords para detecção |
 | | `scenario_outcomes` | Resultados possíveis do cenário (fechou, escalou, cancelou) |
-| **Sessões** | `sessions` | Sessões de roleplay (transcript, duração, room_name) |
-| | `feedbacks` | Avaliações estruturadas geradas por IA (scores, critérios) |
+| **Sessões** | `sessions` | Sessões de roleplay (transcript, duração, room_name, scenario_version, coach_events) |
+| | `feedbacks` | Avaliações estruturadas (scores, critérios, narrative_feedback, key_moments) |
 | | `session_evidences` | Trechos do transcript linkados a critérios |
 | | `session_objection_status` | Status de cada objeção na sessão (detectada/respondida) |
 | **Perfil** | `user_difficulty_profiles` | Nível adaptativo por usuário/cenário |
@@ -267,7 +262,7 @@ access_codes ──1:1──► user_learning_profiles
 - **Função:** Análise auxiliar em tempo real
   - **Emotion Analyzer:** Detecção de 8 estados emocionais do cliente (async, ~1-2s)
   - **AI Coach:** Sugestões contextuais para o usuário (streaming, a cada 2-3 turnos)
-- **Arquivos:** `agent/emotion_analyzer.py`, `agent/ai_coach.py`
+- **Arquivos:** `agent/emotion_analyzer.py`, `agent/coach_orchestrator.py`
 
 ### Claude API (Anthropic)
 
@@ -304,9 +299,10 @@ access_codes ──1:1──► user_learning_profiles
 
 | Função | Rota | Descrição |
 |--------|------|-----------|
-| `create-livekit-token` | `POST /create-livekit-token` | Gera token JWT para acesso à room LiveKit. Recebe `session_id`, `scenario_id`, `access_code`. Cria registro da sessão no banco. |
+| `create-livekit-token` | `POST /create-livekit-token` | Gera token JWT para room LiveKit. Cria sessão no banco com `scenario_version`. Passa `target_duration_seconds` no metadata do agent. |
 | `generate-feedback` | `POST /generate-feedback` | Gera feedback estruturado via Claude API. Recebe `session_id`, busca transcript e cenário, envia para Claude, salva score e critérios. |
-| `generate-scenario` | `POST /generate-scenario` | Gera cenários de treinamento usando AI. Cria contexto, perfil de avatar, objeções e critérios de avaliação. |
+| `generate-scenario` | `POST /generate-scenario` | Gera cenários com todos os 30+ campos estruturados. Inclui guardrails de perspectiva do avatar e correspondência voz-gênero. |
+| `manage-scenario` | `POST /manage-scenario` | CRUD de cenários com versionamento automático (snapshot + incremento de versão a cada edição). |
 | `suggest-scenario-fields` | `POST /suggest-scenario-fields` | Sugere campos individuais para cenários. Usado no formulário de criação/edição de cenários. |
 | `get-api-metrics` | `GET /get-api-metrics` | Retorna métricas de uso de APIs agregadas. Suporta filtros por período, cenário e código de acesso. |
 
@@ -349,57 +345,72 @@ access_codes ──1:1──► user_learning_profiles
                                     ┌──────────────┼──────────────┐
                                     │              │              │
                                     ▼              ▼              ▼
-                           ┌──────────────┐ ┌────────────┐ ┌──────────────┐
-                           │ Layer 1:     │ │ Layer 2:   │ │ Layer 3:     │
-                           │ Keywords     │ │ Heuristic  │ │ AI Coach     │
-                           │ (coaching.py)│ │ (convers.  │ │ (ai_coach.py)│
-                           │ Zero cost    │ │  _coach.py)│ │ GPT-4o-mini  │
-                           │              │ │ Zero cost  │ │ Streaming    │
-                           └──────────────┘ └────────────┘ └──────────────┘
+                           ┌─────────────────────────────────────────────┐
+                           │ Coach Orchestrator (unified — ADR-006)      │
+                           │ ┌───────────┐ ┌───────────┐ ┌───────────┐  │
+                           │ │ Keywords  │ │ Heuristic │ │ AI Coach  │  │
+                           │ │ (SPIN)    │ │ (silence, │ │ (GPT-4o-  │  │
+                           │ │ Zero cost │ │  hesitat.) │ │  mini)    │  │
+                           │ └───────────┘ └───────────┘ └───────────┘  │
+                           │ InjectionQueue + AgentState gating         │
+                           └─────────────────────────────────────────────┘
 ```
 
 ### Estrutura de Prompts (`prompts.py`)
 
-O sistema constrói prompts dinâmicos via `build_agent_instructions()`:
+O sistema compila prompts a partir de campos estruturados do cenário via `build_agent_instructions()`. Cada seção é construída por uma função dedicada com fallbacks para cenários antigos.
 
 ```
 build_agent_instructions(scenario, outcomes, difficulty_level)
 │
-├── 1. SEU PAPEL (CRÍTICO)
-│   └── Define avatar como CLIENTE/PROSPECT, nunca vendedor
-│   └── Regras anti-inversão de papéis
+├── 1. PAPEL (_build_role_section)
+│   ├── character_name + character_role → identidade do avatar
+│   ├── Regras anti-inversão de papéis (12 regras)
+│   └── Fallback: "CLIENTE/PROSPECT" se sem character_name
 │
-├── 2. DIFICULDADE (1-10)
-│   ├── Fácil (1-3):  Receptivo, 1-2 objeções leves
-│   ├── Médio (4-6):  Neutro, 2-3 objeções firmes
-│   └── Difícil (7-10): Cético, 3-5 objeções fortes
+├── 2. PERSONALIDADE (_build_personality_section)
+│   ├── personality (texto livre)
+│   ├── communication_style (formality, verbosity, patterns)
+│   ├── typical_phrases (âncoras de personagem)
+│   └── emotional_reactivity (triggers → reactions)
 │
-├── 3. CONTEXTO DO CENÁRIO
-│   └── Situação específica (ex: cliente cancelando serviço)
+├── 3. CONTEXTO (_build_context_section)
+│   ├── context (perspectiva do AVATAR, não do usuário)
+│   ├── session_type → comportamento específico:
+│   │   ├── cold_call: surpresa, desconfiança, ameaça desligar
+│   │   ├── interview: candidato sendo avaliado
+│   │   ├── negotiation: defende posição com dados
+│   │   └── retention: cliente firme em cancelar
+│   ├── market_context, backstory, user_objective
+│   └── Fallback: context genérico se sem session_type
 │
-├── 4. PERFIL DO AVATAR
-│   └── Personalidade, idade, profissão, comunicação
-│
-├── 5. OBJEÇÕES
-│   └── Lista de objeções a apresentar naturalmente
-│
-├── 6. RESULTADOS POSSÍVEIS
+├── 4. INSTRUÇÕES (_build_instructions_section)
+│   ├── Dificuldade 1-10 (fácil/médio/difícil)
+│   ├── Objeções com timing e severidade
 │   └── Outcomes com frases de encerramento
 │
-└── 7. REGRAS (11 regras)
-    ├── Papel fixo do início ao fim
-    ├── Respostas curtas (1-3 frases)
-    ├── Português brasileiro natural
-    └── Nunca salvar a conversa assumindo outro papel
+├── 5. FLUXO (_build_flow_section)
+│   ├── phase_flow.phases[] (nome, duração, triggers)
+│   ├── difficulty_escalation.stages[] (threshold, behavior)
+│   ├── emotional_reactivity.triggers[] (event → reaction)
+│   ├── success_condition, end_condition
+│   └── Fallback: instruções baseadas em dificuldade se sem phase_flow
+│
+└── 6. SEGURANÇA (_build_safety_section)
+    ├── opening_line (com defaults por session_type)
+    ├── 12 regras de comportamento
+    └── target_duration_seconds
 ```
 
-### Camadas de Coaching
+### Coaching Unificado (`coach_orchestrator.py` — ADR-006)
 
-| Layer | Módulo | Método | Custo | Frequência |
-|-------|--------|--------|-------|------------|
-| 1 | `coaching.py` | Detecção por keywords (SPIN selling) | Zero | Toda fala do usuário |
-| 2 | `conversation_coach.py` | Heurística: hesitação (respostas curtas) + silêncio (watchdog) | Zero | Proativo (background loop) |
-| 3 | `ai_coach.py` | GPT-4o-mini streaming com contexto de conversa | ~$0.001/chamada | A cada 2-3 turnos |
+Todas as camadas de coaching são gerenciadas por um único `CoachOrchestrator` com `InjectionQueue` (prioridade HIGH/MEDIUM/LOW) e gating por `AgentState` (mensagens enfileiradas durante SPEAKING).
+
+| Tipo | Método | Custo | Frequência |
+|------|--------|-------|------------|
+| Keywords (SPIN) | Detecção síncrona de palavras-chave | Zero | Toda fala do usuário |
+| Heurístico | Hesitação (respostas curtas) + silêncio (watchdog) | Zero | Proativo (background loop) |
+| AI Coach | GPT-4o-mini streaming com contexto | ~$0.001/chamada | A cada 2-3 turnos |
 
 ### Análise Emocional
 
@@ -411,13 +422,13 @@ build_agent_instructions(scenario, outcomes, difficulty_level)
 ### Ciclo de Vida da Sessão
 
 ```
-1. CRIAÇÃO        → Edge Function cria sessão no banco + gera token LiveKit
+1. CRIAÇÃO        → Edge Function cria sessão (com scenario_version) + gera token LiveKit
 2. CONEXÃO        → Agent conecta à room, carrega cenário do Supabase
-3. INICIALIZAÇÃO  → Constrói prompt dinâmico, inicializa plugins
-4. GREETING       → Agent envia saudação do avatar (1ª fala)
-5. CONVERSA       → Loop de turnos (máx 3 minutos)
-                  → Coaching em tempo real (3 layers)
-                  → Emotion analysis (async)
+3. INICIALIZAÇÃO  → Compila prompt de campos estruturados, inicializa plugins
+4. GREETING       → Agent envia opening_line do cenário (ou default por session_type)
+5. CONVERSA       → Loop de turnos (duração selecionável, padrão 3 min)
+                  → Coaching em tempo real (CoachOrchestrator unificado)
+                  → Emotion analysis (async, GPT-4o-mini)
                   → Metrics collection (contínuo)
 6. ENCERRAMENTO   → Transcript final salvo no Supabase
                   → Métricas de custo salvas

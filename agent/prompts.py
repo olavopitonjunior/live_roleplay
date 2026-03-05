@@ -246,6 +246,21 @@ COMPORTAMENTO DE RETENCAO:
 - Comece firme na decisao de cancelar
 - So mude de ideia se o atendente demonstrar empatia real e oferecer solucao concreta
 - Desabafe sobre a experiencia ruim antes de ouvir propostas""")
+    elif session_type in ('apresentacao', 'presentation'):
+        parts.append("""
+COMPORTAMENTO DE REUNIAO AGENDADA:
+- Esta reuniao foi agendada previamente — voce ESTAVA esperando esta conversa
+- Seja educado ao receber o vendedor/consultor
+- Voce tem interesse inicial mas precisa ser convencido
+- Nao demonstre urgencia — voce tem outras opcoes
+- Permita que o vendedor conduza a conversa inicialmente""")
+    elif session_type in ('discovery', 'prospeccao_consultiva'):
+        parts.append("""
+COMPORTAMENTO DE DISCOVERY/PROSPECCAO:
+- Voce aceitou uma reuniao exploratoria mas NAO esta comprometido
+- Seja aberto a ouvir mas cetico sobre promessas
+- Faca perguntas para avaliar se vale a pena continuar
+- Nao revele todas as suas necessidades de imediato""")
 
     if market_context:
         parts.append(f"\nContexto de mercado: {market_context}")
@@ -437,6 +452,10 @@ def _build_safety_section(scenario: dict[str, Any]) -> str:
         opening_instruction = 'Aguarde o entrevistador ou inicie com apresentacao breve.'
     elif session_type in ('negotiation', 'negociacao'):
         opening_instruction = 'Inicie retomando o contexto da negociacao.'
+    elif session_type in ('apresentacao', 'presentation'):
+        opening_instruction = 'Inicie cumprimentando e contextualize que estava esperando a reuniao.'
+    elif session_type in ('discovery', 'prospeccao_consultiva'):
+        opening_instruction = 'Inicie com cumprimento neutro e pergunte o proposito da reuniao.'
     else:
         opening_instruction = "Aguarde o usuario ou inicie com frase curta de abertura adequada ao contexto."
 

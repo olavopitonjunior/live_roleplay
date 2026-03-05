@@ -570,6 +570,23 @@ function validateScenario(
     (scenario.suggested_voice as string) || "echo"
   );
 
+  // 4b. Infer character_gender and enforce voice-gender match
+  const femaleVoices = ["shimmer", "coral"];
+  const maleVoices = ["echo", "ash", "sage"];
+  const charName = (scenario.character_name as string) || "";
+  // Use character_gender if AI provided it, otherwise infer from voice
+  let inferredGender = (scenario as Record<string, unknown>).character_gender as string | undefined;
+  if (!inferredGender) {
+    inferredGender = femaleVoices.includes(scenario.suggested_voice as string) ? "female" : "male";
+  }
+  (scenario as Record<string, unknown>).character_gender = inferredGender;
+  // Enforce voice matches gender
+  const allowedVoices = inferredGender === "female" ? femaleVoices : maleVoices;
+  if (!allowedVoices.includes(scenario.suggested_voice as string)) {
+    scenario.suggested_voice = inferredGender === "female" ? "shimmer" : "echo";
+    console.log(`[VOICE-GENDER] Corrected voice to ${scenario.suggested_voice} for ${inferredGender} character "${charName}"`);
+  }
+
   // 5. Defaults for Phase 2 fields (best-effort — don't fail if missing)
   scenario.suggested_category =
     (scenario.suggested_category as string) || "Geral";

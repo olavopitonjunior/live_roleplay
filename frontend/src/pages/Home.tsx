@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useScenarios } from '../hooks/useScenarios';
 import { useDifficultyProfile } from '../hooks/useDifficultyProfile';
 import { ScenarioList, ModeSelectionModal } from '../components/Scenarios';
-import type { Scenario, SessionMode } from '../types';
+import type { Scenario, SessionMode, AiVoice } from '../types';
 
 export function Home() {
   const navigate = useNavigate();
@@ -17,10 +17,10 @@ export function Home() {
     setSelectedScenario(scenario);
   };
 
-  const handleModeStart = (mode: SessionMode, durationSeconds: number) => {
+  const handleModeStart = (mode: SessionMode, durationSeconds: number, voiceOverride?: AiVoice) => {
     if (selectedScenario) {
       navigate(`/session/${selectedScenario.id}`, {
-        state: { sessionMode: mode, durationSeconds }
+        state: { sessionMode: mode, durationSeconds, voiceOverride }
       });
     }
   };

@@ -237,6 +237,7 @@ REGRAS:
 ORCHESTRATOR_EVAL_PROMPT = """Voce e um avaliador de sessao de roleplay de vendas.
 
 CENARIO: {scenario_context}
+TIPO DE SESSAO: {session_type}
 PERFIL DO AVATAR: {avatar_profile}
 
 CRITERIOS DE AVALIACAO:
@@ -259,6 +260,7 @@ Avalie esta fala do usuario e retorne JSON valido (sem markdown):
 COACHING_PLAN_PROMPT = """Voce e um coach de vendas expert. Gere um roteiro de sugestoes para uma sessao de treinamento.
 
 Cenario: {scenario_context}
+Tipo de sessao: {session_type}
 Avatar: {avatar_profile}
 Objecoes esperadas: {expected_objections}
 Criterios de avaliacao: {criteria_formatted}
@@ -501,6 +503,7 @@ class CoachOrchestrator:
         self._criterion_rubrics = criterion_rubrics
         self._difficulty_level = difficulty_level
         self._session_mode = session_mode
+        self._session_type = scenario.get('session_type', '')
         self._duration_seconds = duration_seconds
         self._active = session_mode == "training"
 
@@ -617,6 +620,7 @@ class CoachOrchestrator:
 
         prompt = COACHING_PLAN_PROMPT.format(
             scenario_context=scenario.get("context", ""),
+            session_type=self._session_type,
             avatar_profile=scenario.get("avatar_profile", ""),
             expected_objections=", ".join(obj_texts) if obj_texts else "Nenhuma especifica",
             criteria_formatted="\n".join(criteria_lines) if criteria_lines else "Nenhum criterio",
@@ -821,6 +825,7 @@ class CoachOrchestrator:
 
         prompt = ORCHESTRATOR_EVAL_PROMPT.format(
             scenario_context=self._scenario.get("context", ""),
+            session_type=self._session_type,
             avatar_profile=self._scenario.get("avatar_profile", ""),
             criteria_rubrics_formatted=rubrics_text,
             ideal_outcome=ideal_text,
@@ -909,6 +914,16 @@ class CoachOrchestrator:
         # Build role reminder from scenario
         avatar_name = self._scenario.get("avatar_profile", "um cliente")
         role_reminder = f"Voce e {avatar_name}. Voce e o CLIENTE/PROSPECT. NUNCA inverta papeis."
+
+        # Add session_type context to role reminder
+        if self._session_type == 'cold_call':
+            role_reminder += " LEMBRE: voce NAO estava esperando esta ligacao."
+        elif self._session_type in ('entrevista', 'interview'):
+            role_reminder += " LEMBRE: voce e o CANDIDATO sendo entrevistado."
+        elif self._session_type in ('apresentacao', 'presentation'):
+            role_reminder += " LEMBRE: esta reuniao foi agendada — voce estava esperando."
+        elif self._session_type in ('retencao', 'retention'):
+            role_reminder += " LEMBRE: voce e um cliente insatisfeito querendo cancelar."
 
         # Conversation summary
         summary = self._conversation_summary or self._build_quick_summary()

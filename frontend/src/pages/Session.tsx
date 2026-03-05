@@ -21,6 +21,7 @@ interface Scenario {
 interface LocationState {
   sessionMode?: SessionMode;
   durationSeconds?: number;
+  voiceOverride?: string;
 }
 
 export function Session() {
@@ -105,7 +106,7 @@ export function Session() {
 
     const initSession = async () => {
       try {
-        await startSession(scenarioId, accessCode.code, sessionMode);
+        await startSession(scenarioId, accessCode.code, sessionMode, locationState?.voiceOverride);
       } catch (err) {
         setInitError(
           err instanceof Error ? err.message : 'Falha ao iniciar sessao'

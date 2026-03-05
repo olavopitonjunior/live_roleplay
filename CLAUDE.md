@@ -21,8 +21,8 @@ live_roleplay/
 │       └── lib/          # Supabase client
 ├── agent/             # Python agent
 │   ├── main.py        # Orquestração LiveKit + OpenAI Realtime + Hedra
-│   ├── prompts.py     # Construção de prompts dinâmicos
-│   ├── coach_orchestrator.py  # Unified coaching: keywords + AI + silence + SPIN
+│   ├── prompts.py     # Compilação de prompts a partir de campos estruturados (6 seções)
+│   ├── coach_orchestrator.py  # Unified coaching: keywords + AI + silence + SPIN (ADR-006)
 │   ├── emotion_analyzer.py  # GPT-4o-mini emotion detection
 │   └── metrics_collector.py # Coleta de métricas da sessão
 ├── supabase/
@@ -70,24 +70,23 @@ Use `/api-docs` para consultar documentação detalhada de qualquer API.
 
 ### Arquitetura de Prompts (`agent/prompts.py`)
 
-O sistema usa prompts dinâmicos construídos em tempo real baseados no cenário:
+O sistema compila prompts a partir de 22+ campos estruturados do cenário. Cada seção tem fallbacks para cenários antigos (sem campos estruturados).
 
 ```python
 build_agent_instructions(
-    scenario,      # Contexto, perfil, objeções
-    outcomes,      # Finais possíveis
+    scenario,         # Cenário com campos estruturados (character_name, personality, phase_flow, etc.)
+    outcomes,         # Finais possíveis
     difficulty_level  # 1-10
 )
 ```
 
-**Estrutura do prompt:**
-1. **SEU PAPEL**: Define claramente que avatar é CLIENTE/PROSPECT, não vendedor
-2. **DIFICULDADE**: Comportamento adaptativo (fácil→receptivo, difícil→cético)
-3. **CONTEXTO**: Cenário específico (ex: cliente frustrado cancelando serviço)
-4. **SEU PERFIL**: Personalidade e características do avatar
-5. **OBJEÇÕES**: Lista de objeções que devem ser apresentadas naturalmente
-6. **COMPORTAMENTO EMOCIONAL**: Evolução emocional durante conversa
-7. **REGRAS**: 12 regras críticas incluindo manutenção de papel fixo e perguntas pessoais
+**6 seções do prompt (compiladas por funções dedicadas):**
+1. **PAPEL** (`_build_role_section`): character_name + character_role, regras anti-inversão (12 regras)
+2. **PERSONALIDADE** (`_build_personality_section`): personality, communication_style, typical_phrases, emotional_reactivity
+3. **CONTEXTO** (`_build_context_section`): context (perspectiva do AVATAR), session_type → comportamento específico (cold_call=surpresa, interview=candidato, negotiation=defesa, retention=cancelamento), market_context, backstory
+4. **INSTRUÇÕES** (`_build_instructions_section`): dificuldade 1-10, objeções, outcomes
+5. **FLUXO** (`_build_flow_section`): phase_flow.phases[], difficulty_escalation.stages[], success/end conditions
+6. **SEGURANÇA** (`_build_safety_section`): opening_line (defaults por session_type), regras 1-12, target_duration
 
 ### Prevenção de Inversão de Papéis
 
@@ -173,6 +172,8 @@ Consultar antes de propor mudanças de stack ou infraestrutura.
 | Documento | Localização | Conteúdo |
 |-----------|-------------|----------|
 | Spec técnica (atual) | `docs/spec.md` | Stack, integrações, arquitetura do agent |
+| AGENTS-EVOLUTION | `AGENTS-EVOLUTION.md` | Roadmap de evolução: cenários, coach, relatório (5 fases) |
+| Spec conceitual | `spec-cenarios-coach-relatorio.md` | Decisões de produto para cenários, coach e relatório |
 | PRD evolutivo | `docs/prd/00-08` | 9 módulos da visão de produto |
 | DB architecture | `docs/database-architecture-v2.1.md` | Schema 12+ tabelas |
 | ADRs | `docs/adr/` | Decisões arquiteturais com contexto |
@@ -183,11 +184,11 @@ Consultar antes de propor mudanças de stack ou infraestrutura.
 ## Fluxo Principal
 
 1. Usuário entra com código de acesso
-2. Seleciona cenário de treinamento
-3. Frontend solicita token LiveKit (Edge Function)
+2. Seleciona cenário → modal de modo (training/evaluation) com seletor de duração e info do personagem
+3. Frontend solicita token LiveKit (Edge Function cria sessão com scenario_version)
 4. Conecta à room WebRTC
 5. Agent inicia com OpenAI Realtime (audio-only, Hedra suspenso)
-6. Sessão de roleplay (max 3 min)
+6. Sessão de roleplay (duração selecionável, padrão 3 min)
 7. Transcript salvo, feedback gerado via Claude
 8. Usuário visualiza score e critérios
 

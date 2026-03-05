@@ -2,7 +2,7 @@
 
 ## Status
 
-Aceito — Data: 2026-03-04
+Aceito e Implementado — Data: 2026-03-04
 
 ## Contexto
 

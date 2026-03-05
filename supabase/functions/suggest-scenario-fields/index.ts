@@ -824,6 +824,24 @@ serve(async (req: Request) => {
       suggestedFields.suggested_voice = "echo";
     }
 
+    // --- Voice-gender enforcement ---
+    const femaleVoices = ["shimmer", "coral"];
+    const maleVoices = ["echo", "ash", "sage"];
+    // Infer gender from character_gender field or from voice
+    let inferredGender = suggestedFields.character_gender as string | undefined;
+    if (!inferredGender && suggestedFields.suggested_voice) {
+      inferredGender = femaleVoices.includes(suggestedFields.suggested_voice) ? "female" : "male";
+    }
+    if (inferredGender) {
+      suggestedFields.character_gender = inferredGender;
+      if (suggestedFields.suggested_voice) {
+        const allowedVoices = inferredGender === "female" ? femaleVoices : maleVoices;
+        if (!allowedVoices.includes(suggestedFields.suggested_voice)) {
+          suggestedFields.suggested_voice = inferredGender === "female" ? "shimmer" : "echo";
+        }
+      }
+    }
+
     // --- Normalize criteria_weights: ensure values sum to ~1.0 ---
     if (suggestedFields.criteria_weights && typeof suggestedFields.criteria_weights === 'object') {
       const weights = suggestedFields.criteria_weights;

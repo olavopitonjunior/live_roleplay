@@ -75,6 +75,9 @@ export interface EvaluationCriterion {
 // Available AI voices (OpenAI Realtime)
 export type AiVoice = 'echo' | 'ash' | 'shimmer' | 'sage' | 'coral';
 
+// Character gender (drives voice filtering)
+export type CharacterGender = 'male' | 'female';
+
 // Legacy alias for backwards compatibility
 export type GeminiVoice = AiVoice;
 
@@ -151,6 +154,7 @@ export interface Scenario {
   success_condition?: string | null;
   end_condition?: string | null;
   // Bloco Personagem
+  character_gender?: CharacterGender | null;
   character_name?: string | null;
   character_role?: string | null;
   personality?: string | null;
@@ -190,6 +194,7 @@ export interface GeneratedScenario {
   suggested_voice: AiVoice;
   // AGENTS-EVOLUTION: New structured fields (all optional in generated output)
   suggested_category?: string;
+  character_gender?: CharacterGender;
   character_name?: string;
   character_role?: string;
   personality?: string;
@@ -229,6 +234,7 @@ export interface SuggestedScenarioFields {
   ideal_outcome: string;
   suggested_voice: AiVoice;
   // AGENTS-EVOLUTION: New structured fields
+  character_gender?: CharacterGender;
   character_name?: string;
   character_role?: string;
   personality?: string;
@@ -269,6 +275,7 @@ export interface ScenarioFormData {
   is_active: boolean;
   // Structured fields
   target_duration_seconds: number | null;
+  character_gender: CharacterGender;
   character_name: string;
   character_role: string;
   personality: string;

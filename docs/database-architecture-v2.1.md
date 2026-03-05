@@ -56,6 +56,11 @@ Este documento apresenta a proposta de evolução da arquitetura de banco de dad
 | **Métricas** | `api_metrics` | Custos de APIs | 004, 017 |
 
 > **Nota (Mar 2026):** Migrations 018 (coaching objectives JSONB em scenarios) e 019 (category VARCHAR(100) em scenarios) foram aplicadas. Migration 020 insere 6 cenários RE/MAX com rubrics, objections e outcomes.
+>
+> **Nota (Mar 5 2026 — AGENTS-EVOLUTION Phase 1-2):**
+> - 22 campos estruturados adicionados a `scenarios` via SQL direto: session_type, market_context, user_objective, target_duration_seconds, opening_line, success_condition, end_condition, character_name, character_role, personality, hidden_objective, initial_emotion, emotional_reactivity (JSONB), communication_style (JSONB), typical_phrases (JSONB), knowledge_limits (JSONB), backstory, criteria_weights (JSONB), positive_indicators (JSONB), negative_indicators (JSONB), phase_flow (JSONB), difficulty_escalation (JSONB), version (INTEGER DEFAULT 1)
+> - **Migration 021** (`expand_sessions_feedbacks`): Expanded `sessions` (+scenario_version, +coach_events JSONB, +phase_transitions JSONB, +tool_activations JSONB). Expanded `feedbacks` (+narrative_feedback, +assistance_data JSONB, +next_steps, +difficulty_context, +session_validity, +session_validity_reason, +manager_notes)
+> - **Migration 022** (`fix_all_scenario_contexts`): Fixed all 16 scenario contexts to avatar perspective ("Voce e [character_name]..."), corrected voice-gender mismatches, backfilled character_name, character_role, session_type, opening_line, and all JSONB structured fields
 
 ### 1.2 O Que Já Funciona Bem
 
