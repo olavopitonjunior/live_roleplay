@@ -31,6 +31,7 @@ interface ScenarioFormProps {
 
 export interface ScenarioFormData {
   title: string;
+  category: string;
   context: string;
   avatar_profile: string;
   objections: Objection[];
@@ -45,6 +46,7 @@ export interface ScenarioFormData {
 
 const emptyFormData: ScenarioFormData = {
   title: '',
+  category: '',
   context: '',
   avatar_profile: '',
   objections: [{ id: 'obj_1', description: '' }],
@@ -230,6 +232,7 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
       if (generatedData) {
         setFormData({
           title: generatedData.title,
+          category: '',
           context: generatedData.context,
           avatar_profile: generatedData.avatar_profile,
           objections: generatedData.objections,
@@ -244,6 +247,7 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
       } else if (scenario && (mode === 'edit' || mode === 'duplicate')) {
         setFormData({
           title: mode === 'duplicate' ? `${scenario.title} (Copia)` : scenario.title,
+          category: scenario.category || '',
           context: scenario.context,
           avatar_profile: scenario.avatar_profile,
           objections: scenario.objections.length > 0
@@ -407,6 +411,27 @@ export function ScenarioForm({ isOpen, onClose, onSubmit, scenario, mode, genera
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
                        focus:border-black focus:ring-0 transition-colors outline-none"
           />
+        </div>
+
+        {/* Category */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Categoria
+          </label>
+          <input
+            type="text"
+            value={formData.category}
+            onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+            placeholder="Ex: RE/MAX — Entrevista por Competencias"
+            list="category-suggestions"
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg
+                       focus:border-black focus:ring-0 transition-colors outline-none"
+          />
+          <datalist id="category-suggestions">
+            <option value="Testes" />
+            <option value="RE/MAX — Entrevista por Competencias" />
+            <option value="RE/MAX — Cold Calls e Negociacao" />
+          </datalist>
         </div>
 
         {/* Context */}

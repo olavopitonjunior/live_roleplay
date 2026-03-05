@@ -22,8 +22,7 @@ live_roleplay/
 ├── agent/             # Python agent
 │   ├── main.py        # Orquestração LiveKit + OpenAI Realtime + Hedra
 │   ├── prompts.py     # Construção de prompts dinâmicos
-│   ├── conversation_coach.py  # Coaching layer 2 (silence/hesitation)
-│   ├── ai_coach.py    # GPT-4o-mini coaching suggestions em tempo real
+│   ├── coach_orchestrator.py  # Unified coaching: keywords + AI + silence + SPIN
 │   ├── emotion_analyzer.py  # GPT-4o-mini emotion detection
 │   └── metrics_collector.py # Coleta de métricas da sessão
 ├── supabase/
@@ -31,6 +30,7 @@ live_roleplay/
 │       ├── create-livekit-token/
 │       ├── generate-feedback/
 │       ├── generate-scenario/
+│       ├── manage-scenario/
 │       ├── suggest-scenario-fields/
 │       └── get-api-metrics/
 └── tests/             # Playwright E2E tests (26 specs)
@@ -87,7 +87,7 @@ build_agent_instructions(
 4. **SEU PERFIL**: Personalidade e características do avatar
 5. **OBJEÇÕES**: Lista de objeções que devem ser apresentadas naturalmente
 6. **COMPORTAMENTO EMOCIONAL**: Evolução emocional durante conversa
-7. **REGRAS**: 11 regras críticas incluindo manutenção de papel fixo
+7. **REGRAS**: 12 regras críticas incluindo manutenção de papel fixo e perguntas pessoais
 
 ### Prevenção de Inversão de Papéis
 
@@ -166,6 +166,7 @@ Consultar antes de propor mudanças de stack ou infraestrutura.
 | [003](docs/adr/003-avatar-talkinghead.md) | Avatar: TalkingHead.js (3D estilizado) | Proposto |
 | [004](docs/adr/004-aws-sp-infra.md) | Infra: AWS sa-east-1 (EC2 t3.medium) | Proposto |
 | [005](docs/adr/005-pipecat-poc.md) | PoC paralelo com Pipecat | Proposto |
+| [006](docs/adr/006-coach-orchestrator.md) | Coach Orchestrator (unified coaching) | Aceito |
 
 ## Documentação Técnica
 

@@ -11,6 +11,7 @@ Registro de decisoes arquiteturais do projeto Live Roleplay, plataforma de trein
 | [ADR-003](003-avatar-talkinghead.md) | Avatar 3D com TalkingHead.js | Proposto | 2026-02-17 |
 | [ADR-004](004-aws-sp-infra.md) | Infraestrutura AWS Sao Paulo | Proposto | 2026-02-17 |
 | [ADR-005](005-pipecat-poc.md) | PoC com Pipecat Framework | Proposto | 2026-02-17 |
+| [ADR-006](006-coach-orchestrator.md) | Coach Orchestrator (unified coaching) | Aceito | 2026-03-04 |
 
 ---
 

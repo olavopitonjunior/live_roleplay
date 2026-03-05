@@ -26,13 +26,14 @@ interface EvaluationCriterion {
 
 interface ScenarioData {
   title: string;
+  category?: string | null;
   context: string;
   avatar_profile: string;
   objections: Objection[];
   evaluation_criteria: EvaluationCriterion[];
   ideal_outcome?: string | null;
   simli_face_id?: string | null;
-  gemini_voice?: string | null;
+  ai_voice?: string | null;
   avatar_provider?: string | null;
   avatar_id?: string | null;
   is_active: boolean;
@@ -165,13 +166,14 @@ async function handleCreate(supabase: any, body: CreateRequest, req: Request) {
     .from("scenarios")
     .insert({
       title: data.title.trim(),
+      category: data.category?.trim() || null,
       context: data.context.trim(),
       avatar_profile: data.avatar_profile.trim(),
       objections: cleanedObjections,
       evaluation_criteria: cleanedCriteria,
       ideal_outcome: data.ideal_outcome?.trim() || null,
       simli_face_id: data.simli_face_id?.trim() || null,
-      gemini_voice: data.gemini_voice || null,
+      ai_voice: data.ai_voice || null,
       avatar_provider: data.avatar_provider || null,
       avatar_id: data.avatar_id?.trim() || null,
       is_active: data.is_active ?? true,
@@ -217,6 +219,9 @@ async function handleUpdate(supabase: any, body: UpdateRequest, req: Request) {
   if (data.title !== undefined) {
     updates.title = data.title.trim();
   }
+  if (data.category !== undefined) {
+    updates.category = data.category?.trim() || null;
+  }
   if (data.context !== undefined) {
     updates.context = data.context.trim();
   }
@@ -253,8 +258,8 @@ async function handleUpdate(supabase: any, body: UpdateRequest, req: Request) {
   if (data.simli_face_id !== undefined) {
     updates.simli_face_id = data.simli_face_id?.trim() || null;
   }
-  if (data.gemini_voice !== undefined) {
-    updates.gemini_voice = data.gemini_voice || null;
+  if (data.ai_voice !== undefined) {
+    updates.ai_voice = data.ai_voice || null;
   }
   if (data.avatar_provider !== undefined) {
     updates.avatar_provider = data.avatar_provider || null;
