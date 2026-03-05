@@ -73,6 +73,7 @@ interface TranscriptContextType {
   hints: CoachingHint[];
   latestHint: CoachingHint | null;
   aiSuggestion: AISuggestion | null;
+  aiSuggestionHistory: AISuggestion[];
   coachingState: CoachingState | null;
   isProcessing: boolean;
 
@@ -101,6 +102,7 @@ export function TranscriptProvider({ children }: TranscriptProviderProps) {
   const [hints, setHints] = useState<CoachingHint[]>([]);
   const [latestHint, setLatestHint] = useState<CoachingHint | null>(null);
   const [aiSuggestion, setAiSuggestion] = useState<AISuggestion | null>(null);
+  const [aiSuggestionHistory, setAiSuggestionHistory] = useState<AISuggestion[]>([]);
   const [coachingState, setCoachingState] = useState<CoachingState | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -171,11 +173,12 @@ export function TranscriptProvider({ children }: TranscriptProviderProps) {
             timestamp: data.timestamp,
           };
 
+          // Add to history before setting current (skip streaming partials)
+          if (!suggestion.is_streaming) {
+            setAiSuggestionHistory(prev => [...prev, suggestion].slice(-20));
+          }
           setAiSuggestion(suggestion);
           setIsProcessing(false);
-
-          // Auto-clear after 8 seconds
-          setTimeout(() => setAiSuggestion(null), 8000);
         }
 
         // Handle processing state
@@ -202,8 +205,8 @@ export function TranscriptProvider({ children }: TranscriptProviderProps) {
           });
           setLatestHint(hint);
 
-          // Auto-clear latest hint after 3 seconds
-          setTimeout(() => setLatestHint(null), 3000);
+          // Auto-clear latest hint after 8 seconds
+          setTimeout(() => setLatestHint(null), 8000);
         }
 
         // Handle full coaching state update
@@ -261,6 +264,7 @@ export function TranscriptProvider({ children }: TranscriptProviderProps) {
     hints,
     latestHint,
     aiSuggestion,
+    aiSuggestionHistory,
     coachingState,
     isProcessing,
     preloadedSuggestions,

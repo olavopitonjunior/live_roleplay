@@ -72,6 +72,7 @@ export function CoachingPanel() {
     hints,
     latestHint,
     aiSuggestion,
+    aiSuggestionHistory,
     coachingState,
     isProcessing,
     preloadedSuggestions,
@@ -382,6 +383,31 @@ export function CoachingPanel() {
                   <div className="flex-1 min-w-0">
                     <p className="text-neutral-300 font-medium">{hint.title}</p>
                     <p className="text-neutral-500 text-[10px] mt-0.5 line-clamp-1">{hint.message}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* AI Suggestion History */}
+        {aiSuggestionHistory.length > 1 && (
+          <div className="bg-neutral-800/50 rounded-lg p-3 border border-neutral-700">
+            <h3 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">
+              Historico de Sugestoes
+            </h3>
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {aiSuggestionHistory.slice(0, -1).reverse().map((s) => (
+                <div key={s.id} className="flex items-start gap-2 text-xs opacity-70">
+                  <span>{AI_SUGGESTION_ICONS[s.type] || ''}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-neutral-300 font-medium line-clamp-1">
+                      {s.type === 'question' ? 'Pergunte:' :
+                       s.type === 'statement' ? 'Diga:' :
+                       s.type === 'objection_response' ? 'Responda:' :
+                       s.title}
+                    </p>
+                    <p className="text-neutral-500 text-[10px] mt-0.5 line-clamp-2">"{s.message}"</p>
                   </div>
                 </div>
               ))}

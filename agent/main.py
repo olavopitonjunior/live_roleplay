@@ -1225,14 +1225,12 @@ async def entrypoint(ctx: JobContext):
         except Exception as e:
             logger.warning(f"Failed to send emotion processing: {e}")
 
-    async def send_coaching_hint(hint: CoachingHint):
-        """Send a coaching hint to the frontend."""
+    async def _send_coaching_hint_impl(hint: CoachingHint):
+        """Internal: actually publish a coaching hint to the frontend."""
         try:
             import json
-            # Build payload avoiding type field collision
-            # hint.to_dict() has "type" (e.g. "encouragement"), we need "type": "coaching_hint"
             hint_data = hint.to_dict()
-            hint_data["hintType"] = hint_data.pop("type")  # Rename to hintType
+            hint_data["hintType"] = hint_data.pop("type")
             data = json.dumps({
                 "type": "coaching_hint",
                 **hint_data
@@ -1241,6 +1239,14 @@ async def entrypoint(ctx: JobContext):
             logger.debug(f"Sent coaching hint: {hint.title}")
         except Exception as e:
             logger.warning(f"Failed to send coaching hint: {e}")
+
+    async def send_coaching_hint(hint: CoachingHint):
+        """Send a coaching hint to the frontend. Queues if avatar is speaking."""
+        if _agent_speaking:
+            _pending_coach_messages.append(("hint", _send_coaching_hint_impl(hint)))
+            logger.debug(f"Queued coaching hint (avatar speaking): {hint.title}")
+        else:
+            await _send_coaching_hint_impl(hint)
 
     async def send_coaching_state():
         """Send current coaching state to frontend."""
@@ -1275,14 +1281,12 @@ async def entrypoint(ctx: JobContext):
         except Exception as e:
             logger.warning(f"Failed to send coaching state: {e}")
 
-    async def send_ai_suggestion(suggestion: AISuggestion):
-        """Send an AI-generated coaching suggestion to the frontend."""
+    async def _send_ai_suggestion_impl(suggestion: AISuggestion):
+        """Internal: actually publish an AI suggestion to the frontend."""
         try:
             import json
-            # Build payload avoiding type field collision
-            # suggestion.to_dict() has "type" (e.g. "question"), we need "type": "ai_suggestion"
             suggestion_data = suggestion.to_dict()
-            suggestion_data["suggestionType"] = suggestion_data.pop("type")  # Rename to suggestionType
+            suggestion_data["suggestionType"] = suggestion_data.pop("type")
             data = json.dumps({
                 "type": "ai_suggestion",
                 **suggestion_data
@@ -1291,6 +1295,14 @@ async def entrypoint(ctx: JobContext):
             logger.debug(f"Sent AI suggestion: {suggestion.title} (streaming={suggestion.is_streaming})")
         except Exception as e:
             logger.warning(f"Failed to send AI suggestion: {e}")
+
+    async def send_ai_suggestion(suggestion: AISuggestion):
+        """Send an AI-generated coaching suggestion to the frontend. Queues if avatar is speaking."""
+        if _agent_speaking:
+            _pending_coach_messages.append(("suggestion", _send_ai_suggestion_impl(suggestion)))
+            logger.debug(f"Queued AI suggestion (avatar speaking): {suggestion.title}")
+        else:
+            await _send_ai_suggestion_impl(suggestion)
 
     async def send_coaching_processing():
         """Send processing state to frontend while AI coach is analyzing."""
@@ -1637,10 +1649,25 @@ async def entrypoint(ctx: JobContext):
 
     # Agent state tracking for latency diagnostics (Fase 1B)
     _agent_thinking_start: float = 0.0
+    # Coach message queue — hold suggestions while avatar is speaking
+    _agent_speaking: bool = False
+    _pending_coach_messages: list = []
+
+    async def _flush_pending_coach_messages():
+        """Send queued coach messages after avatar stops speaking."""
+        nonlocal _pending_coach_messages
+        messages = _pending_coach_messages[:]
+        _pending_coach_messages = []
+        for msg_type, msg_coro in messages:
+            try:
+                await msg_coro
+            except Exception as e:
+                logger.warning(f"Failed to flush pending coach message ({msg_type}): {e}")
+            await asyncio.sleep(0.5)  # 500ms between messages to avoid flooding
 
     @session.on("agent_state_changed")
     def on_agent_state_changed(ev):
-        nonlocal _agent_thinking_start
+        nonlocal _agent_thinking_start, _agent_speaking
         if ev.new_state == "thinking":
             _agent_thinking_start = time.time()
         elif ev.new_state == "speaking" and _agent_thinking_start > 0:
@@ -1653,8 +1680,17 @@ async def entrypoint(ctx: JobContext):
             if thinking_ms > 2000:
                 logger.warning(f"[Latency] Agent thinking took {thinking_ms:.0f}ms (>2s)")
 
-        # Feed orchestrator injection queue state machine
+        # Track speaking state for coach message gating
+        was_speaking = _agent_speaking
         _state_str = ev.new_state.value if hasattr(ev.new_state, 'value') else str(ev.new_state)
+        _agent_speaking = (_state_str == "speaking")
+
+        # Flush pending coach messages when avatar stops speaking
+        if was_speaking and not _agent_speaking and _pending_coach_messages:
+            logger.info(f"Agent stopped speaking, flushing {len(_pending_coach_messages)} pending coach messages")
+            asyncio.create_task(_flush_pending_coach_messages())
+
+        # Feed orchestrator injection queue state machine
         orchestrator.injection_queue.on_agent_state_changed(_state_str)
 
     @session.on("conversation_item_added")

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Scenario } from '../../types';
 import { ScenarioCard } from './ScenarioCard';
 
@@ -6,6 +7,19 @@ interface ScenarioListProps {
   loading: boolean;
   onScenarioClick: (scenario: Scenario) => void;
 }
+
+function groupByCategory(scenarios: Scenario[]): Record<string, Scenario[]> {
+  const groups: Record<string, Scenario[]> = {};
+  for (const s of scenarios) {
+    const cat = s.category || 'Geral';
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(s);
+  }
+  return groups;
+}
+
+// Categories that start collapsed by default
+const COLLAPSED_CATEGORIES = new Set(['Testes']);
 
 function LoadingSkeleton() {
   return (
@@ -65,6 +79,22 @@ function EmptyState() {
 }
 
 export function ScenarioList({ scenarios, loading, onScenarioClick }: ScenarioListProps) {
+  const grouped = groupByCategory(scenarios);
+  const categories = Object.keys(grouped);
+
+  // Initialize collapsed state — some categories start collapsed
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    for (const cat of categories) {
+      init[cat] = COLLAPSED_CATEGORIES.has(cat);
+    }
+    return init;
+  });
+
+  const toggleCategory = (cat: string) => {
+    setCollapsed(prev => ({ ...prev, [cat]: !prev[cat] }));
+  };
+
   if (loading) {
     return <LoadingSkeleton />;
   }
@@ -73,15 +103,69 @@ export function ScenarioList({ scenarios, loading, onScenarioClick }: ScenarioLi
     return <EmptyState />;
   }
 
+  // If only one category, render flat grid (no headers)
+  if (categories.length <= 1) {
+    return (
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        {scenarios.map((scenario) => (
+          <ScenarioCard
+            key={scenario.id}
+            scenario={scenario}
+            onClick={() => onScenarioClick(scenario)}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  // Sort categories: non-collapsed first, "Testes" last
+  const sortedCategories = [...categories].sort((a, b) => {
+    if (a === 'Testes') return 1;
+    if (b === 'Testes') return -1;
+    return a.localeCompare(b);
+  });
+
   return (
-    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-      {scenarios.map((scenario) => (
-        <ScenarioCard
-          key={scenario.id}
-          scenario={scenario}
-          onClick={() => onScenarioClick(scenario)}
-        />
-      ))}
+    <div className="space-y-8">
+      {sortedCategories.map((category) => {
+        const categoryScenarios = grouped[category];
+        const isCollapsed = collapsed[category] ?? false;
+
+        return (
+          <div key={category}>
+            <button
+              onClick={() => toggleCategory(category)}
+              className="flex items-center gap-2 mb-4 group cursor-pointer"
+            >
+              <svg
+                className={`w-4 h-4 text-neutral-400 transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+              </svg>
+              <h2 className="text-lg font-semibold text-neutral-700 group-hover:text-neutral-900 transition-colors">
+                {category}
+              </h2>
+              <span className="text-sm text-neutral-400">
+                ({categoryScenarios.length})
+              </span>
+            </button>
+
+            {!isCollapsed && (
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {categoryScenarios.map((scenario) => (
+                  <ScenarioCard
+                    key={scenario.id}
+                    scenario={scenario}
+                    onClick={() => onScenarioClick(scenario)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

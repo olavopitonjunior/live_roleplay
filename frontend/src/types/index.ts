@@ -96,6 +96,7 @@ export interface Scenario {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  category: string | null;
   // PRD 08: New fields
   duration_min_seconds?: number;
   duration_max_seconds?: number;

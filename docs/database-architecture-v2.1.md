@@ -55,6 +55,8 @@ Este documento apresenta a proposta de evolução da arquitetura de banco de dad
 | | `user_learning_profiles` | Evolução cross-session | 016 |
 | **Métricas** | `api_metrics` | Custos de APIs | 004, 017 |
 
+> **Nota (Mar 2026):** Migrations 018 (coaching objectives JSONB em scenarios) e 019 (category VARCHAR(100) em scenarios) foram aplicadas. Migration 020 insere 6 cenários RE/MAX com rubrics, objections e outcomes.
+
 ### 1.2 O Que Já Funciona Bem
 
 - Avaliação rubric-based com 4 níveis e pesos
