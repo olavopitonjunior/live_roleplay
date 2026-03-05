@@ -3,9 +3,33 @@ import type { Scenario, SessionMode } from '../../types';
 
 interface ModeSelectionModalProps {
   scenario: Scenario;
-  onStart: (mode: SessionMode) => void;
+  onStart: (mode: SessionMode, durationSeconds: number) => void;
   onCancel: () => void;
   difficultyLevel?: number;
+}
+
+const DURATION_OPTIONS = [
+  { label: '1 min', seconds: 60 },
+  { label: '2 min', seconds: 120 },
+  { label: '3 min', seconds: 180 },
+  { label: '4 min', seconds: 240 },
+  { label: '5 min', seconds: 300 },
+];
+
+function getSessionTypeLabel(type: string | null | undefined): string | null {
+  if (!type) return null;
+  const map: Record<string, string> = {
+    cold_call: 'Cold Call',
+    interview: 'Entrevista',
+    entrevista: 'Entrevista',
+    negotiation: 'Negociacao',
+    negociacao: 'Negociacao',
+    retention: 'Retencao',
+    retencao: 'Retencao',
+    prospeccao_consultiva: 'Prospeccao',
+    apresentacao: 'Apresentacao',
+  };
+  return map[type] || type;
 }
 
 // Helper function to get difficulty label and color
@@ -23,9 +47,11 @@ export function ModeSelectionModal({ scenario, onStart, onCancel, difficultyLeve
   const [selectedMode, setSelectedMode] = useState<SessionMode>(
     scenario.default_session_mode || 'training'
   );
+  const defaultDuration = scenario.target_duration_seconds || 180;
+  const [selectedDuration, setSelectedDuration] = useState(defaultDuration);
 
   const handleStart = () => {
-    onStart(selectedMode);
+    onStart(selectedMode, selectedDuration);
   };
 
   return (
@@ -40,8 +66,25 @@ export function ModeSelectionModal({ scenario, onStart, onCancel, difficultyLeve
       <div className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
         {/* Header */}
         <div className="px-6 py-5 border-b border-gray-100">
-          <h2 className="text-xl font-bold text-black">{scenario.title}</h2>
-          <p className="text-sm text-gray-500 mt-1 line-clamp-2">{scenario.context}</p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1">
+              <h2 className="text-xl font-bold text-black">{scenario.title}</h2>
+              {scenario.character_name && (
+                <p className="text-sm text-gray-700 mt-1">
+                  <span className="font-medium">{scenario.character_name}</span>
+                  {scenario.character_role && (
+                    <span className="text-gray-500"> — {scenario.character_role}</span>
+                  )}
+                </p>
+              )}
+            </div>
+            {scenario.session_type && (
+              <span className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 font-medium">
+                {getSessionTypeLabel(scenario.session_type)}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-gray-500 mt-2 line-clamp-2">{scenario.context}</p>
         </div>
 
         {/* Content */}
@@ -84,6 +127,26 @@ export function ModeSelectionModal({ scenario, onStart, onCancel, difficultyLeve
               </p>
             </div>
           )}
+
+          {/* Duration Selector */}
+          <div className="mb-5">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Duracao da sessao</h3>
+            <div className="flex gap-2">
+              {DURATION_OPTIONS.map((opt) => (
+                <button
+                  key={opt.seconds}
+                  onClick={() => setSelectedDuration(opt.seconds)}
+                  className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                    selectedDuration === opt.seconds
+                      ? 'bg-black text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Selecione o modo</h3>
 

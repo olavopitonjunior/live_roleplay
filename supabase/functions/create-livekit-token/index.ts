@@ -122,7 +122,7 @@ serve(async (req: Request) => {
     // Validate scenario exists and is active, fetch avatar/voice settings
     const { data: scenarioData, error: scenarioError } = await supabase
       .from("scenarios")
-      .select("id, title, simli_face_id, ai_voice, avatar_provider, avatar_id")
+      .select("id, title, simli_face_id, ai_voice, avatar_provider, avatar_id, version, target_duration_seconds")
       .eq("id", scenario_id)
       .eq("is_active", true)
       .single();
@@ -171,6 +171,7 @@ serve(async (req: Request) => {
       status: "active",
       session_mode: session_mode,
       difficulty_level: difficultyLevel,
+      scenario_version: scenarioData.version || 1,
     });
 
     if (sessionError) {
@@ -199,6 +200,8 @@ serve(async (req: Request) => {
       session_mode: session_mode,
       // Difficulty level for adaptive difficulty
       difficulty_level: difficultyLevel,
+      // AGENTS-EVOLUTION: Target duration for agent timer
+      target_duration_seconds: scenarioData.target_duration_seconds || 180,
     });
 
     console.log(`Session created, room: ${roomName}, agent: ${AGENT_NAME}, mode: ${session_mode}, difficulty: ${difficultyLevel}`);
