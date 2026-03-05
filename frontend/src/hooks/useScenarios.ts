@@ -48,7 +48,17 @@ export function useScenarios() {
       });
 
       if (error) {
-        return { data: null, error: { message: error.message || 'Erro ao criar cenario' } };
+        // Parse actual Edge Function error from FunctionsHttpError
+        let msg = 'Erro ao criar cenario';
+        try {
+          if (error.context && typeof error.context.json === 'function') {
+            const body = await error.context.json();
+            msg = body?.error || body?.message || error.message || msg;
+          } else {
+            msg = error.message || msg;
+          }
+        } catch { msg = error.message || msg; }
+        return { data: null, error: { message: msg } };
       }
 
       if (data?.scenario) {
@@ -78,7 +88,16 @@ export function useScenarios() {
       });
 
       if (error) {
-        return { data: null, error: { message: error.message || 'Erro ao atualizar cenario' } };
+        let msg = 'Erro ao atualizar cenario';
+        try {
+          if (error.context && typeof error.context.json === 'function') {
+            const body = await error.context.json();
+            msg = body?.error || body?.message || error.message || msg;
+          } else {
+            msg = error.message || msg;
+          }
+        } catch { msg = error.message || msg; }
+        return { data: null, error: { message: msg } };
       }
 
       if (data?.scenario) {
@@ -103,7 +122,16 @@ export function useScenarios() {
       });
 
       if (error) {
-        return { data: null, error: { message: error.message || 'Erro ao excluir cenario' } };
+        let msg = 'Erro ao excluir cenario';
+        try {
+          if (error.context && typeof error.context.json === 'function') {
+            const body = await error.context.json();
+            msg = body?.error || body?.message || error.message || msg;
+          } else {
+            msg = error.message || msg;
+          }
+        } catch { msg = error.message || msg; }
+        return { data: null, error: { message: msg } };
       }
 
       if (data?.scenario) {
@@ -133,7 +161,16 @@ export function useScenarios() {
       });
 
       if (error) {
-        return { data: null, error: { message: error.message || 'Erro ao gerar cenario' } };
+        let msg = 'Erro ao gerar cenario';
+        try {
+          if (error.context && typeof error.context.json === 'function') {
+            const body = await error.context.json();
+            msg = body?.error || body?.message || error.message || msg;
+          } else {
+            msg = error.message || msg;
+          }
+        } catch { msg = error.message || msg; }
+        return { data: null, error: { message: msg } };
       }
 
       if (data?.scenario) {
@@ -164,7 +201,16 @@ export function useScenarios() {
       });
 
       if (error) {
-        return { data: null, error: { message: error.message || 'Erro ao gerar sugestoes' } };
+        let msg = 'Erro ao gerar sugestoes';
+        try {
+          if (error.context && typeof error.context.json === 'function') {
+            const body = await error.context.json();
+            msg = body?.error || body?.message || error.message || msg;
+          } else {
+            msg = error.message || msg;
+          }
+        } catch { msg = error.message || msg; }
+        return { data: null, error: { message: msg } };
       }
 
       if (data?.fields) {

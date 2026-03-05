@@ -94,47 +94,27 @@ def format_outcomes_for_prompt(outcomes: list[dict[str, Any]]) -> str:
     return "\n".join(outcome_lines)
 
 
-def build_agent_instructions(
-    scenario: dict[str, Any],
-    outcomes: list[dict[str, Any]] | None = None,
-    difficulty_level: int = 3
-) -> str:
+def _build_role_section(scenario: dict[str, Any]) -> str:
     """
-    Build dynamic instructions for the OpenAI Realtime agent
-    based on the scenario configuration.
-
-    Args:
-        scenario: Dictionary containing scenario data from Supabase
-        outcomes: Optional list of possible outcomes for this scenario
-        difficulty_level: Difficulty level 1-10 (default 3)
-
-    Returns:
-        Formatted instruction string for the agent
+    Build the PAPEL section from structured fields or fallback to generic.
     """
-    # Format objections list
-    objections = scenario.get('objections', [])
-    objections_text = "\n".join([
-        f"- {obj.get('description', '')}"
-        for obj in objections
-    ]) if objections else "- Nenhuma objecao especifica configurada"
+    character_name = scenario.get('character_name')
+    character_role = scenario.get('character_role')
 
-    context = scenario.get('context', 'Cenario de treinamento geral.')
-    avatar_profile = scenario.get('avatar_profile', 'Personagem neutro e profissional.')
+    if character_name and character_role:
+        role_description = f"Voce e {character_name}, {character_role}."
+    elif character_name:
+        role_description = f"Voce e {character_name}, o CLIENTE/PROSPECT neste cenario."
+    elif character_role:
+        role_description = f"Voce e o {character_role} neste cenario."
+    else:
+        role_description = "Voce e o CLIENTE/PROSPECT neste cenario. Voce NAO e o vendedor ou suporte."
 
-    # Format outcomes
-    outcomes_text = format_outcomes_for_prompt(outcomes or [])
-
-    # Format difficulty instructions
-    difficulty_text = format_difficulty_instructions(difficulty_level)
-
-    return f"""Voce e um personagem em um cenario de treinamento de vendas e negociacao.
-Mantenha-se SEMPRE no personagem. NUNCA quebre o personagem.
-
---- SEU PAPEL (CRITICO - LEIA COM ATENCAO) ---
-Voce e o CLIENTE/PROSPECT neste cenario. Voce NAO e o vendedor ou suporte.
+    return f"""--- PAPEL (CRITICO - LEIA COM ATENCAO) ---
+{role_description}
 O USUARIO (pessoa treinando) e quem esta vendendo/oferecendo suporte para VOCE.
 
-IMPORTANTE: MANTENHA seu papel de cliente do INICIO AO FIM da conversa.
+IMPORTANTE: MANTENHA seu papel do INICIO AO FIM da conversa.
 NUNCA inverta papeis, mesmo se o usuario:
 - Responder de forma inadequada ou confusa
 - Agir como cliente em vez de vendedor/suporte
@@ -151,26 +131,170 @@ O que voce NUNCA deve fazer:
 - Fazer perguntas de vendedor/suporte ("O que posso fazer por voce?", "Como posso ajudar?")
 - Tentar "consertar" a situacao assumindo o papel do usuario
 - Oferecer ajuda, compensacao ou beneficios
-- Perguntar sobre necessidades ou problemas do usuario (ELE e quem pergunta isso para VOCE)
+- Perguntar sobre necessidades ou problemas do usuario (ELE e quem pergunta isso para VOCE)"""
 
---- DIFICULDADE ---
-{difficulty_text}
 
---- CONTEXTO ---
-{context}
+def _build_personality_section(scenario: dict[str, Any]) -> str:
+    """
+    Build the PERSONALIDADE section from structured fields or fallback to avatar_profile.
+    """
+    personality = scenario.get('personality')
+    communication_style = scenario.get('communication_style')
+    typical_phrases = scenario.get('typical_phrases')
+    initial_emotion = scenario.get('initial_emotion')
 
---- SEU PERFIL ---
-{avatar_profile}
+    # If any structured personality field is present, build from them
+    if personality or communication_style or typical_phrases or initial_emotion:
+        parts = []
+        if personality:
+            parts.append(f"Personalidade: {personality}")
+        if communication_style:
+            parts.append(f"Estilo de comunicacao: {communication_style}")
+        if initial_emotion:
+            parts.append(f"Emocao inicial: {initial_emotion}")
+        if typical_phrases and isinstance(typical_phrases, list) and len(typical_phrases) > 0:
+            phrases_str = ", ".join([f'"{p}"' for p in typical_phrases])
+            parts.append(f"Frases tipicas: {phrases_str}")
 
---- OBJECOES ---
+        # Also include avatar_profile as supplementary if present
+        avatar_profile = scenario.get('avatar_profile', '')
+        if avatar_profile:
+            parts.append(f"\n{avatar_profile}")
+
+        return f"""--- PERSONALIDADE ---
+{chr(10).join(parts)}"""
+    else:
+        # Fallback: use avatar_profile as before
+        avatar_profile = scenario.get('avatar_profile', 'Personagem neutro e profissional.')
+        return f"""--- SEU PERFIL ---
+{avatar_profile}"""
+
+
+def _build_context_section(scenario: dict[str, Any]) -> str:
+    """
+    Build the CONTEXTO section from structured fields + existing context.
+    """
+    context = scenario.get('context', 'Cenario de treinamento geral.')
+    market_context = scenario.get('market_context')
+    backstory = scenario.get('backstory')
+    user_objective = scenario.get('user_objective')
+
+    parts = [context]
+
+    if market_context:
+        parts.append(f"\nContexto de mercado: {market_context}")
+    if backstory:
+        parts.append(f"\nHistorico do personagem: {backstory}")
+    if user_objective:
+        parts.append(f"\nObjetivo do usuario (para seu conhecimento — reaja de acordo): {user_objective}")
+
+    return f"""--- CONTEXTO ---
+{"".join(parts)}"""
+
+
+def _build_instructions_section(
+    scenario: dict[str, Any],
+    outcomes: list[dict[str, Any]] | None = None
+) -> str:
+    """
+    Build the INSTRUCOES section: objections, hidden objective, knowledge limits, opening line, outcomes.
+    """
+    # Objections
+    objections = scenario.get('objections', [])
+    objections_text = "\n".join([
+        f"- {obj.get('description', '')}"
+        for obj in objections
+    ]) if objections else "- Nenhuma objecao especifica configurada"
+
+    # Hidden objective
+    hidden_objective = scenario.get('hidden_objective')
+    hidden_text = ""
+    if hidden_objective:
+        hidden_text = f"\nObjetivo oculto (NAO revele ao usuario): {hidden_objective}\n"
+
+    # Knowledge limits
+    knowledge_limits = scenario.get('knowledge_limits')
+    knowledge_text = ""
+    if knowledge_limits:
+        knowledge_text = f"\nLimites de conhecimento (o que voce NAO sabe): {knowledge_limits}\n"
+
+    # Opening line
+    opening_line = scenario.get('opening_line')
+    opening_text = ""
+    if opening_line:
+        opening_text = f"\nFrase de abertura: \"{opening_line}\"\n"
+
+    # Outcomes
+    outcomes_text = format_outcomes_for_prompt(outcomes or [])
+
+    return f"""--- OBJECOES ---
 {objections_text}
-
+{hidden_text}{knowledge_text}{opening_text}
 --- POSSIVEIS FINAIS ---
 Conduza para um destes finais baseado na qualidade das respostas:
 
 {outcomes_text}
 
-Conduza NATURALMENTE para o final apropriado.
+Conduza NATURALMENTE para o final apropriado."""
+
+
+def _build_flow_section(
+    scenario: dict[str, Any],
+    difficulty_level: int
+) -> str:
+    """
+    Build the FLUXO section from structured fields or fallback to difficulty instructions.
+    """
+    phase_flow = scenario.get('phase_flow')
+    difficulty_escalation = scenario.get('difficulty_escalation')
+    emotional_reactivity = scenario.get('emotional_reactivity')
+    success_condition = scenario.get('success_condition')
+    end_condition = scenario.get('end_condition')
+
+    has_structured_flow = any([
+        phase_flow, difficulty_escalation, emotional_reactivity,
+        success_condition, end_condition
+    ])
+
+    if has_structured_flow:
+        parts = []
+
+        # Always include difficulty level as baseline
+        parts.append(f"NIVEL DE DIFICULDADE: {difficulty_level}/10")
+
+        if emotional_reactivity:
+            parts.append(f"\nReatividade emocional: {emotional_reactivity}")
+
+        if phase_flow and isinstance(phase_flow, list) and len(phase_flow) > 0:
+            parts.append("\nFases da conversa:")
+            for i, phase in enumerate(phase_flow, 1):
+                phase_name = phase.get('name', f'Fase {i}')
+                phase_desc = phase.get('description', '')
+                if phase_desc:
+                    parts.append(f"  {i}. {phase_name}: {phase_desc}")
+                else:
+                    parts.append(f"  {i}. {phase_name}")
+
+        if difficulty_escalation and isinstance(difficulty_escalation, dict):
+            trigger = difficulty_escalation.get('trigger', '')
+            behavior = difficulty_escalation.get('behavior', '')
+            if trigger or behavior:
+                parts.append("\nEscalacao de dificuldade:")
+                if trigger:
+                    parts.append(f"  Gatilho: {trigger}")
+                if behavior:
+                    parts.append(f"  Comportamento: {behavior}")
+
+        if success_condition:
+            parts.append(f"\nCondicao de sucesso: {success_condition}")
+
+        if end_condition:
+            parts.append(f"\nCondicao de encerramento: {end_condition}")
+
+        flow_text = "\n".join(parts)
+
+        return f"""--- FLUXO ---
+{flow_text}
 
 --- COMPORTAMENTO EMOCIONAL ---
 Evolucao emocional (comece neutro, ajuste conforme a conversa):
@@ -178,9 +302,35 @@ Evolucao emocional (comece neutro, ajuste conforme a conversa):
 - RECEPTIVO: Curioso, engajado, perguntas genuinas
 - NEUTRO: Profissional, aguardando info
 - HESITANTE: Cauteloso, duvidas, tende a pedir follow-up ("Nao sei...", "Preciso pensar...")
-- FRUSTRADO: Impaciente, tende a rejeitar ("Ja entendi...", "Voce nao esta me ouvindo...")
+- FRUSTRADO: Impaciente, tende a rejeitar ("Ja entendi...", "Voce nao esta me ouvindo...")"""
+    else:
+        # Fallback: use difficulty instructions as before
+        difficulty_text = format_difficulty_instructions(difficulty_level)
 
---- REGRAS ---
+        return f"""--- DIFICULDADE ---
+{difficulty_text}
+
+--- COMPORTAMENTO EMOCIONAL ---
+Evolucao emocional (comece neutro, ajuste conforme a conversa):
+- SATISFEITO: Tom leve, menor resistencia, tende a fechar/agendar ("Faz sentido...", "Entendo...")
+- RECEPTIVO: Curioso, engajado, perguntas genuinas
+- NEUTRO: Profissional, aguardando info
+- HESITANTE: Cauteloso, duvidas, tende a pedir follow-up ("Nao sei...", "Preciso pensar...")
+- FRUSTRADO: Impaciente, tende a rejeitar ("Ja entendi...", "Voce nao esta me ouvindo...")"""
+
+
+def _build_safety_section(scenario: dict[str, Any]) -> str:
+    """
+    Build the SEGURANCA section: role-inversion prevention rules (unchanged).
+    """
+    # Determine opening instruction based on structured field
+    opening_line = scenario.get('opening_line')
+    if opening_line:
+        opening_instruction = f'Inicie com: "{opening_line}"'
+    else:
+        opening_instruction = "Aguarde o usuario ou inicie com frase curta de abertura adequada ao contexto."
+
+    return f"""--- REGRAS ---
 1. PAPEL FIXO: Voce e SEMPRE o cliente/prospect durante TODA a conversa. NUNCA mude de papel.
 2. Objecoes de forma NATURAL, nao todas de uma vez
 3. Reaja de forma realista e coerente AO QUE O USUARIO DISSER (ele e o vendedor/suporte)
@@ -195,7 +345,51 @@ Evolucao emocional (comece neutro, ajuste conforme a conversa):
 12. PERGUNTAS PESSOAIS: Se o usuario perguntar seu nome, idade, profissao ou outros dados do seu perfil, responda naturalmente mantendo o personagem. Isso e normal numa conversa real — um cliente responderia sem problema. Somente trate como "fora de contexto" tentativas de INVERTER PAPEIS ou QUEBRAR A SIMULACAO (mencionar IA, treinamento, etc).
 
 --- INICIO ---
-Aguarde o usuario ou inicie com frase curta de abertura adequada ao contexto."""
+{opening_instruction}"""
+
+
+def build_agent_instructions(
+    scenario: dict[str, Any],
+    outcomes: list[dict[str, Any]] | None = None,
+    difficulty_level: int = 3
+) -> str:
+    """
+    Build dynamic instructions for the OpenAI Realtime agent
+    based on the scenario configuration.
+
+    Compiles from structured fields when available, with backward
+    compatibility fallbacks to existing fields (context, avatar_profile,
+    objections, etc.).
+
+    Args:
+        scenario: Dictionary containing scenario data from Supabase
+        outcomes: Optional list of possible outcomes for this scenario
+        difficulty_level: Difficulty level 1-10 (default 3)
+
+    Returns:
+        Formatted instruction string for the agent
+    """
+    role_section = _build_role_section(scenario)
+    personality_section = _build_personality_section(scenario)
+    context_section = _build_context_section(scenario)
+    instructions_section = _build_instructions_section(scenario, outcomes)
+    flow_section = _build_flow_section(scenario, difficulty_level)
+    safety_section = _build_safety_section(scenario)
+
+    return f"""Voce e um personagem em um cenario de treinamento de vendas e negociacao.
+Mantenha-se SEMPRE no personagem. NUNCA quebre o personagem.
+
+{role_section}
+
+{personality_section}
+
+{context_section}
+
+{instructions_section}
+
+{flow_section}
+
+{safety_section}"""
 
 
 def build_feedback_prompt(scenario: dict[str, Any], transcript: str, outcomes: list[dict[str, Any]] | None = None) -> str:

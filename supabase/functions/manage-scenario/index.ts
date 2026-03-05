@@ -3,6 +3,7 @@
  *
  * Admin-only endpoint for managing scenarios (CRUD operations).
  * Validates admin access code before allowing modifications.
+ * Supports structured scenario fields and versioning on update.
  */
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
@@ -37,6 +38,36 @@ interface ScenarioData {
   avatar_provider?: string | null;
   avatar_id?: string | null;
   is_active: boolean;
+
+  // Structured scenario fields (all optional)
+  session_type?: string | null;
+  market_context?: string | null;
+  user_objective?: string | null;
+  target_duration_seconds?: number | null;
+  opening_line?: string | null;
+  success_condition?: string | null;
+  end_condition?: string | null;
+
+  // Character fields
+  character_name?: string | null;
+  character_role?: string | null;
+  personality?: string | null;
+  hidden_objective?: string | null;
+  initial_emotion?: string | null;
+  emotional_reactivity?: string | null;
+  communication_style?: string | null;
+  typical_phrases?: string[] | null;
+  knowledge_limits?: string | null;
+  backstory?: string | null;
+
+  // Evaluation fields
+  criteria_weights?: Record<string, number> | null;
+  positive_indicators?: string[] | null;
+  negative_indicators?: string[] | null;
+
+  // Flow fields
+  phase_flow?: Record<string, unknown>[] | null;
+  difficulty_escalation?: Record<string, unknown> | null;
 }
 
 interface CreateRequest {
@@ -59,6 +90,32 @@ interface DeleteRequest {
 }
 
 type RequestBody = CreateRequest | UpdateRequest | DeleteRequest;
+
+/** All structured fields that are optional and passed through without validation */
+const STRUCTURED_FIELDS = [
+  "session_type",
+  "market_context",
+  "user_objective",
+  "target_duration_seconds",
+  "opening_line",
+  "success_condition",
+  "end_condition",
+  "character_name",
+  "character_role",
+  "personality",
+  "hidden_objective",
+  "initial_emotion",
+  "emotional_reactivity",
+  "communication_style",
+  "typical_phrases",
+  "knowledge_limits",
+  "backstory",
+  "criteria_weights",
+  "positive_indicators",
+  "negative_indicators",
+  "phase_flow",
+  "difficulty_escalation",
+] as const;
 
 serve(async (req: Request) => {
   // Handle CORS preflight
@@ -114,6 +171,22 @@ serve(async (req: Request) => {
   }
 });
 
+/**
+ * Extract structured fields from data payload.
+ * Returns an object with only the structured fields that are present (not undefined).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractStructuredFields(data: Partial<ScenarioData>): Record<string, any> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fields: Record<string, any> = {};
+  for (const field of STRUCTURED_FIELDS) {
+    if (data[field] !== undefined) {
+      fields[field] = data[field] ?? null;
+    }
+  }
+  return fields;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function handleCreate(supabase: any, body: CreateRequest, req: Request) {
   const { data } = body;
@@ -162,22 +235,26 @@ async function handleCreate(supabase: any, body: CreateRequest, req: Request) {
     );
   }
 
+  // Build insert payload with structured fields
+  const insertPayload = {
+    title: data.title.trim(),
+    category: data.category?.trim() || null,
+    context: data.context.trim(),
+    avatar_profile: data.avatar_profile.trim(),
+    objections: cleanedObjections,
+    evaluation_criteria: cleanedCriteria,
+    ideal_outcome: data.ideal_outcome?.trim() || null,
+    simli_face_id: data.simli_face_id?.trim() || null,
+    ai_voice: data.ai_voice || null,
+    avatar_provider: data.avatar_provider || null,
+    avatar_id: data.avatar_id?.trim() || null,
+    is_active: data.is_active ?? true,
+    ...extractStructuredFields(data),
+  };
+
   const { data: scenario, error } = await supabase
     .from("scenarios")
-    .insert({
-      title: data.title.trim(),
-      category: data.category?.trim() || null,
-      context: data.context.trim(),
-      avatar_profile: data.avatar_profile.trim(),
-      objections: cleanedObjections,
-      evaluation_criteria: cleanedCriteria,
-      ideal_outcome: data.ideal_outcome?.trim() || null,
-      simli_face_id: data.simli_face_id?.trim() || null,
-      ai_voice: data.ai_voice || null,
-      avatar_provider: data.avatar_provider || null,
-      avatar_id: data.avatar_id?.trim() || null,
-      is_active: data.is_active ?? true,
-    })
+    .insert(insertPayload)
     .select()
     .single();
 
@@ -201,15 +278,31 @@ async function handleUpdate(supabase: any, body: UpdateRequest, req: Request) {
     return corsErrorResponse("scenario_id is required", 400, req);
   }
 
-  // Check scenario exists
+  // Fetch FULL current scenario for versioning
   const { data: existing, error: existError } = await supabase
     .from("scenarios")
-    .select("id")
+    .select("*")
     .eq("id", scenario_id)
     .single();
 
   if (existError || !existing) {
     return corsErrorResponse("Scenario not found", 404, req);
+  }
+
+  // --- Versioning: snapshot current state before update ---
+  const currentVersion = existing.version ?? 1;
+
+  const { error: versionError } = await supabase
+    .from("scenario_versions")
+    .insert({
+      scenario_id: scenario_id,
+      version: currentVersion,
+      snapshot: existing,
+    });
+
+  if (versionError) {
+    console.error("Failed to save scenario version:", versionError);
+    // Non-fatal: log but continue with the update
   }
 
   // Build update object with only provided fields
@@ -271,7 +364,12 @@ async function handleUpdate(supabase: any, body: UpdateRequest, req: Request) {
     updates.is_active = data.is_active;
   }
 
-  // Add updated_at timestamp
+  // Apply structured fields
+  const structuredUpdates = extractStructuredFields(data);
+  Object.assign(updates, structuredUpdates);
+
+  // Increment version and add updated_at timestamp
+  updates.version = currentVersion + 1;
   updates.updated_at = new Date().toISOString();
 
   const { data: scenario, error } = await supabase
