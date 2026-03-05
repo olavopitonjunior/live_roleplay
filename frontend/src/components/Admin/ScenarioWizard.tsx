@@ -231,7 +231,7 @@ function buildFlowPreview(fd: ScenarioFormData): string {
     parts.push('Fases da conversa:');
     phases.forEach((p, i) => {
       const dur = p.duration_pct ? ` (~${p.duration_pct}%)` : '';
-      parts.push(`  ${i + 1}. ${p.name}${dur}${p.behavior ? `: ${p.behavior}` : ''}`);
+      parts.push(`  ${i + 1}. ${p.name}${dur}${p.triggers?.length ? `: ${p.triggers.join(', ')}` : ''}`);
     });
   }
   const stages = fd.difficulty_escalation?.stages;
