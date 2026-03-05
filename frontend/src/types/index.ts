@@ -253,6 +253,46 @@ export interface SuggestedScenarioFields {
   negative_indicators?: string[];
 }
 
+// Form data for creating/editing scenarios (used by ScenarioWizard)
+export interface ScenarioFormData {
+  title: string;
+  category: string;
+  context: string;
+  avatar_profile: string;
+  objections: Objection[];
+  evaluation_criteria: EvaluationCriterion[];
+  ideal_outcome: string;
+  simli_face_id: string;
+  ai_voice: AiVoice;
+  avatar_provider: AvatarProvider | null;
+  avatar_id: string;
+  is_active: boolean;
+  // Structured fields
+  target_duration_seconds: number | null;
+  character_name: string;
+  character_role: string;
+  personality: string;
+  user_objective: string;
+  opening_line: string;
+  // Hidden fields (set by AI, passed through on save)
+  hidden_objective?: string | null;
+  initial_emotion?: string | null;
+  emotional_reactivity?: EmotionalReactivity | null;
+  communication_style?: CommunicationStyle | null;
+  typical_phrases?: string[] | null;
+  knowledge_limits?: Record<string, unknown> | null;
+  backstory?: string | null;
+  session_type?: string | null;
+  market_context?: Record<string, unknown> | null;
+  success_condition?: string | null;
+  end_condition?: string | null;
+  phase_flow?: PhaseFlow | null;
+  difficulty_escalation?: DifficultyEscalation | null;
+  criteria_weights?: CriteriaWeights | null;
+  positive_indicators?: string[] | null;
+  negative_indicators?: string[] | null;
+}
+
 // Session types
 export interface Session {
   id: string;
