@@ -15,7 +15,7 @@ const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
   console.error('ERROR: DATABASE_URL environment variable is required');
   console.log('\nTo get your database URL:');
-  console.log('1. Go to https://supabase.com/dashboard/project/lzjixdhzejnknhxpcnlc/settings/database');
+  console.log('1. Go to https://supabase.com/dashboard/project/YOUR_PROJECT_REF/settings/database');
   console.log('2. Copy the "Connection string" (URI format)');
   console.log('3. Run: DATABASE_URL="your-connection-string" node scripts/apply-migration.js');
   process.exit(1);

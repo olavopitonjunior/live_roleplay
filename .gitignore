@@ -54,6 +54,9 @@ tests/screenshots/
 # MCP config (may contain tokens)
 .mcp.json
 
+# Claude Code local settings (may contain tokens)
+.claude/settings.local.json
+
 # Agent logs
 agent/*.err
 agent/*.out

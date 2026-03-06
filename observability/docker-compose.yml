@@ -39,7 +39,7 @@ services:
     environment:
       # Credenciais padrao (mude em producao!)
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD:-changeme}
       # Permite embeddings
       - GF_SECURITY_ALLOW_EMBEDDING=true
       # Desabilita login anonimo
