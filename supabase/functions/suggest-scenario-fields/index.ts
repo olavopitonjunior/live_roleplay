@@ -8,7 +8,6 @@
  */
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.30.0";
 import {
   handleCorsPreflightRequest,
@@ -16,6 +15,7 @@ import {
   corsErrorResponse,
 } from "../_shared/cors.ts";
 import { withRetry } from "../_shared/retry.ts";
+import { authenticate } from "../_shared/auth.ts";
 
 // Voice mapping: legacy Gemini names -> OpenAI names
 const VOICE_MAP: Record<string, string> = {
@@ -67,7 +67,7 @@ type FieldType =
 
 // Request type
 interface SuggestRequest {
-  access_code: string;
+  access_code?: string;
   title: string;
   context: string;
   field?: FieldType; // Optional: generate only this field, default 'all'
@@ -608,9 +608,6 @@ serve(async (req: Request) => {
     const fieldToGenerate: FieldType = body.field || 'all';
 
     // Validate required fields
-    if (!body.access_code) {
-      return corsErrorResponse("Missing access_code", 400, req);
-    }
     if (!body.title?.trim()) {
       return corsErrorResponse("Missing title", 400, req);
     }
@@ -634,26 +631,12 @@ serve(async (req: Request) => {
       );
     }
 
-    // Initialize Supabase client with service role
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Validate access code is admin
-    const { data: codeData, error: codeError } = await supabase
-      .from("access_codes")
-      .select("id, role")
-      .eq("code", body.access_code.toUpperCase())
-      .eq("is_active", true)
-      .single();
-
-    if (codeError || !codeData) {
-      return corsErrorResponse("Invalid or inactive access code", 401, req);
+    // Authenticate (dual-auth: JWT or access_code, admin required)
+    const authResult = await authenticate(req, { body, requireAdmin: true, requiredRole: "admin" });
+    if (!authResult.authenticated) {
+      return corsErrorResponse(authResult.error || "Unauthorized", authResult.status || 401, req);
     }
-
-    if (codeData.role !== "admin") {
-      return corsErrorResponse("Admin access required", 403, req);
-    }
+    const auth = authResult.context!;
 
     // Initialize Anthropic client
     const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");

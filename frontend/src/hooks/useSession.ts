@@ -24,9 +24,10 @@ export function useSession() {
 
   const startSession = useCallback(async (
     scenarioId: string,
-    accessCode: string,
+    accessCode: string | null,
     sessionMode: SessionMode = 'training',
-    voiceOverride?: string
+    voiceOverride?: string,
+    trialUserId?: string | null
   ) => {
     setState((prev) => ({ ...prev, isConnecting: true, error: null }));
 
@@ -36,7 +37,8 @@ export function useSession() {
         scenarioId,
         accessCode,
         sessionMode,
-        voiceOverride
+        voiceOverride,
+        trialUserId
       );
       recordLatencyGlobal('token_fetch', performance.now() - _tokenStart, 'Token Fetch', `session: ${session_id?.slice(0, 8)}`);
 

@@ -5,16 +5,18 @@ export const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || '';
 
 export async function createSessionToken(
   scenarioId: string,
-  accessCode: string,
+  accessCode: string | null,
   sessionMode: SessionMode = 'training',
-  voiceOverride?: string
+  voiceOverride?: string,
+  trialUserId?: string | null
 ): Promise<LiveKitTokenResponse> {
   const body: Record<string, string> = {
     scenario_id: scenarioId,
-    access_code: accessCode,
     session_mode: sessionMode,
   };
+  if (accessCode) body.access_code = accessCode;
   if (voiceOverride) body.voice_override = voiceOverride;
+  if (trialUserId) body.trial_user_id = trialUserId;
 
   const { data, error } = await supabase.functions.invoke('create-livekit-token', {
     body,

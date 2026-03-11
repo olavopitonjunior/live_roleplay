@@ -2,6 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Scenario, GeneratedScenario, GenerateScenarioRequest, SuggestedScenarioFields } from '../types';
 
+/** Build request body, only including access_code when provided */
+function buildBody(accessCode: string | null, extra: Record<string, unknown>): Record<string, unknown> {
+  const body: Record<string, unknown> = { ...extra };
+  if (accessCode) body.access_code = accessCode;
+  return body;
+}
+
 export function useScenarios() {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,20 +42,15 @@ export function useScenarios() {
   }, []);
 
   const createScenario = useCallback(async (
-    accessCode: string,
+    accessCode: string | null,
     scenario: Omit<Scenario, 'id' | 'created_at' | 'updated_at'>
   ) => {
     try {
       const { data, error } = await supabase.functions.invoke('manage-scenario', {
-        body: {
-          action: 'create',
-          access_code: accessCode,
-          data: scenario,
-        },
+        body: buildBody(accessCode, { action: 'create', data: scenario }),
       });
 
       if (error) {
-        // Parse actual Edge Function error from FunctionsHttpError
         let msg = 'Erro ao criar cenario';
         try {
           if (error.context && typeof error.context.json === 'function') {
@@ -73,18 +75,13 @@ export function useScenarios() {
   }, []);
 
   const updateScenario = useCallback(async (
-    accessCode: string,
+    accessCode: string | null,
     id: string,
     updates: Partial<Scenario>
   ) => {
     try {
       const { data, error } = await supabase.functions.invoke('manage-scenario', {
-        body: {
-          action: 'update',
-          access_code: accessCode,
-          scenario_id: id,
-          data: updates,
-        },
+        body: buildBody(accessCode, { action: 'update', scenario_id: id, data: updates }),
       });
 
       if (error) {
@@ -111,14 +108,10 @@ export function useScenarios() {
     }
   }, []);
 
-  const deleteScenario = useCallback(async (accessCode: string, id: string) => {
+  const deleteScenario = useCallback(async (accessCode: string | null, id: string) => {
     try {
       const { data, error } = await supabase.functions.invoke('manage-scenario', {
-        body: {
-          action: 'delete',
-          access_code: accessCode,
-          scenario_id: id,
-        },
+        body: buildBody(accessCode, { action: 'delete', scenario_id: id }),
       });
 
       if (error) {
@@ -146,18 +139,17 @@ export function useScenarios() {
   }, []);
 
   const generateScenario = useCallback(async (
-    accessCode: string,
+    accessCode: string | null,
     request: GenerateScenarioRequest
   ): Promise<{ data: GeneratedScenario | null; error: { message: string } | null }> => {
     setIsGenerating(true);
     try {
       const { data, error } = await supabase.functions.invoke('generate-scenario', {
-        body: {
-          access_code: accessCode,
+        body: buildBody(accessCode, {
           description: request.description,
           industry: request.industry,
           difficulty: request.difficulty,
-        },
+        }),
       });
 
       if (error) {
@@ -186,18 +178,14 @@ export function useScenarios() {
   }, []);
 
   const suggestScenarioFields = useCallback(async (
-    accessCode: string,
+    accessCode: string | null,
     title: string,
     context: string
   ): Promise<{ data: SuggestedScenarioFields | null; error: { message: string } | null }> => {
     setIsSuggesting(true);
     try {
       const { data, error } = await supabase.functions.invoke('suggest-scenario-fields', {
-        body: {
-          access_code: accessCode,
-          title,
-          context,
-        },
+        body: buildBody(accessCode, { title, context }),
       });
 
       if (error) {

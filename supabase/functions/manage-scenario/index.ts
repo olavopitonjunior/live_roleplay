@@ -2,7 +2,7 @@
  * Edge Function: manage-scenario
  *
  * Admin-only endpoint for managing scenarios (CRUD operations).
- * Validates admin access code before allowing modifications.
+ * Supports dual auth: access_code (admin role) or JWT (admin+ role).
  * Supports structured scenario fields and versioning on update.
  */
 
@@ -13,6 +13,7 @@ import {
   corsJsonResponse,
   corsErrorResponse,
 } from "../_shared/cors.ts";
+import { authenticate, type AuthContext } from "../_shared/auth.ts";
 
 // Request types
 interface Objection {
@@ -78,20 +79,20 @@ interface ScenarioData {
 
 interface CreateRequest {
   action: "create";
-  access_code: string;
+  access_code?: string;  // legacy trial auth
   data: ScenarioData;
 }
 
 interface UpdateRequest {
   action: "update";
-  access_code: string;
+  access_code?: string;  // legacy trial auth
   scenario_id: string;
   data: Partial<ScenarioData>;
 }
 
 interface DeleteRequest {
   action: "delete";
-  access_code: string;
+  access_code?: string;  // legacy trial auth
   scenario_id: string;
 }
 
@@ -132,39 +133,27 @@ serve(async (req: Request) => {
   try {
     const body: RequestBody = await req.json();
 
-    if (!body.access_code) {
-      return corsErrorResponse("Missing access_code", 400, req);
+    // --- Dual Auth: JWT (admin+ role) or access_code (admin role) ---
+    const authResult = await authenticate(req, {
+      body: body as Record<string, unknown>,
+      requireAdmin: true,     // access_code must be admin
+      requiredRole: "admin",  // JWT must be admin or higher
+    });
+
+    if (!authResult.success) {
+      return corsErrorResponse(authResult.error, authResult.status, req);
     }
 
-    // Initialize Supabase client with service role
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Validate access code is admin
-    const { data: codeData, error: codeError } = await supabase
-      .from("access_codes")
-      .select("id, role")
-      .eq("code", body.access_code.toUpperCase())
-      .eq("is_active", true)
-      .single();
-
-    if (codeError || !codeData) {
-      return corsErrorResponse("Invalid or inactive access code", 401, req);
-    }
-
-    if (codeData.role !== "admin") {
-      return corsErrorResponse("Admin access required", 403, req);
-    }
+    const { context: auth, supabase } = authResult;
 
     // Route to appropriate handler
     switch (body.action) {
       case "create":
-        return await handleCreate(supabase, body, req);
+        return await handleCreate(supabase, body, auth, req);
       case "update":
-        return await handleUpdate(supabase, body, req);
+        return await handleUpdate(supabase, body, auth, req);
       case "delete":
-        return await handleDelete(supabase, body, req);
+        return await handleDelete(supabase, body, auth, req);
       default:
         return corsErrorResponse("Invalid action", 400, req);
     }
@@ -195,7 +184,7 @@ function extractStructuredFields(data: Partial<ScenarioData>): Record<string, an
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function handleCreate(supabase: any, body: CreateRequest, req: Request) {
+async function handleCreate(supabase: any, body: CreateRequest, auth: AuthContext, req: Request) {
   const { data } = body;
 
   // Validate required fields
@@ -255,8 +244,8 @@ async function handleCreate(supabase: any, body: CreateRequest, req: Request) {
     }
   }
 
-  // Build insert payload with structured fields
-  const insertPayload = {
+  // Build insert payload with structured fields + org context
+  const insertPayload: Record<string, unknown> = {
     title: data.title.trim(),
     category: data.category?.trim() || null,
     context: data.context.trim(),
@@ -270,6 +259,9 @@ async function handleCreate(supabase: any, body: CreateRequest, req: Request) {
     avatar_id: data.avatar_id?.trim() || null,
     is_active: data.is_active ?? true,
     ...extractStructuredFields(data),
+    // Multi-tenant: set org_id and created_by
+    org_id: auth.org_id || null,
+    created_by: auth.user_profile_id || null,
   };
 
   const { data: scenario, error } = await supabase
@@ -291,7 +283,7 @@ async function handleCreate(supabase: any, body: CreateRequest, req: Request) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function handleUpdate(supabase: any, body: UpdateRequest, req: Request) {
+async function handleUpdate(supabase: any, body: UpdateRequest, auth: AuthContext, req: Request) {
   const { scenario_id, data } = body;
 
   if (!scenario_id) {
@@ -427,7 +419,7 @@ async function handleUpdate(supabase: any, body: UpdateRequest, req: Request) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function handleDelete(supabase: any, body: DeleteRequest, req: Request) {
+async function handleDelete(supabase: any, body: DeleteRequest, auth: AuthContext, req: Request) {
   const { scenario_id } = body;
 
   if (!scenario_id) {

@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
 import type { ApiMetric, MetricsTotals, DailyAggregate, MetricsFilters, MetricsResponse } from '../types';
 
 export function useApiMetrics() {
@@ -9,7 +10,7 @@ export function useApiMetrics() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchMetrics = useCallback(async (
-    accessCode: string,
+    accessCode: string | null,
     filters: MetricsFilters = { startDate: null, endDate: null, scenarioId: null }
   ) => {
     setLoading(true);
@@ -22,15 +23,22 @@ export function useApiMetrics() {
       if (filters.scenarioId) params.append('scenario_id', filters.scenarioId);
       params.append('limit', '500'); // Get more data for charts
 
+      // Build headers — prefer JWT session token, fallback to access code
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      } else {
+        headers['Authorization'] = `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`;
+        if (accessCode) headers['x-access-code'] = accessCode;
+      }
+
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-api-metrics?${params}`,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            'x-access-code': accessCode,
-          },
-        }
+        { headers }
       );
 
       if (!response.ok) {

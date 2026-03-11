@@ -423,10 +423,15 @@ export interface FeedbackWithEvidences extends Feedback {
   objection_statuses: SessionObjectionStatus[];
 }
 
-// Auth state
+// Auth state (supports dual auth: access_code + JWT)
 export interface AuthState {
   accessCode: AccessCode | null;
   isAuthenticated: boolean;
+  // Multi-tenant (JWT auth)
+  authMethod: AuthMethod | null;
+  user: UserProfile | null;
+  organization: Organization | null;
+  trialUserId: string | null;
 }
 
 // LiveKit token response
@@ -554,4 +559,242 @@ export interface OrchestratorSnapshot {
   avatar_emotion: string;
   avatar_directive_sent: boolean;
   deviation: string | null;
+}
+
+// ============================================
+// Multi-Tenant Types (Phase 2)
+// ============================================
+
+// Organization status
+export type OrgStatus = 'trialing' | 'active' | 'grace_period' | 'suspended' | 'deletion_pending' | 'deleted' | 'churned';
+
+// Tenant roles
+export type TenantRole = 'owner' | 'admin' | 'manager' | 'trainer' | 'trainee';
+
+// Platform admin roles
+export type PlatformRole = 'super_admin' | 'admin' | 'support' | 'finance' | 'viewer';
+
+// Auth method
+export type AuthMethod = 'access_code' | 'jwt';
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  owner_id: string | null;
+  status: OrgStatus;
+  settings: OrgSettings;
+  plan_limits: Record<string, unknown>;
+  is_active: boolean;
+  industry: string | null;
+  suspended_at: string | null;
+  suspension_reason: string | null;
+  grace_period_ends_at: string | null;
+  trial_ends_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrgSettings {
+  session_timeout_hours?: number;
+  max_session_duration_seconds?: number;
+  default_session_mode?: SessionMode;
+  default_difficulty_level?: number;
+  allow_evaluation_mode?: boolean;
+  require_email_verification?: boolean;
+  coach_enabled?: boolean;
+  coach_mode?: string;
+  managers_can_create_scenarios?: boolean;
+  branding?: {
+    logo_url?: string | null;
+    primary_color?: string;
+    company_name?: string;
+  };
+  notifications?: {
+    weekly_report?: boolean;
+    session_complete?: boolean;
+  };
+  retention_days?: number;
+  allowed_ai_voices?: AiVoice[];
+  max_concurrent_sessions?: number;
+}
+
+export interface UserProfile {
+  id: string;
+  org_id: string;
+  auth_user_id: string | null;
+  access_code_id: string | null;
+  email: string;
+  full_name: string | null;
+  role: TenantRole;
+  settings: UserSettings;
+  is_active: boolean;
+  status: 'active' | 'deactivated' | 'deletion_pending' | 'deleted';
+  avatar_url: string | null;
+  last_device: string | null;
+  last_seen_at: string | null;
+  deactivated_at: string | null;
+  deletion_requested_at: string | null;
+  role_updated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserSettings {
+  preferred_language?: string;
+  preferred_voice?: AiVoice | null;
+  notification_email?: boolean;
+  notification_weekly_report?: boolean;
+  notification_push?: boolean;
+  coach_overlay_position?: 'left' | 'right';
+  coach_auto_dismiss_seconds?: number;
+  theme?: 'light' | 'dark' | 'system';
+  default_session_mode?: SessionMode;
+  show_emotion_meter?: boolean;
+  show_spin_indicator?: boolean;
+  timezone?: string;
+}
+
+export interface Team {
+  id: string;
+  org_id: string;
+  name: string;
+  description: string | null;
+  manager_id: string | null;
+  settings: Record<string, unknown>;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamMembership {
+  id: string;
+  team_id: string;
+  user_id: string;
+  role: 'manager' | 'member';
+  joined_at: string;
+}
+
+export interface UserInvite {
+  id: string;
+  org_id: string;
+  email: string;
+  role: TenantRole;
+  team_id: string | null;
+  invited_by: string;
+  status: 'pending' | 'accepted' | 'expired' | 'revoked';
+  expires_at: string;
+  accepted_at: string | null;
+  created_at: string;
+}
+
+export interface ScenarioAssignment {
+  id: string;
+  org_id: string;
+  scenario_id: string;
+  assigned_to: string;
+  assigned_by: string;
+  due_date: string | null;
+  target_score: number | null;
+  target_mode: SessionMode;
+  status: 'pending' | 'in_progress' | 'completed' | 'overdue';
+  completed_session_id: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+// Auth context for the frontend
+export interface AuthContext {
+  method: AuthMethod;
+  // Access code auth
+  accessCode?: AccessCode;
+  trialUserId?: string;
+  // JWT auth
+  user?: UserProfile;
+  organization?: Organization;
+  // Common
+  isAuthenticated: boolean;
+  isAdmin: boolean;
+  orgId?: string;
+  role?: TenantRole | 'admin' | 'user';  // backward compat with access_code roles
+}
+
+// Plans & Billing
+export interface Plan {
+  id: string;
+  slug: string;
+  display_name: string;
+  description: string | null;
+  sort_order: number;
+  is_public: boolean;
+  is_archived: boolean;
+}
+
+export interface PlanVersion {
+  id: string;
+  plan_id: string;
+  version_number: number;
+  status: 'draft' | 'published' | 'sunset' | 'archived';
+  base_fee_cents: number;
+  currency: string;
+  billing_interval: 'month' | 'year';
+  included_sessions: number;
+  included_tokens: number;
+  overage_per_session_cents: number;
+  features: Record<string, unknown>;
+  published_at: string | null;
+}
+
+export interface StripeSubscription {
+  id: string;
+  org_id: string;
+  stripe_subscription_id: string;
+  plan_version_id: string;
+  status: 'incomplete' | 'trialing' | 'active' | 'past_due' | 'canceled' | 'unpaid' | 'paused';
+  current_period_start: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  trial_start: string | null;
+  trial_end: string | null;
+}
+
+// Notification
+export interface NotificationItem {
+  id: string;
+  user_profile_id: string;
+  org_id: string;
+  notification_type: string;
+  title: string;
+  body: string | null;
+  data: Record<string, unknown> | null;
+  is_read: boolean;
+  sent_at: string;
+  read_at: string | null;
+}
+
+// Onboarding
+export interface OnboardingStatus {
+  id: string;
+  org_id: string;
+  org_profile_completed_at: string | null;
+  first_user_invited_at: string | null;
+  first_scenario_created_at: string | null;
+  first_session_completed_at: string | null;
+  billing_setup_at: string | null;
+  steps_completed: number;
+  total_steps: number;
+  is_complete: boolean;
+}
+
+// Role hierarchy helper
+export const ROLE_HIERARCHY: Record<TenantRole, number> = {
+  owner: 50,
+  admin: 40,
+  manager: 30,
+  trainer: 20,
+  trainee: 10,
+};
+
+export function hasMinRole(userRole: TenantRole, requiredRole: TenantRole): boolean {
+  return (ROLE_HIERARCHY[userRole] ?? 0) >= (ROLE_HIERARCHY[requiredRole] ?? 0);
 }

@@ -2,7 +2,8 @@
  * Edge Function: get-api-metrics
  *
  * Returns aggregated API usage metrics for the admin dashboard.
- * Admin-only access via x-access-code header validation.
+ * Supports dual auth: x-access-code header (admin) or JWT (admin+ role).
+ * Scopes results to org_id when available.
  */
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
@@ -12,6 +13,7 @@ import {
   corsJsonResponse,
   corsErrorResponse,
 } from "../_shared/cors.ts";
+import { authenticate } from "../_shared/auth.ts";
 
 interface ApiMetric {
   id: string;
@@ -58,32 +60,17 @@ serve(async (req: Request) => {
   if (preflightResponse) return preflightResponse;
 
   try {
-    // Validate admin access via X-Access-Code header
-    const accessCode = req.headers.get("x-access-code");
-    if (!accessCode) {
-      return corsErrorResponse("Unauthorized - missing access code", 401, req);
+    // --- Dual Auth: JWT (admin+ role) or x-access-code header (admin) ---
+    const authResult = await authenticate(req, {
+      requireAdmin: true,
+      requiredRole: "admin",
+    });
+
+    if (!authResult.success) {
+      return corsErrorResponse(authResult.error, authResult.status, req);
     }
 
-    // Initialize Supabase client
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Verify admin role
-    const { data: codeData, error: codeError } = await supabase
-      .from("access_codes")
-      .select("id, role")
-      .eq("code", accessCode.toUpperCase())
-      .eq("is_active", true)
-      .single();
-
-    if (codeError || !codeData) {
-      return corsErrorResponse("Invalid access code", 401, req);
-    }
-
-    if (codeData.role !== "admin") {
-      return corsErrorResponse("Admin access required", 403, req);
-    }
+    const { context: auth, supabase } = authResult;
 
     // Parse query parameters
     const url = new URL(req.url);
@@ -100,6 +87,7 @@ serve(async (req: Request) => {
         sessions (
           scenario_id,
           access_code_id,
+          org_id,
           scenarios (
             id,
             title
@@ -109,12 +97,16 @@ serve(async (req: Request) => {
       .order("created_at", { ascending: false })
       .limit(limit);
 
+    // Scope to org if user has one (enterprise users see only their org's metrics)
+    if (auth.org_id) {
+      query = query.eq("org_id", auth.org_id);
+    }
+
     // Apply date filters
     if (startDate) {
       query = query.gte("created_at", startDate);
     }
     if (endDate) {
-      // Add time to end date to include the full day
       query = query.lte("created_at", `${endDate}T23:59:59.999Z`);
     }
 

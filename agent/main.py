@@ -462,8 +462,13 @@ async def fetch_criterion_rubrics(scenario_id: str) -> list[dict[str, Any]]:
     return result if result is not None else []
 
 
-async def _fetch_difficulty_profile_impl(access_code_id: str) -> dict[str, Any] | None:
-    """Internal implementation of fetch_difficulty_profile."""
+async def _fetch_difficulty_profile_impl(identifier: str, by_user_profile: bool = False) -> dict[str, Any] | None:
+    """Internal implementation of fetch_difficulty_profile.
+
+    Args:
+        identifier: access_code_id or user_profile_id
+        by_user_profile: if True, look up by user_profile_id instead of access_code_id
+    """
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         logger.error("Supabase credentials not configured")
         return None
@@ -474,37 +479,53 @@ async def _fetch_difficulty_profile_impl(access_code_id: str) -> dict[str, Any] 
         "Content-Type": "application/json",
     }
 
-    # Use the RPC function to get or create profile
-    url = f"{SUPABASE_URL}/rest/v1/rpc/get_or_create_difficulty_profile"
-    payload = {"p_access_code_id": access_code_id}
+    if by_user_profile:
+        # Enterprise user: query by user_profile_id directly
+        query_url = f"{SUPABASE_URL}/rest/v1/user_difficulty_profiles"
+        params = {"user_profile_id": f"eq.{identifier}", "select": "*"}
+        try:
+            async with aiohttp.ClientSession() as http_session:
+                async with http_session.get(query_url, headers=headers, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if data and len(data) > 0:
+                            return data[0]
+            return {"current_level": 3}
+        except Exception as e:
+            logger.warning(f"Error fetching difficulty profile by user_profile: {e}")
+            return {"current_level": 3}
+    else:
+        # Trial user: use RPC or fallback to access_code_id query
+        url = f"{SUPABASE_URL}/rest/v1/rpc/get_or_create_difficulty_profile"
+        payload = {"p_access_code_id": identifier}
 
-    try:
-        async with aiohttp.ClientSession() as http_session:
-            async with http_session.post(url, headers=headers, json=payload) as response:
-                if response.status != 200:
-                    # Fallback to direct query if RPC fails
-                    logger.warning(f"RPC failed ({response.status}), trying direct query")
-                    query_url = f"{SUPABASE_URL}/rest/v1/user_difficulty_profiles"
-                    params = {"access_code_id": f"eq.{access_code_id}", "select": "*"}
-                    async with http_session.get(query_url, headers=headers, params=params) as query_response:
-                        if query_response.status == 200:
-                            data = await query_response.json()
-                            if data and len(data) > 0:
-                                return data[0]
-                    return {"current_level": 3}  # Default
+        try:
+            async with aiohttp.ClientSession() as http_session:
+                async with http_session.post(url, headers=headers, json=payload) as response:
+                    if response.status != 200:
+                        logger.warning(f"RPC failed ({response.status}), trying direct query")
+                        query_url = f"{SUPABASE_URL}/rest/v1/user_difficulty_profiles"
+                        params = {"access_code_id": f"eq.{identifier}", "select": "*"}
+                        async with http_session.get(query_url, headers=headers, params=params) as query_response:
+                            if query_response.status == 200:
+                                data = await query_response.json()
+                                if data and len(data) > 0:
+                                    return data[0]
+                        return {"current_level": 3}
 
-                data = await response.json()
-                return data if data else {"current_level": 3}
-    except Exception as e:
-        logger.warning(f"Error fetching difficulty profile: {e}")
-        return {"current_level": 3}
+                    data = await response.json()
+                    return data if data else {"current_level": 3}
+        except Exception as e:
+            logger.warning(f"Error fetching difficulty profile: {e}")
+            return {"current_level": 3}
 
 
-async def fetch_difficulty_profile(access_code_id: str) -> dict[str, Any]:
+async def fetch_difficulty_profile(identifier: str, by_user_profile: bool = False) -> dict[str, Any]:
     """Fetch difficulty profile for a user from Supabase."""
     result = await with_retry(
         _fetch_difficulty_profile_impl,
-        access_code_id,
+        identifier,
+        by_user_profile,
         max_retries=2,
         delay=1.0,
         operation_name="fetch_difficulty_profile"
@@ -512,8 +533,13 @@ async def fetch_difficulty_profile(access_code_id: str) -> dict[str, Any]:
     return result if result else {"current_level": 3}
 
 
-async def _fetch_learning_profile_impl(access_code_id: str) -> dict[str, Any] | None:
-    """Internal implementation of fetch_learning_profile."""
+async def _fetch_learning_profile_impl(identifier: str, by_user_profile: bool = False) -> dict[str, Any] | None:
+    """Internal implementation of fetch_learning_profile.
+
+    Args:
+        identifier: access_code_id or user_profile_id
+        by_user_profile: if True, look up by user_profile_id
+    """
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         logger.error("Supabase credentials not configured")
         return None
@@ -524,10 +550,10 @@ async def _fetch_learning_profile_impl(access_code_id: str) -> dict[str, Any] | 
         "Content-Type": "application/json",
     }
 
-    # Query the learning profiles table directly
     url = f"{SUPABASE_URL}/rest/v1/user_learning_profiles"
+    filter_key = "user_profile_id" if by_user_profile else "access_code_id"
     params = {
-        "access_code_id": f"eq.{access_code_id}",
+        filter_key: f"eq.{identifier}",
         "select": "recurring_weaknesses,recurring_strengths,spin_proficiency,average_score,total_sessions,objection_handling"
     }
 
@@ -550,11 +576,12 @@ async def _fetch_learning_profile_impl(access_code_id: str) -> dict[str, Any] | 
         return {}
 
 
-async def fetch_learning_profile(access_code_id: str) -> dict[str, Any]:
+async def fetch_learning_profile(identifier: str, by_user_profile: bool = False) -> dict[str, Any]:
     """Fetch learning profile for a user from Supabase."""
     result = await with_retry(
         _fetch_learning_profile_impl,
-        access_code_id,
+        identifier,
+        by_user_profile,
         max_retries=2,
         delay=1.0,
         operation_name="fetch_learning_profile"
@@ -943,11 +970,14 @@ async def entrypoint(ctx: JobContext):
     session_mode = session_data.get("session_mode", "training")
     coaching_enabled = session_mode == "training"
 
-    # Get access_code_id for difficulty profile
+    # Get identity info for difficulty/learning profile lookup
     access_code_id = session_data.get("access_code_id")
+    user_profile_id = session_data.get("user_profile_id")
+    org_id = session_data.get("org_id")
 
     logger.info(f"Session ID: {session_id}, Scenario ID: {scenario_id}")
     logger.info(f"Session mode: {session_mode}, Coaching enabled: {coaching_enabled}")
+    logger.info(f"Auth context: access_code={access_code_id is not None}, user_profile={user_profile_id is not None}, org={org_id}")
 
     # Fetch scenario from Supabase
     scenario = await fetch_scenario(scenario_id)
@@ -967,8 +997,9 @@ async def entrypoint(ctx: JobContext):
 
     # Fetch difficulty level - from session or user profile
     difficulty_level = session_data.get("difficulty_level")
-    if difficulty_level is None and access_code_id:
-        profile = await fetch_difficulty_profile(access_code_id)
+    if difficulty_level is None and (user_profile_id or access_code_id):
+        profile_key = user_profile_id or access_code_id
+        profile = await fetch_difficulty_profile(profile_key, by_user_profile=bool(user_profile_id))
         difficulty_level = profile.get("current_level", 3)
     elif difficulty_level is None:
         difficulty_level = 3  # Default
@@ -977,8 +1008,9 @@ async def entrypoint(ctx: JobContext):
 
     # Fetch learning profile for AI coach (cross-session learning)
     learning_profile = {}
-    if access_code_id and coaching_enabled:
-        learning_profile = await fetch_learning_profile(access_code_id)
+    profile_key = user_profile_id or access_code_id
+    if profile_key and coaching_enabled:
+        learning_profile = await fetch_learning_profile(profile_key, by_user_profile=bool(user_profile_id))
         if learning_profile.get("recurring_weaknesses"):
             logger.info(f"Learning profile loaded with weaknesses: {learning_profile.get('recurring_weaknesses')}")
         else:

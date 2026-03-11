@@ -9,7 +9,9 @@
 const ALLOWED_ORIGINS: string[] = [
   // Production URLs
   "https://liveroleplay.vercel.app",
+  "https://admin.liveroleplay.com",
   Deno.env.get("FRONTEND_URL") || "",
+  Deno.env.get("PLATFORM_ADMIN_URL") || "",
   // Development URLs
   "http://localhost:5173",
   "http://localhost:5174",

@@ -4,6 +4,10 @@
  * Generates a LiveKit JWT token for users to join a session room.
  * Also creates the session record in the database.
  * Uses API-based dispatch to assign agent (creates room + dispatches before user joins).
+ *
+ * Supports dual auth:
+ * - Access code (trial users): scenario_id + access_code in body
+ * - JWT (enterprise users): scenario_id in body + Authorization: Bearer <jwt>
  */
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
@@ -15,6 +19,7 @@ import {
   corsJsonResponse,
   corsErrorResponse,
 } from "../_shared/cors.ts";
+import { authenticate, type AuthContext } from "../_shared/auth.ts";
 
 // Agent name must match the agent registered in the worker
 const AGENT_NAME = "roleplay-agent";
@@ -22,9 +27,9 @@ const AGENT_NAME = "roleplay-agent";
 // ---------------------------------------------------------------------------
 // In-memory rate limiting (resets on cold start — acceptable for Edge Functions)
 // ---------------------------------------------------------------------------
-const RATE_LIMIT_WINDOW_MS = 5_000; // 5 seconds between requests per access code
+const RATE_LIMIT_WINDOW_MS = 5_000; // 5 seconds between requests per identity
 const RATE_LIMIT_MAX_ENTRIES = 200;
-const _rateLimitMap = new Map<string, number>(); // access_code -> last request timestamp
+const _rateLimitMap = new Map<string, number>();
 
 function checkRateLimit(key: string): boolean {
   const now = Date.now();
@@ -32,7 +37,6 @@ function checkRateLimit(key: string): boolean {
   if (lastRequest && now - lastRequest < RATE_LIMIT_WINDOW_MS) {
     return false; // Rate limited
   }
-  // Evict oldest entry if at capacity (Map preserves insertion order)
   if (_rateLimitMap.size >= RATE_LIMIT_MAX_ENTRIES) {
     const oldest = _rateLimitMap.keys().next().value;
     if (oldest !== undefined) _rateLimitMap.delete(oldest);
@@ -49,7 +53,8 @@ const MALE_VOICES: AiVoice[] = ["echo", "ash", "sage"];
 
 interface RequestBody {
   scenario_id: string;
-  access_code: string;
+  access_code?: string;       // trial auth
+  trial_user_id?: string;     // client-generated UUID for trial users
   session_mode?: SessionMode;
   voice_override?: AiVoice;
 }
@@ -91,44 +96,42 @@ serve(async (req: Request) => {
 
   try {
     // Parse request body
+    const body: RequestBody = await req.json();
     const {
       scenario_id,
       access_code,
+      trial_user_id,
       session_mode = "training",
       voice_override,
-    }: RequestBody = await req.json();
+    } = body;
 
-    if (!scenario_id || !access_code) {
-      return corsErrorResponse("Missing scenario_id or access_code", 400, req);
+    if (!scenario_id) {
+      return corsErrorResponse("Missing scenario_id", 400, req);
     }
 
-    // Rate limit: 1 request per 5 seconds per access code
-    if (!checkRateLimit(access_code.toUpperCase())) {
-      console.warn(`[RATE_LIMIT] Blocked request for code ${access_code.substring(0, 4)}***`);
+    // --- Dual Auth: try JWT first, then access_code ---
+    const authResult = await authenticate(req, { body: body as Record<string, unknown> });
+
+    if (!authResult.success) {
+      return corsErrorResponse(authResult.error, authResult.status, req);
+    }
+
+    const { context: auth, supabase } = authResult;
+
+    // Rate limit by identity
+    const rateLimitKey = auth.method === "jwt"
+      ? (auth.user_profile_id || auth.auth_user_id || "unknown")
+      : (auth.access_code_id || "unknown");
+
+    if (!checkRateLimit(rateLimitKey)) {
+      console.warn(`[RATE_LIMIT] Blocked request for ${auth.method} user ${rateLimitKey.substring(0, 8)}***`);
       return corsErrorResponse("Aguarde antes de tentar novamente", 429, req);
-    }
-
-    // Initialize Supabase client with service role
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Validate access code
-    const { data: codeData, error: codeError } = await supabase
-      .from("access_codes")
-      .select("id, role")
-      .eq("code", access_code.toUpperCase())
-      .eq("is_active", true)
-      .single();
-
-    if (codeError || !codeData) {
-      return corsErrorResponse("Invalid or inactive access code", 401, req);
     }
 
     // Validate scenario exists and is active, fetch avatar/voice settings
     const { data: scenarioData, error: scenarioError } = await supabase
       .from("scenarios")
-      .select("id, title, simli_face_id, ai_voice, avatar_provider, avatar_id, version, target_duration_seconds, character_gender")
+      .select("id, title, simli_face_id, ai_voice, avatar_provider, avatar_id, version, target_duration_seconds, character_gender, org_id")
       .eq("id", scenario_id)
       .eq("is_active", true)
       .single();
@@ -137,30 +140,60 @@ serve(async (req: Request) => {
       return corsErrorResponse("Invalid or inactive scenario", 404, req);
     }
 
+    // Org isolation: if user has org_id, scenario must be in same org or platform-level (null)
+    if (auth.org_id && scenarioData.org_id && scenarioData.org_id !== auth.org_id) {
+      return corsErrorResponse("Scenario not available for your organization", 403, req);
+    }
+
+    // Determine the org_id for this session
+    const sessionOrgId = auth.org_id || scenarioData.org_id || null;
+
     // Fetch user's difficulty profile
     let difficultyLevel = 3; // Default level
-    const { data: profileData } = await supabase
-      .from("user_difficulty_profiles")
-      .select("current_level, sessions_at_level, consecutive_high_scores, consecutive_low_scores")
-      .eq("access_code_id", codeData.id)
-      .single();
-
-    if (profileData) {
-      difficultyLevel = profileData.current_level || 3;
-      console.log(`Found existing difficulty profile: level ${difficultyLevel}`);
-    } else {
-      // Create new profile with default level 3
-      const { error: profileError } = await supabase
+    if (auth.method === "jwt" && auth.user_profile_id) {
+      // Enterprise user: look up by user_profile_id
+      const { data: profileData } = await supabase
         .from("user_difficulty_profiles")
-        .insert({
-          access_code_id: codeData.id,
-          current_level: 3,
-        });
+        .select("current_level, sessions_at_level, consecutive_high_scores, consecutive_low_scores")
+        .eq("user_profile_id", auth.user_profile_id)
+        .single();
 
-      if (profileError) {
-        console.warn("Could not create difficulty profile:", profileError);
+      if (profileData) {
+        difficultyLevel = profileData.current_level || 3;
+        console.log(`Found difficulty profile (user_profile): level ${difficultyLevel}`);
       } else {
-        console.log("Created new difficulty profile with level 3");
+        // Create new profile for enterprise user
+        const { error: profileError } = await supabase
+          .from("user_difficulty_profiles")
+          .insert({
+            user_profile_id: auth.user_profile_id,
+            org_id: auth.org_id || null,
+            current_level: 3,
+          });
+        if (profileError) console.warn("Could not create difficulty profile:", profileError);
+        else console.log("Created new difficulty profile (user_profile) with level 3");
+      }
+    } else if (auth.access_code_id) {
+      // Trial user: look up by access_code_id
+      const { data: profileData } = await supabase
+        .from("user_difficulty_profiles")
+        .select("current_level, sessions_at_level, consecutive_high_scores, consecutive_low_scores")
+        .eq("access_code_id", auth.access_code_id)
+        .single();
+
+      if (profileData) {
+        difficultyLevel = profileData.current_level || 3;
+        console.log(`Found difficulty profile (access_code): level ${difficultyLevel}`);
+      } else {
+        const { error: profileError } = await supabase
+          .from("user_difficulty_profiles")
+          .insert({
+            access_code_id: auth.access_code_id,
+            org_id: sessionOrgId,
+            current_level: 3,
+          });
+        if (profileError) console.warn("Could not create difficulty profile:", profileError);
+        else console.log("Created new difficulty profile (access_code) with level 3");
       }
     }
 
@@ -168,17 +201,27 @@ serve(async (req: Request) => {
     const sessionId = crypto.randomUUID();
     const roomName = `roleplay_${sessionId}`;
 
-    // Create session record in database with mode settings and difficulty
-    const { error: sessionError } = await supabase.from("sessions").insert({
+    // Create session record in database with mode settings, difficulty, and org identity
+    const sessionInsert: Record<string, unknown> = {
       id: sessionId,
-      access_code_id: codeData.id,
       scenario_id: scenario_id,
       livekit_room_name: roomName,
       status: "active",
       session_mode: session_mode,
       difficulty_level: difficultyLevel,
       scenario_version: scenarioData.version || 1,
-    });
+      org_id: sessionOrgId,
+    };
+
+    // Set identity fields based on auth method
+    if (auth.method === "jwt") {
+      sessionInsert.user_profile_id = auth.user_profile_id || null;
+    } else {
+      sessionInsert.access_code_id = auth.access_code_id;
+      sessionInsert.trial_user_id = trial_user_id || null;
+    }
+
+    const { error: sessionError } = await supabase.from("sessions").insert(sessionInsert);
 
     if (sessionError) {
       console.error("Failed to create session:", sessionError);
@@ -215,15 +258,13 @@ serve(async (req: Request) => {
       ai_voice: effectiveVoice,
       avatar_provider: scenarioData.avatar_provider || null,
       avatar_id: scenarioData.avatar_id || null,
-      // PRD 08: Session mode
       session_mode: session_mode,
-      // Difficulty level for adaptive difficulty
       difficulty_level: difficultyLevel,
-      // AGENTS-EVOLUTION: Target duration for agent timer
       target_duration_seconds: scenarioData.target_duration_seconds || 180,
+      org_id: sessionOrgId,
     });
 
-    console.log(`Session created, room: ${roomName}, agent: ${AGENT_NAME}, mode: ${session_mode}, difficulty: ${difficultyLevel}`);
+    console.log(`Session created, room: ${roomName}, agent: ${AGENT_NAME}, mode: ${session_mode}, difficulty: ${difficultyLevel}, auth: ${auth.method}, org: ${sessionOrgId || 'none'}`);
 
     // --- API-based agent dispatch ---
     const livekitUrl = Deno.env.get("LIVEKIT_URL");
@@ -331,7 +372,6 @@ serve(async (req: Request) => {
               if (targetDispatch?.state) {
                 const jobs = targetDispatch.state.jobs || [];
                 const firstJob = jobs[0];
-                // Job status: JS_PENDING=1, JS_RUNNING=2, JS_SUCCESS=3, JS_FAILED=4
                 const jobStatus = firstJob?.state?.status;
                 const statusMap: Record<string, string> = {
                   "0": "UNKNOWN", "1": "PENDING", "2": "RUNNING", "3": "SUCCESS", "4": "FAILED",
@@ -339,7 +379,6 @@ serve(async (req: Request) => {
                   "JS_SUCCESS": "SUCCESS", "JS_FAILED": "FAILED",
                 };
                 const statusStr = statusMap[String(jobStatus)] || `raw:${jobStatus}`;
-                // agent_accepted = job is RUNNING or SUCCESS (handles both numeric and string enum formats)
                 const accepted = statusStr === "RUNNING" || statusStr === "SUCCESS";
                 dispatchResult.dispatch_state = {
                   jobs_count: jobs.length,
@@ -375,10 +414,13 @@ serve(async (req: Request) => {
     }
 
     // --- Generate user access token ---
+    const userIdentity = auth.method === "jwt"
+      ? `user_${(auth.user_profile_id || auth.auth_user_id || "unknown").substring(0, 8)}`
+      : `user_${(auth.access_code_id || "unknown").substring(0, 8)}`;
+
     const at = new AccessToken(livekitApiKey, livekitApiSecret, {
-      identity: `user_${codeData.id.substring(0, 8)}`,
+      identity: userIdentity,
       name: "Participant",
-      // Include metadata for the agent to read from participant
       metadata: agentMetadata,
     });
 
@@ -392,7 +434,7 @@ serve(async (req: Request) => {
       canUpdateOwnMetadata: true,
     });
 
-    // Generate JWT token (no roomConfig — dispatch is handled via API above)
+    // Generate JWT token
     const token = await at.toJwt();
 
     // Return token and session info (includes dispatch diagnostics)
