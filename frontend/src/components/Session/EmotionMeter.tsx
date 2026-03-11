@@ -234,7 +234,7 @@ export function EmotionMeter() {
         <div className={`absolute -right-4 top-0 text-lg font-bold transition-all duration-300 ${
           trend === 'improving' ? 'text-green-400' :
           trend === 'declining' ? 'text-red-400' :
-          'text-neutral-500'
+          'text-gray-500'
         }`}>
           {trend === 'improving' && '↑'}
           {trend === 'declining' && '↓'}
@@ -259,8 +259,8 @@ export function EmotionMeter() {
       </div>
 
       {/* Thermometer */}
-      <div className={`relative w-6 h-32 bg-neutral-800 rounded-full overflow-hidden border border-neutral-700 ${
-        isProcessing ? 'ring-2 ring-yellow-400/50 ring-offset-1 ring-offset-neutral-900' : ''
+      <div className={`relative w-6 h-32 bg-gray-800 rounded-full overflow-hidden border-2 border-black ${
+        isProcessing ? 'ring-2 ring-yellow-400/50 ring-offset-1 ring-offset-gray-900' : ''
       } ${isStreaming ? 'ring-1 ring-cyan-400/30' : ''}`}>
         {/* Gradient background - 8 tier */}
         <div className="absolute inset-0 opacity-30"
@@ -281,7 +281,7 @@ export function EmotionMeter() {
         {[0, 12, 28, 42, 55, 68, 82, 100].map((pos) => (
           <div
             key={pos}
-            className="absolute left-0 right-0 h-px bg-neutral-600"
+            className="absolute left-0 right-0 h-px bg-gray-600"
             style={{ bottom: `${pos}%` }}
           />
         ))}
@@ -305,7 +305,7 @@ export function EmotionMeter() {
 
       {/* Reason tooltip */}
       {reason && (
-        <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-neutral-800 text-xs text-neutral-200 px-2 py-1 rounded-md whitespace-nowrap shadow-lg border border-neutral-700 animate-fade-in">
+        <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-gray-800 text-xs text-gray-200 px-2 py-1 whitespace-nowrap shadow-[4px_4px_0px_#000] border-2 border-black animate-fade-in">
           {reason}
         </div>
       )}

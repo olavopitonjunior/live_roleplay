@@ -116,42 +116,42 @@ export function MobileSessionLayout({
   // Connection states
   if (connectionState === ConnectionState.Connecting) {
     return (
-      <div className="w-full h-screen bg-neutral-950 flex flex-col items-center justify-center">
+      <div className="w-full h-screen bg-gray-950 flex flex-col items-center justify-center">
         <div className="relative">
           <div className="w-16 h-16 rounded-full border-4 border-primary-500 border-t-transparent animate-spin" />
         </div>
         <p className="mt-4 text-white text-base">Conectando...</p>
-        <p className="mt-1 text-neutral-400 text-sm">Preparando treinamento</p>
+        <p className="mt-1 text-gray-400 text-sm">Preparando treinamento</p>
       </div>
     );
   }
 
   if (connectionState === ConnectionState.Disconnected) {
     return (
-      <div className="w-full h-screen bg-neutral-950 flex flex-col items-center justify-center">
+      <div className="w-full h-screen bg-gray-950 flex flex-col items-center justify-center">
         <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mb-3">
           <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </div>
         <p className="text-white text-base">Conexao encerrada</p>
-        <p className="mt-1 text-neutral-400 text-sm">Gerando feedback...</p>
+        <p className="mt-1 text-gray-400 text-sm">Gerando feedback...</p>
       </div>
     );
   }
 
   return (
-    <div className="w-full h-screen bg-neutral-950 flex flex-col overflow-hidden">
+    <div className="w-full h-screen bg-gray-950 flex flex-col overflow-hidden">
       {/* Latency Monitor (debug only) */}
       <LatencyOverlay />
 
       {/* Compact Header */}
-      <header className="flex items-center justify-between px-3 py-2 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800 safe-area-top">
+      <header className="flex items-center justify-between px-3 py-2 bg-gray-900 border-b-2 border-black safe-area-top">
         {/* Timer */}
         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm ${
           isCritical ? 'bg-red-500/20 text-red-400' :
           isWarning ? 'bg-yellow-500/20 text-yellow-400' :
-          'bg-neutral-800 text-white'
+          'bg-gray-800 text-white'
         }`}>
           <div className={`w-1.5 h-1.5 rounded-full ${
             isCritical ? 'bg-red-500 animate-pulse' :
@@ -175,7 +175,7 @@ export function MobileSessionLayout({
           disabled={isEnding}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium text-sm transition-all ${
             isEnding
-              ? 'bg-neutral-700 text-neutral-400 cursor-not-allowed'
+              ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
               : 'bg-red-500/20 text-red-400 active:bg-red-500/30'
           }`}
         >
@@ -207,7 +207,7 @@ export function MobileSessionLayout({
 
             {/* Emotion Meter - Compact for mobile */}
             <div className="absolute left-2 top-1/2 -translate-y-1/2 z-10">
-              <div className="bg-neutral-900/80 backdrop-blur-sm rounded-xl p-2 border border-neutral-800">
+              <div className="bg-gray-900 p-2 border-2 border-black">
                 <EmotionMeter />
               </div>
             </div>
@@ -219,7 +219,7 @@ export function MobileSessionLayout({
 
             {/* Scenario Title Overlay */}
             <div className="absolute top-2 left-2 right-2 z-10">
-              <div className="bg-neutral-900/60 backdrop-blur-sm rounded-lg px-3 py-1.5">
+              <div className="bg-gray-900/60 px-3 py-1.5 border-2 border-black">
                 <p className="text-white text-xs font-medium truncate">
                   {scenarioTitle || 'Treinamento'}
                 </p>
@@ -240,13 +240,13 @@ export function MobileSessionLayout({
       </div>
 
       {/* Bottom Tab Bar */}
-      <nav className="flex border-t border-neutral-800 bg-neutral-900/80 backdrop-blur-sm safe-area-bottom">
+      <nav className="flex border-t-2 border-black bg-gray-900 safe-area-bottom">
         <button
           onClick={() => setActiveTab('video')}
           className={`flex-1 flex flex-col items-center gap-0.5 py-2 transition-colors ${
             activeTab === 'video'
               ? 'text-yellow-400'
-              : 'text-neutral-400 active:text-neutral-300'
+              : 'text-gray-400 active:text-gray-300'
           }`}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -261,7 +261,7 @@ export function MobileSessionLayout({
           className={`flex-1 flex flex-col items-center gap-0.5 py-2 transition-colors ${
             activeTab === 'chat'
               ? 'text-yellow-400'
-              : 'text-neutral-400 active:text-neutral-300'
+              : 'text-gray-400 active:text-gray-300'
           }`}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -211,32 +211,32 @@ function DesktopSessionLayout({
     // This should not happen normally since we connect during loading
     // But keep as fallback just in case
     return (
-      <div className="w-full h-screen bg-neutral-950 flex flex-col items-center justify-center">
+      <div className="w-full h-screen bg-gray-950 flex flex-col items-center justify-center">
         <div className="relative">
-          <div className="w-20 h-20 rounded-full border-4 border-primary-500 border-t-transparent animate-spin" />
+          <div className="w-20 h-20 border-4 border-primary-500 border-t-transparent animate-spin" />
         </div>
         <p className="mt-6 text-white text-lg">Reconectando...</p>
-        <p className="mt-2 text-neutral-400 text-sm">Por favor aguarde</p>
+        <p className="mt-2 text-gray-400 text-sm">Por favor aguarde</p>
       </div>
     );
   }
 
   if (connectionState === ConnectionState.Disconnected) {
     return (
-      <div className="w-full h-screen bg-neutral-950 flex flex-col items-center justify-center">
-        <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-4">
+      <div className="w-full h-screen bg-gray-950 flex flex-col items-center justify-center">
+        <div className="w-16 h-16 bg-red-500/20 flex items-center justify-center mb-4 border-2 border-black shadow-[4px_4px_0px_#000]">
           <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </div>
         <p className="text-white text-lg">Conexao encerrada</p>
-        <p className="mt-2 text-neutral-400 text-sm">Redirecionando para feedback...</p>
+        <p className="mt-2 text-gray-400 text-sm">Redirecionando para feedback...</p>
       </div>
     );
   }
 
   return (
-    <div className="w-full h-screen bg-neutral-950 flex flex-col overflow-hidden">
+    <div className="w-full h-screen bg-gray-950 flex flex-col overflow-hidden">
       {/* Audio Renderer - ensures all remote audio tracks play */}
       <RoomAudioRenderer />
 
@@ -245,21 +245,21 @@ function DesktopSessionLayout({
 
       {/* Agent heartbeat warning */}
       {!agentAlive && (
-        <div className="bg-yellow-500/20 text-yellow-400 text-xs text-center py-1 px-2">
+        <div className="bg-yellow-500/20 text-yellow-400 text-xs text-center py-1 px-2 border-b-2 border-black">
           Sem sinal do agente - verificando conexao...
         </div>
       )}
 
       {/* Top Bar */}
-      <header className="flex items-center justify-between px-4 py-3 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800">
+      <header className="flex items-center justify-between px-4 py-3 bg-gray-900 border-b-2 border-black">
         {/* Timer */}
         <div className="flex items-center gap-3">
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${
+          <div className={`flex items-center gap-2 px-3 py-1.5 border-2 border-black ${
             isCritical ? 'bg-red-500/20 text-red-400' :
             isWarning ? 'bg-yellow-500/20 text-yellow-400' :
-            'bg-neutral-800 text-white'
+            'bg-gray-800 text-white'
           }`}>
-            <div className={`w-2 h-2 rounded-full ${
+            <div className={`w-2 h-2 ${
               isCritical ? 'bg-red-500 animate-pulse' :
               isWarning ? 'bg-yellow-500' :
               'bg-green-500'
@@ -270,8 +270,8 @@ function DesktopSessionLayout({
           </div>
 
           {/* Scenario badge */}
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-neutral-800/50 rounded-full">
-            <span className="text-neutral-400 text-xs">Cenario:</span>
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-gray-800 border-2 border-black">
+            <span className="text-gray-400 text-xs uppercase tracking-wider">Cenario:</span>
             <span className="text-white text-xs font-medium truncate max-w-[200px]">
               {scenarioTitle || 'Treinamento'}
             </span>
@@ -282,10 +282,10 @@ function DesktopSessionLayout({
         <button
           onClick={handleEnd}
           disabled={isEnding}
-          className={`flex items-center gap-2 px-4 py-2 rounded-full font-medium text-sm transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-all border-2 border-black shadow-[4px_4px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 ${
             isEnding
-              ? 'bg-neutral-700 text-neutral-400 cursor-not-allowed'
-              : 'bg-red-500/20 text-red-400 hover:bg-red-500/30 active:scale-95'
+              ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+              : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
           }`}
         >
           {isEnding ? (
@@ -311,16 +311,16 @@ function DesktopSessionLayout({
       {/* Main Content - Split Layout */}
       <div className="flex-1 flex overflow-hidden">
         {/* Avatar Area (Left) - YouTube-style centered 16:9 video */}
-        <div className="flex-1 flex items-center justify-center bg-neutral-950 p-4">
+        <div className="flex-1 flex items-center justify-center bg-gray-950 p-4">
           <div className="relative w-full max-w-3xl">
             {/* 16:9 Aspect Ratio Container */}
-            <div className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-2xl border border-neutral-800">
+            <div className="relative aspect-video bg-black overflow-hidden border-2 border-black shadow-[4px_4px_0px_#000]">
               {/* Avatar Video */}
               <AvatarContainer />
 
               {/* Emotion Meter - Left side inside video */}
               <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10">
-                <div className="bg-neutral-900/80 backdrop-blur-sm rounded-xl p-2 border border-neutral-700">
+                <div className="bg-gray-900 p-2 border-2 border-black">
                   <EmotionMeter />
                 </div>
               </div>
@@ -332,9 +332,9 @@ function DesktopSessionLayout({
 
               {/* Live badge - Top right inside video */}
               <div className="absolute top-3 right-3 z-10">
-                <div className="flex items-center gap-2 bg-red-500 px-3 py-1 rounded-full">
-                  <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
-                  <span className="text-white text-xs font-semibold uppercase">Ao Vivo</span>
+                <div className="flex items-center gap-2 bg-red-500 px-3 py-1 border-2 border-black">
+                  <div className="w-2 h-2 bg-white animate-pulse" />
+                  <span className="text-white text-xs font-semibold uppercase tracking-wider">Ao Vivo</span>
                 </div>
               </div>
             </div>
@@ -347,7 +347,7 @@ function DesktopSessionLayout({
         </div>
 
         {/* Side Panel (Right - Fixed Width) */}
-        <div className="w-80 lg:w-96 border-l border-neutral-800 flex-shrink-0">
+        <div className="w-80 lg:w-96 border-l-2 border-black flex-shrink-0">
           <SidePanel
             scenarioTitle={scenarioTitle}
             scenarioContext={scenarioContext}

@@ -18,7 +18,7 @@ export function CriteriaChecklist({ results, criteria }: CriteriaChecklistProps)
     <div className="space-y-3">
       {/* Summary Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-black">Criterios</h3>
+        <h3 className="text-lg font-semibold text-black uppercase tracking-wider">Criterios</h3>
         <span className="text-sm font-medium text-gray-500">
           {passedCount}/{totalCount} atendidos
         </span>
@@ -28,11 +28,11 @@ export function CriteriaChecklist({ results, criteria }: CriteriaChecklistProps)
       {results.map((result) => (
         <div
           key={result.criteria_id}
-          className={`p-4 rounded-lg border ${
+          className={`p-4 border-2 ${
             result.passed
-              ? 'bg-white border-green-200'
-              : 'bg-white border-red-200'
-          }`}
+              ? 'bg-white border-green-500'
+              : 'bg-white border-red-500'
+          } shadow-[4px_4px_0px_#000]`}
         >
           <div className="flex items-start gap-3">
             {/* Pass/Fail Dot */}

@@ -174,7 +174,7 @@ export function AvatarEmotionOverlay({
       {showCornerIndicator && (
         <div
           className={`absolute top-3 right-3 flex items-center gap-2 px-3 py-1.5 rounded-full
-                      bg-black/60 backdrop-blur-sm border border-white/10
+                      bg-black/60 border border-white/10
                       transition-all duration-300 ${isChanging ? 'scale-110' : 'scale-100'}`}
         >
           <span className={`text-lg ${isChanging ? 'animate-bounce' : ''}`}>
@@ -186,7 +186,7 @@ export function AvatarEmotionOverlay({
 
       {/* Reason tooltip */}
       {reason && (
-        <div className="absolute top-14 right-3 bg-black/80 backdrop-blur-sm text-white text-xs px-3 py-1.5 rounded-lg border border-white/10 animate-fade-in max-w-48">
+        <div className="absolute top-14 right-3 bg-black/80 text-white text-xs px-3 py-1.5 rounded-lg border border-white/10 animate-fade-in max-w-48">
           {reason}
         </div>
       )}

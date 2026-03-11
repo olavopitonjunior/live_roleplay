@@ -25,8 +25,9 @@ export function ScenarioCard({ scenario, onClick }: ScenarioCardProps) {
   return (
     <button
       onClick={onClick}
-      className="group w-full text-left bg-white rounded-lg p-6 border border-gray-200
-                 hover:border-yellow-400 transition-colors duration-200 cursor-pointer"
+      className="group w-full text-left bg-white p-6 border-2 border-black
+                 shadow-[4px_4px_0px_#000] hover:shadow-[4px_4px_0px_#FACC15]
+                 transition-all duration-200 cursor-pointer"
     >
       {/* Title + Session Type */}
       <div className="flex items-start justify-between gap-2 mb-1">
@@ -34,7 +35,7 @@ export function ScenarioCard({ scenario, onClick }: ScenarioCardProps) {
           {scenario.title}
         </h3>
         {scenario.session_type && SESSION_TYPE_LABELS[scenario.session_type] && (
-          <span className="shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium mt-1">
+          <span className="shrink-0 text-[10px] px-2 py-0.5 bg-yellow-400 text-black font-bold border border-black uppercase tracking-wider mt-1">
             {SESSION_TYPE_LABELS[scenario.session_type]}
           </span>
         )}
@@ -42,36 +43,36 @@ export function ScenarioCard({ scenario, onClick }: ScenarioCardProps) {
 
       {/* Character */}
       {scenario.character_name && (
-        <p className="text-sm text-gray-700 mb-2">
+        <p className="text-sm text-black mb-2">
           <span className="font-medium">{scenario.character_name}</span>
           {scenario.character_role && (
-            <span className="text-gray-400"> — {scenario.character_role}</span>
+            <span className="text-black"> — {scenario.character_role}</span>
           )}
         </p>
       )}
 
       {/* Description */}
-      <p className="text-gray-600 text-sm mb-4 line-clamp-2">
+      <p className="text-black text-sm mb-4 line-clamp-2">
         {scenario.context}
       </p>
 
       {/* Meta badges */}
       <div className="flex flex-wrap gap-2 mb-4">
-        <span className="px-3 py-1 bg-yellow-100 text-black rounded text-xs font-medium">
+        <span className="px-3 py-1 bg-yellow-400 text-black text-xs font-bold border border-black uppercase tracking-wider">
           {scenario.objections.length} objecoes
         </span>
-        <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded text-xs font-medium">
+        <span className="px-3 py-1 bg-white text-black text-xs font-bold border border-black uppercase tracking-wider">
           {scenario.evaluation_criteria.length} criterios
         </span>
         {durationMin && (
-          <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium">
+          <span className="px-3 py-1 bg-white text-black text-xs font-bold border border-black uppercase tracking-wider" style={{ fontFamily: "'Space Mono', monospace" }}>
             {durationMin} min
           </span>
         )}
       </div>
 
       {/* CTA */}
-      <div className="text-black font-semibold group-hover:text-yellow-600 transition-colors">
+      <div className="text-black font-bold group-hover:text-yellow-600 transition-colors uppercase tracking-wider">
         Comecar treino →
       </div>
     </button>

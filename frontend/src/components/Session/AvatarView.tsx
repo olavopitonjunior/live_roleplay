@@ -150,7 +150,7 @@ export function AvatarView({ showEmotionOverlay = true }: AvatarViewProps) {
       )}
       {/* Live indicator */}
       <div className="absolute top-4 left-4 z-10">
-        <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm px-3 py-1.5 rounded-full">
+        <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 border-2 border-black">
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
           <span className="text-white text-sm">Ao vivo</span>
         </div>

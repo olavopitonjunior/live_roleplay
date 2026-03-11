@@ -133,11 +133,11 @@ export function FeedbackView({
 
       {/* Session Outcome Badge */}
       {sessionOutcome && OUTCOME_CONFIG[sessionOutcome] && (
-        <div className={`rounded-lg p-4 border ${OUTCOME_CONFIG[sessionOutcome].bgColor} border-opacity-50`}>
+        <div className={`p-4 border-2 border-black shadow-[4px_4px_0px_#000] ${OUTCOME_CONFIG[sessionOutcome].bgColor}`}>
           <div className="flex items-center gap-3">
             <span className="text-2xl">{OUTCOME_CONFIG[sessionOutcome].emoji}</span>
             <div>
-              <p className="text-sm text-gray-600">Resultado da Negociacao</p>
+              <p className="text-sm text-gray-600 uppercase tracking-wider">Resultado da Negociacao</p>
               <p className={`font-semibold ${OUTCOME_CONFIG[sessionOutcome].color}`}>
                 {OUTCOME_CONFIG[sessionOutcome].label}
               </p>
@@ -147,22 +147,22 @@ export function FeedbackView({
       )}
 
       {/* Scenario Badge */}
-      <div className="bg-white rounded-lg p-4 border border-gray-200">
-        <p className="text-sm text-gray-500 mb-1">Cenario</p>
+      <div className="bg-white p-4 border-2 border-black shadow-[4px_4px_0px_#000]">
+        <p className="text-sm text-gray-500 mb-1 uppercase tracking-wider">Cenario</p>
         <p className="font-semibold text-black">{scenario.title}</p>
       </div>
 
       {/* Score Overview Grid */}
       {hasRubricScores && feedback.criteria_scores && (
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
-          <h3 className="text-sm font-medium text-gray-500 mb-3">Visao Geral</h3>
+        <div className="bg-white p-4 border-2 border-black shadow-[4px_4px_0px_#000]">
+          <h3 className="text-sm font-medium text-gray-500 mb-3 uppercase tracking-wider">Visao Geral</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {feedback.criteria_scores.map((score) => {
               const criterionScore = score.level * 25;
               const color = score.level >= 3 ? 'text-green-600' : score.level === 2 ? 'text-orange-600' : 'text-red-600';
               return (
-                <div key={score.criterion_id} className="text-center p-2 bg-gray-50 rounded-lg">
-                  <div className={`text-xl font-bold ${color}`}>{criterionScore}</div>
+                <div key={score.criterion_id} className="text-center p-2 bg-gray-50 border-2 border-black">
+                  <div className={`text-xl font-bold font-mono ${color}`}>{criterionScore}</div>
                   <div className="text-xs text-gray-500 mt-1 line-clamp-1">{score.criterion_name}</div>
                 </div>
               );
@@ -172,13 +172,13 @@ export function FeedbackView({
       )}
 
       {/* Summary Card */}
-      <div className="bg-white rounded-lg p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-black mb-4">Resumo da Avaliacao</h3>
+      <div className="bg-white p-6 border-2 border-black shadow-[4px_4px_0px_#000]">
+        <h3 className="text-lg font-semibold text-black mb-4 uppercase tracking-wider">Resumo da Avaliacao</h3>
         <p className="text-gray-600 leading-relaxed">{feedback.summary}</p>
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex border-b border-gray-200">
+      <div className="flex border-b-2 border-black">
         <button
           onClick={() => setActiveTab('criteria')}
           className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
@@ -255,7 +255,7 @@ export function FeedbackView({
 
             {/* Omissions */}
             {feedback.omissions && feedback.omissions.length > 0 && (
-              <div className="bg-amber-50 rounded-lg p-4 border border-amber-200">
+              <div className="bg-amber-50 p-4 border-2 border-black shadow-[4px_4px_0px_#000]">
                 <h4 className="font-semibold text-amber-800 mb-3 flex items-center gap-2">
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
@@ -264,7 +264,7 @@ export function FeedbackView({
                 </h4>
                 <div className="space-y-3">
                   {feedback.omissions.map((omission, idx) => (
-                    <div key={idx} className="bg-white rounded-lg p-3 border border-amber-100">
+                    <div key={idx} className="bg-white p-3 border-2 border-amber-200">
                       <p className="font-medium text-gray-800 text-sm">{omission.topic}</p>
                       <p className="text-xs text-gray-500 mt-1">{omission.expected_action}</p>
                       <p className="text-xs text-amber-700 mt-1">Impacto: {omission.impact}</p>
@@ -297,10 +297,10 @@ export function FeedbackView({
 
       {/* Transcript Coverage indicator */}
       {feedback.transcript_coverage !== undefined && (
-        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+        <div className="bg-gray-50 p-4 border-2 border-black shadow-[4px_4px_0px_#000]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-gray-700">Cobertura da transcricao</span>
-            <span className="text-sm text-gray-600">{Math.round(feedback.transcript_coverage * 100)}%</span>
+            <span className="text-sm font-medium text-gray-700 uppercase tracking-wider">Cobertura da transcricao</span>
+            <span className="text-sm text-gray-600 font-mono">{Math.round(feedback.transcript_coverage * 100)}%</span>
           </div>
           <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
             <div

@@ -27,7 +27,6 @@ export function useToast() {
   return context;
 }
 
-// Helper functions for quick toasts
 export function useToastHelpers() {
   const { addToast } = useToast();
 
@@ -52,7 +51,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
     setToasts((prev) => [...prev, newToast]);
 
-    // Auto remove after duration
     const duration = toast.duration ?? 5000;
     if (duration > 0) {
       setTimeout(() => {
@@ -103,32 +101,32 @@ interface ToastItemProps {
 function ToastItem({ toast, onClose }: ToastItemProps) {
   const typeStyles = {
     success: {
-      bg: 'bg-success-50',
-      border: 'border-success-200',
-      icon: 'bg-gradient-to-br from-success-400 to-success-500',
-      title: 'text-success-800',
-      message: 'text-success-700',
+      bg: 'bg-white',
+      border: 'border-black',
+      icon: 'bg-green-500',
+      title: 'text-black',
+      message: 'text-gray-600',
     },
     error: {
-      bg: 'bg-error-50',
-      border: 'border-error-200',
-      icon: 'bg-gradient-to-br from-error-400 to-error-500',
-      title: 'text-error-800',
-      message: 'text-error-700',
+      bg: 'bg-white',
+      border: 'border-black',
+      icon: 'bg-red-500',
+      title: 'text-black',
+      message: 'text-gray-600',
     },
     warning: {
-      bg: 'bg-warning-50',
-      border: 'border-warning-200',
-      icon: 'bg-gradient-to-br from-warning-400 to-warning-500',
-      title: 'text-warning-800',
-      message: 'text-warning-700',
+      bg: 'bg-white',
+      border: 'border-black',
+      icon: 'bg-yellow-400',
+      title: 'text-black',
+      message: 'text-gray-600',
     },
     info: {
-      bg: 'bg-info-50',
-      border: 'border-info-200',
-      icon: 'bg-gradient-to-br from-info-400 to-info-500',
-      title: 'text-info-800',
-      message: 'text-info-700',
+      bg: 'bg-white',
+      border: 'border-black',
+      icon: 'bg-blue-500',
+      title: 'text-black',
+      message: 'text-gray-600',
     },
   };
 
@@ -146,7 +144,7 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
       </svg>
     ),
     warning: (
-      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01" />
       </svg>
     ),
@@ -160,29 +158,25 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
 
   return (
     <div
-      className={`pointer-events-auto w-80 ${styles.bg} ${styles.border} border-2 rounded-xl
-                  shadow-lg animate-slide-up p-4`}
+      className={`pointer-events-auto w-80 ${styles.bg} ${styles.border} border-2 shadow-[4px_4px_0px_#000] animate-slide-up p-4`}
       role="alert"
     >
       <div className="flex items-start gap-3">
-        {/* Icon */}
-        <div className={`flex-shrink-0 w-8 h-8 ${styles.icon} rounded-lg
-                         flex items-center justify-center shadow-sm`}>
+        <div className={`flex-shrink-0 w-8 h-8 ${styles.icon} border-2 border-black flex items-center justify-center`}>
           {icons[toast.type]}
         </div>
-
-        {/* Content */}
         <div className="flex-1 min-w-0">
-          <p className={`font-semibold ${styles.title}`}>{toast.title}</p>
+          <p className={`font-bold uppercase tracking-wider text-sm ${styles.title}`}
+             style={{ fontFamily: "'Space Mono', monospace" }}>
+            {toast.title}
+          </p>
           {toast.message && (
             <p className={`mt-1 text-sm ${styles.message}`}>{toast.message}</p>
           )}
         </div>
-
-        {/* Close Button */}
         <button
           onClick={onClose}
-          className={`flex-shrink-0 p-1 ${styles.message} hover:opacity-70 rounded transition-opacity`}
+          className="flex-shrink-0 p-1 text-black hover:bg-gray-100 transition-colors"
           aria-label="Fechar notificacao"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -194,7 +188,7 @@ function ToastItem({ toast, onClose }: ToastItemProps) {
   );
 }
 
-// Standalone toast component for simple use cases
+// Standalone toast
 export interface StandaloneToastProps {
   type: ToastType;
   title: string;
@@ -205,34 +199,10 @@ export interface StandaloneToastProps {
 
 export function StandaloneToast({ type, title, message, onClose, className = '' }: StandaloneToastProps) {
   const typeStyles = {
-    success: {
-      bg: 'bg-success-50',
-      border: 'border-success-200',
-      icon: 'bg-gradient-to-br from-success-400 to-success-500',
-      title: 'text-success-800',
-      message: 'text-success-700',
-    },
-    error: {
-      bg: 'bg-error-50',
-      border: 'border-error-200',
-      icon: 'bg-gradient-to-br from-error-400 to-error-500',
-      title: 'text-error-800',
-      message: 'text-error-700',
-    },
-    warning: {
-      bg: 'bg-warning-50',
-      border: 'border-warning-200',
-      icon: 'bg-gradient-to-br from-warning-400 to-warning-500',
-      title: 'text-warning-800',
-      message: 'text-warning-700',
-    },
-    info: {
-      bg: 'bg-info-50',
-      border: 'border-info-200',
-      icon: 'bg-gradient-to-br from-info-400 to-info-500',
-      title: 'text-info-800',
-      message: 'text-info-700',
-    },
+    success: { bg: 'bg-white', icon: 'bg-green-500' },
+    error: { bg: 'bg-white', icon: 'bg-red-500' },
+    warning: { bg: 'bg-white', icon: 'bg-yellow-400' },
+    info: { bg: 'bg-white', icon: 'bg-blue-500' },
   };
 
   const styles = typeStyles[type];
@@ -249,7 +219,7 @@ export function StandaloneToast({ type, title, message, onClose, className = '' 
       </svg>
     ),
     warning: (
-      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01" />
       </svg>
     ),
@@ -263,24 +233,26 @@ export function StandaloneToast({ type, title, message, onClose, className = '' 
 
   return (
     <div
-      className={`${styles.bg} ${styles.border} border-2 rounded-xl p-4 ${className}`}
+      className={`${styles.bg} border-2 border-black shadow-[4px_4px_0px_#000] p-4 ${className}`}
       role="alert"
     >
       <div className="flex items-start gap-3">
-        <div className={`flex-shrink-0 w-8 h-8 ${styles.icon} rounded-lg
-                         flex items-center justify-center shadow-sm`}>
+        <div className={`flex-shrink-0 w-8 h-8 ${styles.icon} border-2 border-black flex items-center justify-center`}>
           {icons[type]}
         </div>
         <div className="flex-1 min-w-0">
-          <p className={`font-semibold ${styles.title}`}>{title}</p>
+          <p className="font-bold text-black uppercase tracking-wider text-sm"
+             style={{ fontFamily: "'Space Mono', monospace" }}>
+            {title}
+          </p>
           {message && (
-            <p className={`mt-1 text-sm ${styles.message}`}>{message}</p>
+            <p className="mt-1 text-sm text-gray-600">{message}</p>
           )}
         </div>
         {onClose && (
           <button
             onClick={onClose}
-            className={`flex-shrink-0 p-1 ${styles.message} hover:opacity-70 rounded transition-opacity`}
+            className="flex-shrink-0 p-1 text-black hover:bg-gray-100 transition-colors"
             aria-label="Fechar"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -18,7 +18,7 @@ export function Session() {
   const { scenarioId } = useParams<{ scenarioId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { accessCode } = useAuth();
+  const { accessCode, authMethod, trialUserId } = useAuth();
 
   // Get session mode from navigation state (defaults to training)
   const locationState = location.state as LocationState | null;
@@ -90,13 +90,21 @@ export function Session() {
     fetchScenario();
   }, [scenarioId]);
 
-  // Start session (get token)
+  // Start session (get token) — supports both access_code and JWT auth
   useEffect(() => {
-    if (!scenarioId || !accessCode || token) return;
+    if (!scenarioId || token) return;
+    // Need either access code or JWT auth
+    if (!accessCode && authMethod !== 'jwt') return;
 
     const initSession = async () => {
       try {
-        await startSession(scenarioId, accessCode.code, sessionMode, locationState?.voiceOverride);
+        await startSession(
+          scenarioId,
+          accessCode?.code ?? null,
+          sessionMode,
+          locationState?.voiceOverride,
+          trialUserId
+        );
       } catch (err) {
         setInitError(
           err instanceof Error ? err.message : 'Falha ao iniciar sessao'
@@ -105,7 +113,7 @@ export function Session() {
     };
 
     initSession();
-  }, [scenarioId, accessCode, startSession, token, sessionMode]);
+  }, [scenarioId, accessCode, authMethod, startSession, token, sessionMode, trialUserId]);
 
   const handleSessionEnd = useCallback(
     async (durationSeconds: number) => {
@@ -135,10 +143,10 @@ export function Session() {
   // Token fetch error (not agent connection error - that's shown on loading screen)
   if (error || initError) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white p-4">
-        <div className="max-w-md text-center">
-          <h2 className="text-2xl font-bold mb-2">Erro ao iniciar sessao</h2>
-          <p className="text-gray-400 mb-8">{error || initError}</p>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white text-black p-4">
+        <div className="max-w-md text-center border-2 border-black p-8 shadow-[4px_4px_0px_#000]">
+          <h2 className="text-2xl font-bold mb-2 uppercase tracking-tight">Erro ao iniciar sessao</h2>
+          <p className="text-black font-mono mb-8">{error || initError}</p>
           <Button onClick={() => navigate('/home')} variant="primary" size="lg">
             Voltar para Home
           </Button>
@@ -150,10 +158,10 @@ export function Session() {
   // Check if LiveKit URL is configured
   if (!livekitUrl) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white p-4">
-        <div className="max-w-md text-center">
-          <h2 className="text-2xl font-bold mb-2">Configuracao pendente</h2>
-          <p className="text-gray-400 mb-8">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white text-black p-4">
+        <div className="max-w-md text-center border-2 border-black p-8 shadow-[4px_4px_0px_#000]">
+          <h2 className="text-2xl font-bold mb-2 uppercase tracking-tight">Configuracao pendente</h2>
+          <p className="text-black font-mono mb-8">
             O servidor LiveKit nao esta configurado. Configure a variavel
             VITE_LIVEKIT_URL no arquivo .env
           </p>

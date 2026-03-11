@@ -63,7 +63,7 @@ export function LatencyOverlay() {
     return (
       <button
         onClick={() => setMinimized(false)}
-        className="fixed top-16 left-3 z-50 bg-neutral-900/90 backdrop-blur-sm border border-neutral-700 rounded-lg px-3 py-1.5 text-xs font-mono text-neutral-300 hover:text-white transition-colors"
+        className="fixed top-16 left-3 z-50 bg-gray-900 border-2 border-black shadow-[4px_4px_0px_#000] px-3 py-1.5 text-xs font-mono text-gray-300 hover:text-white transition-colors"
       >
         LATENCY {avgResponse > 0 ? `${formatMs(avgResponse)}` : '...'}
       </button>
@@ -71,21 +71,21 @@ export function LatencyOverlay() {
   }
 
   return (
-    <div className="fixed top-16 left-3 z-50 bg-neutral-900/95 backdrop-blur-sm border border-neutral-700 rounded-xl shadow-2xl w-72 max-h-[70vh] overflow-hidden">
+    <div className="fixed top-16 left-3 z-50 bg-gray-900 border-2 border-black shadow-[4px_4px_0px_#000] w-72 max-h-[70vh] overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-700">
-        <span className="text-xs font-bold text-neutral-200 uppercase tracking-wider">Latency Monitor</span>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-black">
+        <span className="text-xs font-bold text-gray-200 uppercase tracking-wider">Latency Monitor</span>
         <div className="flex items-center gap-1">
           <button
             onClick={handleCopy}
-            className="text-neutral-400 hover:text-white text-xs px-1.5 py-0.5 rounded hover:bg-neutral-700 transition-colors"
+            className="text-gray-400 hover:text-white text-xs px-1.5 py-0.5 rounded hover:bg-gray-700 transition-colors"
             title="Copiar JSON"
           >
             {copied ? 'OK' : 'JSON'}
           </button>
           <button
             onClick={() => setMinimized(true)}
-            className="text-neutral-400 hover:text-white text-xs px-1.5 py-0.5 rounded hover:bg-neutral-700 transition-colors"
+            className="text-gray-400 hover:text-white text-xs px-1.5 py-0.5 rounded hover:bg-gray-700 transition-colors"
           >
             _
           </button>
@@ -94,14 +94,14 @@ export function LatencyOverlay() {
 
       {/* Metrics List */}
       <div className="overflow-y-auto max-h-[55vh]">
-        <div className="divide-y divide-neutral-800">
+        <div className="divide-y divide-gray-800">
           {METRIC_ORDER.map((key) => {
             const event = latest[key];
             if (!event) {
               return (
                 <div key={key} className="flex items-center justify-between px-3 py-1.5">
-                  <span className="text-xs text-neutral-500">{key.replace(/_/g, ' ')}</span>
-                  <span className="text-xs text-neutral-600 font-mono">--</span>
+                  <span className="text-xs text-gray-500">{key.replace(/_/g, ' ')}</span>
+                  <span className="text-xs text-gray-600 font-mono">--</span>
                 </div>
               );
             }
@@ -114,9 +114,9 @@ export function LatencyOverlay() {
             return (
               <div key={key} className="flex items-center justify-between px-3 py-1.5">
                 <div className="flex flex-col min-w-0 flex-1 mr-2">
-                  <span className="text-xs text-neutral-300 truncate">{displayLabel}</span>
+                  <span className="text-xs text-gray-300 truncate">{displayLabel}</span>
                   {event.details && (
-                    <span className="text-[10px] text-neutral-500 truncate">{event.details}</span>
+                    <span className="text-[10px] text-gray-500 truncate">{event.details}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -134,18 +134,18 @@ export function LatencyOverlay() {
       </div>
 
       {/* Summary Footer */}
-      <div className="border-t border-neutral-700 px-3 py-2 bg-neutral-800/50">
+      <div className="border-t border-black px-3 py-2 bg-gray-800/50">
         {responseTimes.length > 0 && (
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-neutral-400 uppercase">Avg Response</span>
+            <span className="text-[10px] text-gray-400 uppercase">Avg Response</span>
             <span className={`text-xs font-mono font-bold ${getStatusColor(avgResponse)}`}>
               {formatMs(avgResponse)}
             </span>
           </div>
         )}
         <div className="flex items-center justify-between">
-          <span className="text-[10px] text-neutral-400 uppercase">Events</span>
-          <span className="text-xs font-mono text-neutral-300">
+          <span className="text-[10px] text-gray-400 uppercase">Events</span>
+          <span className="text-xs font-mono text-gray-300">
             {Object.keys(latest).length} / {METRIC_ORDER.length}
           </span>
         </div>

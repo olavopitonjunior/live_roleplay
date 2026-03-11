@@ -85,7 +85,7 @@ export function TranscriptionOverlay({ variant = 'overlay' }: TranscriptionOverl
     return (
       <div className="h-full flex flex-col bg-gray-900 text-white">
         {/* Status */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700 bg-gray-800">
+        <div className="flex items-center gap-2 px-3 py-2 border-b-2 border-black bg-gray-800">
           <div className={`w-2 h-2 rounded-full animate-pulse ${
             agentStatus.includes('Ouvindo') ? 'bg-green-500' :
             agentStatus.includes('Processando') ? 'bg-yellow-500' :
@@ -117,7 +117,7 @@ export function TranscriptionOverlay({ variant = 'overlay' }: TranscriptionOverl
                       <TypingIndicator speaker={msg.speaker} />
                     </div>
                   ) : (
-                    <p className={`text-sm leading-relaxed ${
+                    <p className={`text-sm leading-relaxed font-mono ${
                       msg.speaker === 'user' ? 'text-yellow-300' : 'text-gray-100'
                     }`}>
                       {highlightKeywords(msg.text)}
@@ -152,7 +152,7 @@ export function TranscriptionOverlay({ variant = 'overlay' }: TranscriptionOverl
     <div className="absolute bottom-24 left-4 right-4 max-w-2xl mx-auto">
       {/* Agent Status */}
       <div className="flex items-center justify-center mb-3">
-        <div className="bg-gray-900/80 backdrop-blur-sm px-4 py-2 rounded-full flex items-center gap-2 border border-gray-700">
+        <div className="bg-gray-900 px-4 py-2 flex items-center gap-2 border-2 border-black">
           <div className={`w-2 h-2 rounded-full animate-pulse ${
             agentStatus.includes('Ouvindo') ? 'bg-green-500' :
             agentStatus.includes('Processando') ? 'bg-yellow-500' :
@@ -179,7 +179,7 @@ export function TranscriptionOverlay({ variant = 'overlay' }: TranscriptionOverl
                     : 'bg-gray-800 text-gray-100 rounded-bl-sm border border-gray-700'
                 }`}
               >
-                <p className="text-sm">{highlightKeywords(msg.text)}</p>
+                <p className="text-sm font-mono">{highlightKeywords(msg.text)}</p>
               </div>
             )}
           </div>

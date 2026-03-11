@@ -77,17 +77,22 @@ export function ProgressCircle({
     <div className={`flex flex-col items-center ${className}`}>
       {showValue && (
         <div className="text-center mb-6">
-          <span className={`font-bold ${config.number} ${value >= 70 ? 'text-yellow-500' : 'text-black'}`}>
+          <span
+            className={`font-bold ${config.number} ${value >= 70 ? 'text-yellow-500' : 'text-black'}`}
+            style={{ fontFamily: "'Space Mono', monospace" }}
+          >
             {displayValue}
           </span>
-          <span className={`text-gray-400 ${config.label} ml-1`}>/{max}</span>
+          <span className={`text-gray-400 ${config.label} ml-1`} style={{ fontFamily: "'Space Mono', monospace" }}>
+            /{max}
+          </span>
         </div>
       )}
 
-      {/* Progress bar */}
-      <div className={`w-full max-w-xs bg-gray-200 rounded-full ${config.bar}`}>
+      {/* Progress bar — brutalist */}
+      <div className={`w-full max-w-xs bg-gray-200 border-2 border-black ${config.bar}`}>
         <div
-          className={`${config.bar} ${barColor} rounded-full transition-all duration-1000 ease-out`}
+          className={`${config.bar} ${barColor} transition-all duration-1000 ease-out`}
           style={{ width: `${percentage}%` }}
         />
       </div>
@@ -95,7 +100,7 @@ export function ProgressCircle({
       {/* Label */}
       {size === 'lg' && (
         <div className="mt-4 text-center">
-          <p className="text-xl font-semibold text-black">{getScoreLabel(value)}</p>
+          <p className="text-xl font-bold text-black uppercase tracking-tight">{getScoreLabel(value)}</p>
           <p className="text-gray-500 mt-1">Sua performance neste treino</p>
         </div>
       )}
@@ -105,7 +110,6 @@ export function ProgressCircle({
 
 export { getScoreColor, getScoreLabel };
 
-// Keep for backwards compatibility but return empty string
 export function getScoreEmoji(_score: number): string {
   return '';
 }

@@ -27,10 +27,10 @@ function LoadingSkeleton() {
       {[1, 2, 3].map((i) => (
         <div
           key={i}
-          className="bg-white rounded-2xl p-6 border-2 border-neutral-100 animate-pulse"
+          className="bg-white p-6 border-2 border-black animate-pulse"
         >
           <div className="flex gap-4 mb-4">
-            <div className="w-14 h-14 bg-neutral-200 rounded-xl" />
+            <div className="w-14 h-14 bg-neutral-200 border border-black" />
           </div>
           <div className="h-6 bg-neutral-200 rounded-lg w-3/4 mb-3" />
           <div className="space-y-2 mb-4">
@@ -52,10 +52,10 @@ function EmptyState() {
   return (
     <div className="text-center py-16">
       <div className="inline-flex items-center justify-center w-20 h-20
-                      bg-gradient-to-br from-neutral-100 to-neutral-200
-                      rounded-2xl mb-6">
+                      bg-yellow-400 border-2 border-black
+                      mb-6">
         <svg
-          className="w-10 h-10 text-neutral-400"
+          className="w-10 h-10 text-black"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -68,10 +68,10 @@ function EmptyState() {
           />
         </svg>
       </div>
-      <h3 className="text-xl font-bold text-neutral-800 mb-2">
+      <h3 className="text-xl font-bold text-black mb-2 uppercase tracking-tight">
         Nenhum cenario disponivel
       </h3>
-      <p className="text-neutral-500 max-w-sm mx-auto">
+      <p className="text-black font-mono max-w-sm mx-auto">
         Os cenarios de treinamento aparecerao aqui quando forem adicionados pelo administrador.
       </p>
     </div>
@@ -138,16 +138,16 @@ export function ScenarioList({ scenarios, loading, onScenarioClick }: ScenarioLi
               className="flex items-center gap-2 mb-4 group cursor-pointer"
             >
               <svg
-                className={`w-4 h-4 text-neutral-400 transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
+                className={`w-4 h-4 text-black transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
                 fill="currentColor"
                 viewBox="0 0 20 20"
               >
                 <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
               </svg>
-              <h2 className="text-lg font-semibold text-neutral-700 group-hover:text-neutral-900 transition-colors">
+              <h2 className="text-lg font-bold text-black uppercase tracking-wider group-hover:text-yellow-600 transition-colors">
                 {category}
               </h2>
-              <span className="text-sm text-neutral-400">
+              <span className="text-sm text-black font-mono">
                 ({categoryScenarios.length})
               </span>
             </button>

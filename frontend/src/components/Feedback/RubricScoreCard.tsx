@@ -27,7 +27,7 @@ export function RubricScoreCard({ score, onEvidenceClick }: RubricScoreCardProps
   };
 
   return (
-    <div className={`rounded-lg border overflow-hidden ${config.bgColor} border-gray-200`}>
+    <div className={`border-2 border-black shadow-[4px_4px_0px_#000] overflow-hidden ${config.bgColor}`}>
       {/* Header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
@@ -35,7 +35,7 @@ export function RubricScoreCard({ score, onEvidenceClick }: RubricScoreCardProps
       >
         {/* Score indicator */}
         <div className="flex flex-col items-center gap-1 min-w-[60px]">
-          <div className={`text-2xl font-bold ${config.color}`}>
+          <div className={`text-2xl font-bold font-mono ${config.color}`}>
             {criterionScore}
           </div>
           <span className={`text-xs font-medium px-2 py-0.5 rounded ${config.bgColor} ${config.color}`}>
@@ -79,7 +79,7 @@ export function RubricScoreCard({ score, onEvidenceClick }: RubricScoreCardProps
 
       {/* Expanded content */}
       {isExpanded && score.evidence_excerpt && (
-        <div className="px-4 pb-4 border-t border-gray-200 bg-white">
+        <div className="px-4 pb-4 border-t-2 border-black bg-white">
           <div className="pt-4">
             <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -89,7 +89,7 @@ export function RubricScoreCard({ score, onEvidenceClick }: RubricScoreCardProps
             </p>
             <button
               onClick={handleEvidenceClick}
-              className="w-full text-left p-3 bg-yellow-50 border border-yellow-200 rounded-lg hover:bg-yellow-100 transition-colors group"
+              className="w-full text-left p-3 bg-yellow-50 border-2 border-black hover:bg-yellow-100 transition-colors group"
             >
               <p className="text-sm text-gray-700 italic">
                 "{score.evidence_excerpt}"

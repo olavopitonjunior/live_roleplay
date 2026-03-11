@@ -72,18 +72,18 @@ export function Profile() {
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
-      <header className="border-b border-gray-200 sticky top-0 z-10 bg-white">
+      <header className="border-b-2 border-black sticky top-0 z-10 bg-white">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate('/home')}
-              className="text-gray-600 hover:text-black transition-colors"
+              className="text-black hover:text-yellow-600 transition-colors font-bold"
             >
               ← Voltar
             </button>
-            <h1 className="text-xl font-bold text-black">Meu Perfil</h1>
+            <h1 className="text-xl font-bold text-black uppercase tracking-tight">Meu Perfil</h1>
           </div>
-          <span className="text-sm text-gray-500">{accessCode?.code}</span>
+          <span className="text-sm text-black font-mono uppercase tracking-wider">{accessCode?.code}</span>
         </div>
       </header>
 
@@ -92,51 +92,51 @@ export function Profile() {
         {loading ? (
           <div className="space-y-6">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-gray-100 rounded-lg h-40 animate-pulse" />
+              <div key={i} className="bg-gray-100 border-2 border-black h-40 animate-pulse" />
             ))}
           </div>
         ) : (
           <div className="space-y-6">
             {/* Overview Stats */}
-            <div className="bg-black rounded-lg p-6 text-white">
-              <h3 className="font-semibold mb-4">Visao Geral</h3>
+            <div className="bg-black border-2 border-black p-6 text-white shadow-[4px_4px_0px_#FACC15]">
+              <h3 className="font-semibold mb-4 uppercase tracking-wider">Visao Geral</h3>
               <div className="grid grid-cols-4 gap-4">
                 <div>
-                  <p className="text-3xl font-bold text-yellow-400">
+                  <p className="text-3xl font-bold text-yellow-400" style={{ fontFamily: "'Space Mono', monospace" }}>
                     {learningProfile?.total_sessions || 0}
                   </p>
-                  <p className="text-white/70 text-sm">Sessoes</p>
+                  <p className="text-white/70 text-sm font-mono uppercase tracking-wider">Sessoes</p>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-yellow-400">
+                  <p className="text-3xl font-bold text-yellow-400" style={{ fontFamily: "'Space Mono', monospace" }}>
                     {Math.round(learningProfile?.average_score || 0)}
                   </p>
-                  <p className="text-white/70 text-sm">Media</p>
+                  <p className="text-white/70 text-sm font-mono uppercase tracking-wider">Media</p>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-yellow-400">
+                  <p className="text-3xl font-bold text-yellow-400" style={{ fontFamily: "'Space Mono', monospace" }}>
                     {Math.round(learningProfile?.best_score || 0)}
                   </p>
-                  <p className="text-white/70 text-sm">Melhor</p>
+                  <p className="text-white/70 text-sm font-mono uppercase tracking-wider">Melhor</p>
                 </div>
                 <div>
-                  <p className="text-3xl font-bold text-yellow-400">
+                  <p className="text-3xl font-bold text-yellow-400" style={{ fontFamily: "'Space Mono', monospace" }}>
                     {difficultyProfile?.current_level || 3}
                   </p>
-                  <p className="text-white/70 text-sm">Nivel</p>
+                  <p className="text-white/70 text-sm font-mono uppercase tracking-wider">Nivel</p>
                 </div>
               </div>
             </div>
 
             {/* Difficulty Level */}
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <h3 className="font-semibold text-black mb-4">Nivel de Dificuldade</h3>
+            <div className="bg-white p-6 border-2 border-black shadow-[4px_4px_0px_#000]">
+              <h3 className="font-semibold text-black mb-4 uppercase tracking-wider">Nivel de Dificuldade</h3>
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <span className="text-4xl font-bold text-black">
+                  <span className="text-4xl font-bold text-black" style={{ fontFamily: "'Space Mono', monospace" }}>
                     {difficultyProfile?.current_level || 3}
                   </span>
-                  <span className="text-gray-400 text-2xl">/10</span>
+                  <span className="text-black text-2xl font-mono">/10</span>
                   <span
                     className={`text-sm px-3 py-1 rounded-full ${getDifficultyInfo(difficultyProfile?.current_level || 3).bgColor} ${getDifficultyInfo(difficultyProfile?.current_level || 3).color}`}
                   >
@@ -158,7 +158,7 @@ export function Profile() {
                   );
                 })}
               </div>
-              <p className="text-sm text-gray-500 mt-3">
+              <p className="text-sm text-black font-mono mt-3">
                 {difficultyProfile?.consecutive_high_scores
                   ? `${difficultyProfile.consecutive_high_scores} sessao(oes) consecutiva(s) com score alto`
                   : difficultyProfile?.consecutive_low_scores
@@ -168,10 +168,10 @@ export function Profile() {
             </div>
 
             {/* SPIN Proficiency */}
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
+            <div className="bg-white p-6 border-2 border-black shadow-[4px_4px_0px_#000]">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-black">Proficiencia SPIN</h3>
-                <span className="text-sm text-gray-500">Media: {spinAverage}%</span>
+                <h3 className="font-semibold text-black uppercase tracking-wider">Proficiencia SPIN</h3>
+                <span className="text-sm text-black font-mono" style={{ fontFamily: "'Space Mono', monospace" }}>Media: {spinAverage}%</span>
               </div>
               <div className="space-y-4">
                 {learningProfile?.spin_proficiency &&
@@ -186,10 +186,10 @@ export function Profile() {
                     return (
                       <div key={step}>
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-medium text-gray-700">
+                          <span className="text-sm font-medium text-black uppercase tracking-wider">
                             {formatSpinStep(step)}
                           </span>
-                          <span className="text-sm text-gray-500">{percentage}%</span>
+                          <span className="text-sm text-black font-mono" style={{ fontFamily: "'Space Mono', monospace" }}>{percentage}%</span>
                         </div>
                         <div className="w-full h-2 bg-gray-200 rounded-full">
                           <div
@@ -206,44 +206,44 @@ export function Profile() {
             {/* Strengths and Weaknesses */}
             <div className="grid grid-cols-2 gap-4">
               {/* Strengths */}
-              <div className="bg-white rounded-lg p-6 border border-gray-200">
-                <h3 className="font-semibold text-black mb-4 flex items-center gap-2">
-                  <span className="text-green-500">✓</span> Pontos Fortes
+              <div className="bg-white p-6 border-2 border-black shadow-[4px_4px_0px_#000]">
+                <h3 className="font-semibold text-black mb-4 flex items-center gap-2 uppercase tracking-wider">
+                  <span className="text-black">✓</span> Pontos Fortes
                 </h3>
                 {learningProfile?.recurring_strengths &&
                 learningProfile.recurring_strengths.length > 0 ? (
                   <ul className="space-y-2">
                     {learningProfile.recurring_strengths.map((strength, i) => (
-                      <li key={i} className="text-sm text-gray-600 flex items-start gap-2">
-                        <span className="text-green-400 mt-0.5">•</span>
+                      <li key={i} className="text-sm text-black flex items-start gap-2">
+                        <span className="text-yellow-400 mt-0.5 font-bold">•</span>
                         {strength}
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-sm text-gray-400">
+                  <p className="text-sm text-black font-mono">
                     Complete mais sessoes para identificar seus pontos fortes
                   </p>
                 )}
               </div>
 
               {/* Weaknesses */}
-              <div className="bg-white rounded-lg p-6 border border-gray-200">
-                <h3 className="font-semibold text-black mb-4 flex items-center gap-2">
-                  <span className="text-red-500">!</span> Areas a Melhorar
+              <div className="bg-white p-6 border-2 border-black shadow-[4px_4px_0px_#000]">
+                <h3 className="font-semibold text-black mb-4 flex items-center gap-2 uppercase tracking-wider">
+                  <span className="text-black">!</span> Areas a Melhorar
                 </h3>
                 {learningProfile?.recurring_weaknesses &&
                 learningProfile.recurring_weaknesses.length > 0 ? (
                   <ul className="space-y-2">
                     {learningProfile.recurring_weaknesses.map((weakness, i) => (
-                      <li key={i} className="text-sm text-gray-600 flex items-start gap-2">
-                        <span className="text-red-400 mt-0.5">•</span>
+                      <li key={i} className="text-sm text-black flex items-start gap-2">
+                        <span className="text-black mt-0.5 font-bold">•</span>
                         {weakness}
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-sm text-gray-400">
+                  <p className="text-sm text-black font-mono">
                     Complete mais sessoes para identificar areas de melhoria
                   </p>
                 )}
@@ -252,10 +252,10 @@ export function Profile() {
 
             {/* Outcomes History */}
             {totalOutcomes > 0 && (
-              <div className="bg-white rounded-lg p-6 border border-gray-200">
+              <div className="bg-white p-6 border-2 border-black shadow-[4px_4px_0px_#000]">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-black">Resultados das Sessoes</h3>
-                  <span className="text-sm text-gray-500">
+                  <h3 className="font-semibold text-black uppercase tracking-wider">Resultados das Sessoes</h3>
+                  <span className="text-sm text-black font-mono" style={{ fontFamily: "'Space Mono', monospace" }}>
                     {positiveOutcomes}/{totalOutcomes} positivos
                   </span>
                 </div>
@@ -268,12 +268,12 @@ export function Profile() {
                         return (
                           <div
                             key={outcome}
-                            className={`p-3 rounded-lg text-center ${isPositive ? 'bg-green-50' : 'bg-gray-50'}`}
+                            className={`p-3 text-center border-2 border-black ${isPositive ? 'bg-yellow-400' : 'bg-white'}`}
                           >
-                            <p className={`text-2xl font-bold ${isPositive ? 'text-green-600' : 'text-gray-600'}`}>
+                            <p className="text-2xl font-bold text-black" style={{ fontFamily: "'Space Mono', monospace" }}>
                               {count}
                             </p>
-                            <p className="text-xs text-gray-500 mt-1">{formatOutcome(outcome)}</p>
+                            <p className="text-xs text-black font-mono mt-1 uppercase tracking-wider">{formatOutcome(outcome)}</p>
                           </div>
                         );
                       })}
@@ -284,8 +284,8 @@ export function Profile() {
             {/* Objection Handling */}
             {learningProfile?.objection_handling &&
               Object.keys(learningProfile.objection_handling).length > 0 && (
-                <div className="bg-white rounded-lg p-6 border border-gray-200">
-                  <h3 className="font-semibold text-black mb-4">Tratamento de Objecoes</h3>
+                <div className="bg-white p-6 border-2 border-black shadow-[4px_4px_0px_#000]">
+                  <h3 className="font-semibold text-black mb-4 uppercase tracking-wider">Tratamento de Objecoes</h3>
                   <div className="grid grid-cols-2 gap-4">
                     {Object.entries(learningProfile.objection_handling).map(([type, data]) => {
                       const successRate = Math.round((data.success_rate || 0) * 100);
@@ -296,12 +296,12 @@ export function Profile() {
                             ? 'bg-yellow-400'
                             : 'bg-red-400';
                       return (
-                        <div key={type} className="p-4 bg-gray-50 rounded-lg">
+                        <div key={type} className="p-4 bg-white border-2 border-black">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-gray-700 capitalize">
+                            <span className="text-sm font-medium text-black capitalize uppercase tracking-wider">
                               {type}
                             </span>
-                            <span className="text-sm text-gray-500">{successRate}%</span>
+                            <span className="text-sm text-black font-mono" style={{ fontFamily: "'Space Mono', monospace" }}>{successRate}%</span>
                           </div>
                           <div className="w-full h-2 bg-gray-200 rounded-full">
                             <div
@@ -309,7 +309,7 @@ export function Profile() {
                               style={{ width: `${successRate}%` }}
                             />
                           </div>
-                          <p className="text-xs text-gray-400 mt-1">
+                          <p className="text-xs text-black font-mono mt-1">
                             {data.count || 0} ocorrencia(s)
                           </p>
                         </div>
@@ -321,27 +321,27 @@ export function Profile() {
 
             {/* AI Summary */}
             {learningProfile?.ai_summary && (
-              <div className="bg-yellow-50 rounded-lg p-6 border border-yellow-200">
-                <h3 className="font-semibold text-black mb-3 flex items-center gap-2">
-                  <span className="text-yellow-500">💡</span> Analise do Coach
+              <div className="bg-yellow-400 p-6 border-2 border-black shadow-[4px_4px_0px_#000]">
+                <h3 className="font-semibold text-black mb-3 flex items-center gap-2 uppercase tracking-wider">
+                  Analise do Coach
                 </h3>
-                <p className="text-gray-700">{learningProfile.ai_summary}</p>
+                <p className="text-black">{learningProfile.ai_summary}</p>
               </div>
             )}
 
             {/* Empty State */}
             {(!learningProfile || learningProfile.total_sessions === 0) && (
-              <div className="text-center py-12 bg-gray-50 rounded-lg">
-                <h3 className="text-lg font-semibold text-black mb-2">
+              <div className="text-center py-12 bg-white border-2 border-black shadow-[4px_4px_0px_#000]">
+                <h3 className="text-lg font-semibold text-black mb-2 uppercase tracking-tight">
                   Comece seu treinamento!
                 </h3>
-                <p className="text-gray-500 mb-6 max-w-md mx-auto">
+                <p className="text-black font-mono mb-6 max-w-md mx-auto">
                   Complete sessoes de treinamento para ver sua evolucao, pontos fortes e areas a
                   melhorar.
                 </p>
                 <button
                   onClick={() => navigate('/home')}
-                  className="px-6 py-3 bg-yellow-400 text-black font-semibold rounded-lg hover:bg-yellow-500 transition-colors"
+                  className="px-6 py-3 bg-yellow-400 text-black font-semibold border-2 border-black shadow-[4px_4px_0px_#000] hover:shadow-[2px_2px_0px_#000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
                 >
                   Iniciar Treinamento
                 </button>

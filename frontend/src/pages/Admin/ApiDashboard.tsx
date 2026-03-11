@@ -14,7 +14,7 @@ import type { MetricsFilters as MetricsFiltersType } from '../../types';
 
 export function ApiDashboard() {
   const navigate = useNavigate();
-  const { accessCode } = useAuth();
+  const { accessCode, authMethod } = useAuth();
   const { scenarios } = useScenarios();
   const {
     metrics,
@@ -41,25 +41,25 @@ export function ApiDashboard() {
 
   // Fetch metrics on mount and when filters change
   useEffect(() => {
-    if (accessCode?.code) {
-      fetchMetrics(accessCode.code, filters);
+    if (accessCode?.code || authMethod === 'jwt') {
+      fetchMetrics(accessCode?.code ?? null, filters);
     }
-  }, [accessCode, filters, fetchMetrics]);
+  }, [accessCode, authMethod, filters, fetchMetrics]);
 
   const handleFilterChange = (newFilters: MetricsFiltersType) => {
     setFilters(newFilters);
   };
 
   const handleRefresh = () => {
-    if (accessCode?.code) {
-      fetchMetrics(accessCode.code, filters);
+    if (accessCode?.code || authMethod === 'jwt') {
+      fetchMetrics(accessCode?.code ?? null, filters);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       {/* Header */}
-      <header className="border-b border-gray-200 sticky top-0 z-10 bg-white">
+      <header className="border-b-2 border-black sticky top-0 z-10 bg-white">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -79,9 +79,9 @@ export function ApiDashboard() {
             <button
               onClick={handleRefresh}
               disabled={loading}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300
-                         rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed
-                         transition-colors"
+              className="px-4 py-2 text-sm font-medium text-black bg-white border-2 border-black
+                         hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed
+                         transition-colors shadow-[4px_4px_0px_#000]"
             >
               {loading ? 'Carregando...' : 'Atualizar'}
             </button>
@@ -93,7 +93,7 @@ export function ApiDashboard() {
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {/* Error State */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="bg-red-50 border-2 border-red-500 p-4">
             <div className="flex items-start gap-3">
               <span className="text-red-500">⚠</span>
               <div>
@@ -131,7 +131,7 @@ export function ApiDashboard() {
 
         {/* Empty State */}
         {!loading && !error && metrics.length === 0 && (
-          <div className="text-center py-16 bg-white rounded-lg border border-gray-200">
+          <div className="text-center py-16 bg-white border-2 border-black shadow-[4px_4px_0px_#000]">
             <div className="text-5xl mb-4">📊</div>
             <h3 className="text-xl font-bold text-black mb-2">
               Nenhuma metrica encontrada
@@ -150,8 +150,8 @@ export function ApiDashboard() {
         )}
 
         {/* Info Footer */}
-        <div className="bg-gray-100 rounded-lg p-4 text-sm text-gray-600">
-          <h4 className="font-medium text-gray-700 mb-2">Sobre os custos estimados</h4>
+        <div className="bg-white border-2 border-black p-4 text-sm text-gray-600 shadow-[4px_4px_0px_#000]">
+          <h4 className="font-medium text-black mb-2 uppercase tracking-wider">Sobre os custos estimados</h4>
           <ul className="list-disc list-inside space-y-1">
             <li>OpenAI Realtime: $40/1M input tokens, $200/1M output tokens</li>
             <li>GPT-4o-mini: $0.15/1M input tokens, $0.60/1M output tokens</li>

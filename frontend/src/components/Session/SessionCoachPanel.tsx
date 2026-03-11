@@ -10,10 +10,10 @@ const SPIN_LABELS: Record<string, string> = {
 };
 
 const SPIN_COLORS: Record<string, { active: string; inactive: string }> = {
-  S: { active: 'bg-blue-500 text-white', inactive: 'bg-neutral-700 text-neutral-400' },
-  P: { active: 'bg-orange-500 text-white', inactive: 'bg-neutral-700 text-neutral-400' },
-  I: { active: 'bg-red-500 text-white', inactive: 'bg-neutral-700 text-neutral-400' },
-  N: { active: 'bg-green-500 text-white', inactive: 'bg-neutral-700 text-neutral-400' },
+  S: { active: 'bg-blue-500 text-white', inactive: 'bg-gray-700 text-gray-400' },
+  P: { active: 'bg-orange-500 text-white', inactive: 'bg-gray-700 text-gray-400' },
+  I: { active: 'bg-red-500 text-white', inactive: 'bg-gray-700 text-gray-400' },
+  N: { active: 'bg-green-500 text-white', inactive: 'bg-gray-700 text-gray-400' },
 };
 
 /**
@@ -27,10 +27,10 @@ export function SessionCoachPanel() {
   const progress = conversationProgress != null ? Math.round(conversationProgress * 100) : null;
 
   return (
-    <div className="bg-neutral-900/80 backdrop-blur-sm rounded-xl p-3 border border-neutral-700 space-y-3">
+    <div className="bg-gray-900 p-3 border-2 border-black shadow-[4px_4px_0px_#000] space-y-3">
       {/* SPIN Stage Indicator */}
       <div>
-        <p className="text-xs text-neutral-400 mb-2">Estagio SPIN</p>
+        <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider">Estagio SPIN</p>
         <div className="flex gap-2">
           {SPIN_STAGES.map((stage) => {
             const isActive = activeStage === stage;
@@ -55,10 +55,10 @@ export function SessionCoachPanel() {
       {progress != null && (
         <div>
           <div className="flex items-center justify-between mb-1">
-            <p className="text-xs text-neutral-400">Progresso</p>
-            <span className="text-xs text-neutral-300 font-mono">{progress}%</span>
+            <p className="text-xs text-gray-400 uppercase tracking-wider">Progresso</p>
+            <span className="text-xs text-gray-300 font-mono">{progress}%</span>
           </div>
-          <div className="h-2 bg-neutral-700 rounded-full overflow-hidden">
+          <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
             <div
               className="h-full bg-primary-500 rounded-full transition-all duration-500"
               style={{ width: `${progress}%` }}

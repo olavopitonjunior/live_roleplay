@@ -76,27 +76,27 @@ export function History() {
   };
 
   const getScoreColor = (score: number | undefined) => {
-    if (!score) return 'text-gray-400 bg-gray-100';
-    if (score >= 70) return 'text-black bg-yellow-100';
-    if (score >= 50) return 'text-gray-700 bg-gray-100';
-    return 'text-red-700 bg-red-100';
+    if (!score) return 'text-black bg-gray-100 border-2 border-black';
+    if (score >= 70) return 'text-black bg-yellow-400 border-2 border-black';
+    if (score >= 50) return 'text-black bg-white border-2 border-black';
+    return 'text-black bg-red-100 border-2 border-black';
   };
 
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
-      <header className="border-b border-gray-200 sticky top-0 z-10 bg-white">
+      <header className="border-b-2 border-black sticky top-0 z-10 bg-white">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate('/home')}
-              className="text-gray-600 hover:text-black transition-colors"
+              className="text-black hover:text-yellow-600 transition-colors font-bold"
             >
               ← Voltar
             </button>
-            <h1 className="text-xl font-bold text-black">Meu Historico</h1>
+            <h1 className="text-xl font-bold text-black uppercase tracking-tight">Meu Historico</h1>
           </div>
-          <span className="text-sm text-gray-500">{sessions.length} sessoes</span>
+          <span className="text-sm text-black font-mono uppercase tracking-wider">{sessions.length} sessoes</span>
         </div>
       </header>
 
@@ -105,10 +105,10 @@ export function History() {
         {loading ? (
           <div className="space-y-4">
             {/* Stats skeleton */}
-            <div className="bg-gray-100 rounded-lg h-32 animate-pulse" />
+            <div className="bg-gray-100 border-2 border-black h-32 animate-pulse" />
 
             {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-white rounded-lg p-5 border border-gray-200 animate-pulse">
+              <div key={i} className="bg-white p-5 border-2 border-black animate-pulse">
                 <div className="flex justify-between gap-4">
                   <div className="flex-1 space-y-3">
                     <div className="h-5 bg-gray-200 rounded w-2/3" />
@@ -121,18 +121,18 @@ export function History() {
           </div>
         ) : error ? (
           <div className="text-center py-16">
-            <h3 className="text-xl font-bold text-black mb-2">Erro ao carregar</h3>
-            <p className="text-gray-500 mb-6">{error}</p>
+            <h3 className="text-xl font-bold text-black mb-2 uppercase tracking-tight">Erro ao carregar</h3>
+            <p className="text-black font-mono mb-6">{error}</p>
             <Button onClick={() => window.location.reload()} variant="primary">
               Tentar novamente
             </Button>
           </div>
         ) : sessions.length === 0 ? (
           <div className="text-center py-16">
-            <h3 className="text-xl font-bold text-black mb-2">
+            <h3 className="text-xl font-bold text-black mb-2 uppercase tracking-tight">
               Nenhuma sessao ainda
             </h3>
-            <p className="text-gray-500 mb-8 max-w-sm mx-auto">
+            <p className="text-black font-mono mb-8 max-w-sm mx-auto">
               Suas sessoes de treinamento aparecerao aqui depois que voce completar seu primeiro treino.
             </p>
             <Button onClick={() => navigate('/home')} variant="primary" size="lg">
@@ -142,20 +142,20 @@ export function History() {
         ) : (
           <div className="space-y-6">
             {/* Progress Overview Card */}
-            <div className="bg-black rounded-lg p-6 text-white">
-              <h3 className="font-semibold mb-4">Sua evolucao</h3>
+            <div className="bg-black border-2 border-black p-6 text-white shadow-[4px_4px_0px_#FACC15]">
+              <h3 className="font-semibold mb-4 uppercase tracking-wider">Sua evolucao</h3>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <p className="text-4xl font-bold text-yellow-400">{stats.total}</p>
-                  <p className="text-white/70 text-sm">Treinos</p>
+                  <p className="text-4xl font-bold text-yellow-400" style={{ fontFamily: "'Space Mono', monospace" }}>{stats.total}</p>
+                  <p className="text-white/70 text-sm font-mono uppercase tracking-wider">Treinos</p>
                 </div>
                 <div>
-                  <p className="text-4xl font-bold text-yellow-400">{stats.average}</p>
-                  <p className="text-white/70 text-sm">Media</p>
+                  <p className="text-4xl font-bold text-yellow-400" style={{ fontFamily: "'Space Mono', monospace" }}>{stats.average}</p>
+                  <p className="text-white/70 text-sm font-mono uppercase tracking-wider">Media</p>
                 </div>
                 <div>
-                  <p className="text-4xl font-bold text-yellow-400">{stats.best}</p>
-                  <p className="text-white/70 text-sm">Melhor</p>
+                  <p className="text-4xl font-bold text-yellow-400" style={{ fontFamily: "'Space Mono', monospace" }}>{stats.best}</p>
+                  <p className="text-white/70 text-sm font-mono uppercase tracking-wider">Melhor</p>
                 </div>
               </div>
             </div>
@@ -168,14 +168,14 @@ export function History() {
                   <button
                     key={session.id}
                     onClick={() => navigate(`/feedback/${session.id}`)}
-                    className="w-full bg-white rounded-lg p-5 border border-gray-200
-                               hover:border-yellow-400 transition-colors text-left"
+                    className="w-full bg-white p-5 border-2 border-black
+                               hover:shadow-[4px_4px_0px_#FACC15] transition-all text-left shadow-[4px_4px_0px_#000]"
                   >
                     <div className="flex items-start gap-4">
                       {/* Score Badge */}
-                      <div className={`flex-shrink-0 w-16 h-16 rounded-lg ${scoreColor}
+                      <div className={`flex-shrink-0 w-16 h-16 ${scoreColor}
                                       flex items-center justify-center`}>
-                        <span className="text-2xl font-bold">
+                        <span className="text-2xl font-bold" style={{ fontFamily: "'Space Mono', monospace" }}>
                           {session.feedback?.score ?? '--'}
                         </span>
                       </div>
@@ -185,19 +185,19 @@ export function History() {
                           {session.scenario?.title || 'Cenario desconhecido'}
                         </h3>
 
-                        <div className="flex items-center gap-4 mt-1.5 text-sm text-gray-500">
+                        <div className="flex items-center gap-4 mt-1.5 text-sm text-black font-mono">
                           <span>{formatDate(session.started_at)}</span>
                           <span>{formatDuration(session.duration_seconds)}</span>
                         </div>
 
                         {session.feedback?.summary && (
-                          <p className="mt-2 text-sm text-gray-600 line-clamp-2">
+                          <p className="mt-2 text-sm text-black line-clamp-2">
                             {session.feedback.summary}
                           </p>
                         )}
                       </div>
 
-                      <span className="text-gray-400 flex-shrink-0">→</span>
+                      <span className="text-black flex-shrink-0 font-bold">→</span>
                     </div>
                   </button>
                 );

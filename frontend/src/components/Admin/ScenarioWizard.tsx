@@ -343,8 +343,8 @@ interface ScenarioWizardProps {
   onSubmit: (data: ScenarioFormData) => Promise<void>;
   scenario?: Scenario | null;
   mode: 'create' | 'edit' | 'duplicate';
-  accessCode?: string;
-  generateScenario: (accessCode: string, request: GenerateScenarioRequest) => Promise<{
+  accessCode?: string | null;
+  generateScenario: (accessCode: string | null, request: GenerateScenarioRequest) => Promise<{
     data: GeneratedScenario | null;
     error: { message: string } | null;
   }>;
@@ -437,13 +437,8 @@ export function ScenarioWizard({
       setError('Descreva o cenario que deseja criar');
       return;
     }
-    if (!accessCode) {
-      setError('Codigo de acesso nao encontrado');
-      return;
-    }
-
     setError(null);
-    const result = await generateScenario(accessCode, {
+    const result = await generateScenario(accessCode ?? null, {
       description: description.trim(),
       industry: industry || undefined,
       difficulty,
@@ -505,7 +500,6 @@ export function ScenarioWizard({
   // --- Step 3 handlers ---
 
   const handleFieldSuggestion = async (field: FieldType) => {
-    if (!accessCode) { setError('Codigo de acesso nao encontrado'); return; }
     if (!formData.title.trim()) { setError('Preencha o titulo antes de gerar sugestoes'); return; }
     if (formData.context.trim().length < 50) { setError('O contexto precisa ter pelo menos 50 caracteres para gerar sugestoes'); return; }
 
@@ -513,8 +507,10 @@ export function ScenarioWizard({
     setError(null);
 
     try {
+      const body: Record<string, unknown> = { title: formData.title, context: formData.context, field };
+      if (accessCode) body.access_code = accessCode;
       const { data, error: invokeError } = await supabase.functions.invoke('suggest-scenario-fields', {
-        body: { access_code: accessCode, title: formData.title, context: formData.context, field },
+        body,
       });
       if (invokeError) throw new Error(invokeError.message || 'Erro ao gerar sugestao');
 
@@ -566,7 +562,6 @@ export function ScenarioWizard({
   };
 
   const handleAISuggestionAll = async () => {
-    if (!accessCode) { setError('Codigo de acesso nao encontrado'); return; }
     if (!formData.title.trim()) { setError('Preencha o titulo antes de gerar sugestoes'); return; }
     if (formData.context.trim().length < 50) { setError('O contexto precisa ter pelo menos 50 caracteres'); return; }
 
@@ -574,8 +569,10 @@ export function ScenarioWizard({
     setError(null);
 
     try {
+      const body: Record<string, unknown> = { title: formData.title, context: formData.context };
+      if (accessCode) body.access_code = accessCode;
       const { data, error: invokeError } = await supabase.functions.invoke('suggest-scenario-fields', {
-        body: { access_code: accessCode, title: formData.title, context: formData.context },
+        body,
       });
       if (invokeError) throw new Error(invokeError.message || 'Erro ao gerar sugestoes');
 
@@ -627,7 +624,7 @@ export function ScenarioWizard({
     }
   };
 
-  const canSuggest = Boolean(accessCode && formData.title.trim() && formData.context.trim().length >= 50);
+  const canSuggest = Boolean(formData.title.trim() && formData.context.trim().length >= 50);
   const isAnyGenerating = isSuggesting || generatingField !== null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -697,7 +694,7 @@ export function ScenarioWizard({
       {mode === 'create' && <StepIndicator current={step} maxReached={maxReached} />}
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+        <div className="mb-4 p-3 bg-red-50 border-2 border-red-500 text-red-700 text-sm">
           {error}
         </div>
       )}
@@ -739,7 +736,7 @@ export function ScenarioWizard({
             </div>
           </div>
 
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="bg-yellow-50 border-2 border-yellow-500 p-4">
             <h4 className="text-sm font-medium text-yellow-800 mb-2">Dicas para um bom cenario:</h4>
             <ul className="text-sm text-yellow-700 space-y-1 list-disc list-inside">
               <li>Inclua o perfil do cliente (cargo, idade, personalidade)</li>
@@ -762,7 +759,7 @@ export function ScenarioWizard({
       {step === 2 && (
         <div className="space-y-6">
           {/* Summary card */}
-          <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
+          <div className="bg-white p-6 border-2 border-black shadow-[4px_4px_0px_#000]">
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="text-lg font-bold text-black">{formData.title}</h3>
@@ -790,7 +787,7 @@ export function ScenarioWizard({
 
             {/* Opening line */}
             {formData.opening_line && (
-              <div className="mb-4 bg-white rounded-lg p-3 border border-gray-100">
+              <div className="mb-4 bg-white p-3 border-2 border-black">
                 <p className="text-xs text-gray-500 uppercase font-medium mb-1">Fala de abertura</p>
                 <p className="text-sm text-gray-700 italic">"{formData.opening_line}"</p>
               </div>
@@ -828,7 +825,7 @@ export function ScenarioWizard({
 
             {/* User objective */}
             {formData.user_objective && (
-              <div className="mt-4 pt-4 border-t border-gray-200">
+              <div className="mt-4 pt-4 border-t-2 border-black">
                 <p className="text-xs text-gray-500 uppercase font-medium mb-1">Objetivo do usuario</p>
                 <p className="text-sm text-gray-700">{formData.user_objective}</p>
               </div>
@@ -901,7 +898,7 @@ export function ScenarioWizard({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Genero do Personagem</label>
-                <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+                <div className="flex border-2 border-black overflow-hidden">
                   {GENDERS.map(g => (
                     <button
                       key={g.value} type="button"
@@ -916,7 +913,7 @@ export function ScenarioWizard({
                       className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
                         formData.character_gender === g.value
                           ? 'bg-black text-white'
-                          : 'bg-white text-gray-600 hover:bg-gray-50'
+                          : 'bg-white text-gray-600 hover:bg-gray-100'
                       }`}
                     >
                       {g.label}
@@ -1049,7 +1046,7 @@ export function ScenarioWizard({
           </div>
 
           {/* Section: Prompt Preview */}
-          <div className="border-t border-gray-200 pt-4">
+          <div className="border-t-2 border-black pt-4">
             <button
               type="button"
               onClick={() => setShowPreview(!showPreview)}
@@ -1070,7 +1067,7 @@ export function ScenarioWizard({
           </div>
 
           {/* Section B: Advanced Mode */}
-          <div className="border-t border-gray-200 pt-4">
+          <div className="border-t-2 border-black pt-4">
             <button
               type="button"
               onClick={() => setShowAdvanced(!showAdvanced)}
@@ -1084,7 +1081,7 @@ export function ScenarioWizard({
             </button>
 
             {showAdvanced && (
-              <div className="mt-4 space-y-5 bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <div className="mt-4 space-y-5 bg-white p-4 border-2 border-black shadow-[4px_4px_0px_#000]">
                 {/* Context */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Contexto da Situacao *</label>

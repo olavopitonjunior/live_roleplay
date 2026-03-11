@@ -24,7 +24,6 @@ export function Modal({
 }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // Handle escape key
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -36,7 +35,6 @@ export function Modal({
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isOpen, onClose]);
 
-  // Lock body scroll when modal is open
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -49,7 +47,6 @@ export function Modal({
     };
   }, [isOpen]);
 
-  // Focus trap
   useEffect(() => {
     if (isOpen && modalRef.current) {
       const focusableElements = modalRef.current.querySelectorAll(
@@ -84,27 +81,26 @@ export function Modal({
       aria-labelledby={title ? 'modal-title' : undefined}
       aria-describedby={description ? 'modal-description' : undefined}
     >
-      {/* Backdrop */}
+      {/* Backdrop — flat black, no blur */}
       <div
-        className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm animate-fade-in"
+        className="absolute inset-0 bg-black/70 animate-fade-in"
         onClick={handleOverlayClick}
         aria-hidden="true"
       />
 
-      {/* Modal Content */}
+      {/* Modal Content — brutalist */}
       <div
         ref={modalRef}
-        className={`relative w-full ${sizeClasses[size]} bg-white rounded-2xl shadow-2xl
-                    animate-scale-in transform`}
+        className={`relative w-full ${sizeClasses[size]} bg-white border-2 border-black shadow-[6px_6px_0px_#000] animate-scale-in transform`}
       >
         {/* Header */}
         {(title || showCloseButton) && (
-          <div className="flex items-start justify-between p-6 border-b border-neutral-100">
+          <div className="flex items-start justify-between p-6 border-b-2 border-black">
             <div>
               {title && (
                 <h2
                   id="modal-title"
-                  className="text-xl font-bold text-neutral-800"
+                  className="text-xl font-bold text-black uppercase tracking-tight"
                 >
                   {title}
                 </h2>
@@ -112,7 +108,7 @@ export function Modal({
               {description && (
                 <p
                   id="modal-description"
-                  className="mt-1 text-sm text-neutral-500"
+                  className="mt-1 text-sm text-gray-600"
                 >
                   {description}
                 </p>
@@ -121,8 +117,7 @@ export function Modal({
             {showCloseButton && (
               <button
                 onClick={onClose}
-                className="p-2 -m-2 text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100
-                           rounded-lg transition-colors"
+                className="p-2 -m-2 text-black hover:bg-gray-100 transition-colors"
                 aria-label="Fechar modal"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -142,7 +137,7 @@ export function Modal({
   return createPortal(modalContent, document.body);
 }
 
-// Modal Footer component for action buttons
+// Modal Footer
 export interface ModalFooterProps {
   children: ReactNode;
   className?: string;
@@ -150,13 +145,13 @@ export interface ModalFooterProps {
 
 export function ModalFooter({ children, className = '' }: ModalFooterProps) {
   return (
-    <div className={`flex items-center justify-end gap-3 pt-4 mt-4 border-t border-neutral-100 ${className}`}>
+    <div className={`flex items-center justify-end gap-3 pt-4 mt-4 border-t-2 border-black ${className}`}>
       {children}
     </div>
   );
 }
 
-// Confirm Dialog - a common use case
+// Confirm Dialog — brutalist
 export interface ConfirmDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -182,19 +177,19 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const variantStyles = {
     danger: {
-      icon: 'bg-gradient-to-br from-error-100 to-error-200',
-      iconColor: 'text-error-500',
-      button: 'bg-error-500 hover:bg-error-600 focus:ring-error-200',
+      icon: 'bg-red-100',
+      iconColor: 'text-red-500',
+      button: 'bg-red-500 text-white border-2 border-black shadow-[4px_4px_0px_#000] hover:shadow-[2px_2px_0px_#000] hover:translate-x-[2px] hover:translate-y-[2px]',
     },
     warning: {
-      icon: 'bg-gradient-to-br from-warning-100 to-warning-200',
-      iconColor: 'text-warning-500',
-      button: 'bg-warning-500 hover:bg-warning-600 focus:ring-warning-200',
+      icon: 'bg-yellow-100',
+      iconColor: 'text-yellow-600',
+      button: 'bg-yellow-400 text-black border-2 border-black shadow-[4px_4px_0px_#000] hover:shadow-[2px_2px_0px_#000] hover:translate-x-[2px] hover:translate-y-[2px]',
     },
     primary: {
-      icon: 'bg-gradient-to-br from-primary-100 to-primary-200',
-      iconColor: 'text-primary-500',
-      button: 'bg-primary-500 hover:bg-primary-600 focus:ring-primary-200',
+      icon: 'bg-yellow-400',
+      iconColor: 'text-black',
+      button: 'bg-yellow-400 text-black border-2 border-black shadow-[4px_4px_0px_#000] hover:shadow-[2px_2px_0px_#000] hover:translate-x-[2px] hover:translate-y-[2px]',
     },
   };
 
@@ -203,7 +198,7 @@ export function ConfirmDialog({
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="sm" showCloseButton={false}>
       <div className="text-center">
-        <div className={`w-16 h-16 ${styles.icon} rounded-2xl mx-auto mb-4 flex items-center justify-center`}>
+        <div className={`w-16 h-16 ${styles.icon} border-2 border-black mx-auto mb-4 flex items-center justify-center`}>
           {variant === 'danger' ? (
             <svg className={`w-8 h-8 ${styles.iconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -222,24 +217,23 @@ export function ConfirmDialog({
           )}
         </div>
 
-        <h3 className="text-lg font-bold text-neutral-800 mb-2">{title}</h3>
-        <p className="text-neutral-500 mb-6">{message}</p>
+        <h3 className="text-lg font-bold text-black uppercase mb-2">{title}</h3>
+        <p className="text-gray-600 mb-6">{message}</p>
 
         <div className="flex gap-3">
           <button
             onClick={onClose}
             disabled={loading}
-            className="flex-1 px-4 py-2.5 text-neutral-700 bg-neutral-100 hover:bg-neutral-200
-                       rounded-xl font-medium transition-colors disabled:opacity-50"
+            className="flex-1 px-4 py-2.5 text-black bg-white border-2 border-black font-bold uppercase tracking-wider shadow-[4px_4px_0px_#000] hover:shadow-[2px_2px_0px_#000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all duration-100 disabled:opacity-50"
+            style={{ fontFamily: "'Space Mono', monospace" }}
           >
             {cancelText}
           </button>
           <button
             onClick={onConfirm}
             disabled={loading}
-            className={`flex-1 px-4 py-2.5 text-white ${styles.button}
-                       rounded-xl font-medium transition-colors disabled:opacity-50
-                       focus:ring-4 flex items-center justify-center gap-2`}
+            className={`flex-1 px-4 py-2.5 font-bold uppercase tracking-wider transition-all duration-100 disabled:opacity-50 flex items-center justify-center gap-2 ${styles.button}`}
+            style={{ fontFamily: "'Space Mono', monospace" }}
           >
             {loading && (
               <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">

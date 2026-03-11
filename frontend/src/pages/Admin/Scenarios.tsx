@@ -24,7 +24,7 @@ function groupByCategory(scenarios: Scenario[]): Record<string, Scenario[]> {
 
 export function AdminScenarios() {
   const navigate = useNavigate();
-  const { accessCode } = useAuth();
+  const { accessCode, authMethod } = useAuth();
   const { scenarios, loading, createScenario, updateScenario, deleteScenario, generateScenario, isGenerating } = useScenarios();
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -75,21 +75,23 @@ export function AdminScenarios() {
     setSelectedScenario(null);
   };
 
+  const authCode = accessCode?.code ?? null;
+
   const handleSubmitForm = async (data: ScenarioFormData) => {
-    if (!accessCode?.code) {
-      throw new Error('Codigo de acesso nao encontrado');
+    if (!authCode && authMethod !== 'jwt') {
+      throw new Error('Autenticacao necessaria');
     }
 
     if (formMode === 'edit' && selectedScenario) {
-      const { error } = await updateScenario(accessCode.code, selectedScenario.id, data);
+      const { error } = await updateScenario(authCode, selectedScenario.id, data);
       if (error) throw new Error(error.message);
     } else {
-      const { error } = await createScenario(accessCode.code, data);
+      const { error } = await createScenario(authCode, data);
       if (error) throw new Error(error.message);
     }
   };
 
-  const handleGenerateRequest = async (code: string, request: { description: string; industry?: string; difficulty?: 'easy' | 'medium' | 'hard' }) => {
+  const handleGenerateRequest = async (code: string | null, request: { description: string; industry?: string; difficulty?: 'easy' | 'medium' | 'hard' }) => {
     return generateScenario(code, request);
   };
 
@@ -99,11 +101,11 @@ export function AdminScenarios() {
   };
 
   const handleConfirmDelete = async () => {
-    if (!scenarioToDelete || !accessCode?.code) return;
+    if (!scenarioToDelete || (!authCode && authMethod !== 'jwt')) return;
 
     setDeleteLoading(true);
     try {
-      const { error } = await deleteScenario(accessCode.code, scenarioToDelete.id);
+      const { error } = await deleteScenario(authCode, scenarioToDelete.id);
       if (error) throw new Error(error.message);
       setIsDeleteOpen(false);
       setScenarioToDelete(null);
@@ -117,7 +119,7 @@ export function AdminScenarios() {
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
-      <header className="border-b border-gray-200 sticky top-0 z-10 bg-white">
+      <header className="border-b-2 border-black sticky top-0 z-10 bg-white">
         <div className="max-w-5xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -145,7 +147,7 @@ export function AdminScenarios() {
             placeholder="Buscar cenarios..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full sm:w-80 px-4 py-2.5 bg-white border border-gray-300 rounded-lg
+            className="w-full sm:w-80 px-4 py-2.5 bg-white border-2 border-black
                        text-black placeholder:text-gray-400
                        focus:border-black focus:ring-0 transition-colors outline-none"
           />
@@ -164,7 +166,7 @@ export function AdminScenarios() {
         {loading ? (
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-white rounded-lg p-5 border border-gray-200 animate-pulse">
+              <div key={i} className="bg-white p-5 border-2 border-black animate-pulse shadow-[4px_4px_0px_#000]">
                 <div className="flex gap-4">
                   <div className="flex-1 space-y-3">
                     <div className="h-5 bg-gray-200 rounded w-1/3" />
@@ -221,7 +223,7 @@ export function AdminScenarios() {
                       {categoryScenarios.map((scenario) => (
                         <div
                           key={scenario.id}
-                          className="bg-white rounded-lg p-5 border border-gray-200 hover:border-yellow-400 transition-colors"
+                          className="bg-white p-5 border-2 border-black hover:border-yellow-400 transition-colors shadow-[4px_4px_0px_#000]"
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div className="flex-1 min-w-0">
@@ -280,7 +282,7 @@ export function AdminScenarios() {
         onSubmit={handleSubmitForm}
         scenario={selectedScenario}
         mode={formMode}
-        accessCode={accessCode?.code}
+        accessCode={authCode}
         generateScenario={handleGenerateRequest}
         isGenerating={isGenerating}
       />

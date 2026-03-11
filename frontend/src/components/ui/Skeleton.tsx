@@ -17,10 +17,10 @@ export function Skeleton({
   ...props
 }: SkeletonProps) {
   const variantClasses = {
-    text: 'rounded-md',
+    text: '',
     circular: 'rounded-full',
-    rectangular: 'rounded-none',
-    rounded: 'rounded-xl',
+    rectangular: '',
+    rounded: '',
   };
 
   const animationClasses = {
@@ -33,7 +33,7 @@ export function Skeleton({
 
   return (
     <div
-      className={`bg-neutral-200 ${variantClasses[variant]} ${animationClasses[animation]} ${className}`}
+      className={`bg-gray-200 ${variantClasses[variant]} ${animationClasses[animation]} ${className}`}
       style={{
         width: width ?? '100%',
         height: height ?? baseHeight,
@@ -45,7 +45,6 @@ export function Skeleton({
   );
 }
 
-// Preset skeleton components for common patterns
 export function SkeletonText({ lines = 3, className = '' }: { lines?: number; className?: string }) {
   return (
     <div className={`space-y-2 ${className}`}>
@@ -68,12 +67,7 @@ export function SkeletonAvatar({
   size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
 }) {
-  const sizeMap = {
-    sm: 32,
-    md: 40,
-    lg: 48,
-    xl: 64,
-  };
+  const sizeMap = { sm: 32, md: 40, lg: 48, xl: 64 };
 
   return (
     <Skeleton
@@ -100,7 +94,7 @@ export function SkeletonButton({
 
   return (
     <Skeleton
-      variant="rounded"
+      variant="rectangular"
       width={sizeStyles[size].width}
       height={sizeStyles[size].height}
       className={className}
@@ -110,15 +104,15 @@ export function SkeletonButton({
 
 export function SkeletonCard({ className = '' }: { className?: string }) {
   return (
-    <div className={`bg-white rounded-2xl p-5 border border-neutral-100 ${className}`}>
+    <div className={`bg-white border-2 border-black shadow-[4px_4px_0px_#000] p-5 ${className}`}>
       <div className="flex gap-4">
-        <Skeleton variant="rounded" width={56} height={56} />
+        <Skeleton variant="rectangular" width={56} height={56} />
         <div className="flex-1 space-y-3">
           <Skeleton variant="text" width="60%" height={20} />
           <Skeleton variant="text" width="80%" height={16} />
           <div className="flex gap-2">
-            <Skeleton variant="rounded" width={80} height={24} />
-            <Skeleton variant="rounded" width={80} height={24} />
+            <Skeleton variant="rectangular" width={80} height={24} />
+            <Skeleton variant="rectangular" width={80} height={24} />
           </div>
         </div>
       </div>
@@ -152,19 +146,16 @@ export function SkeletonTable({
   className?: string;
 }) {
   return (
-    <div className={`overflow-hidden rounded-xl border border-neutral-200 ${className}`}>
-      {/* Header */}
-      <div className="bg-neutral-100 px-4 py-3 flex gap-4">
+    <div className={`overflow-hidden border-2 border-black shadow-[4px_4px_0px_#000] ${className}`}>
+      <div className="bg-gray-100 px-4 py-3 flex gap-4 border-b-2 border-black">
         {Array.from({ length: columns }).map((_, i) => (
           <Skeleton key={i} variant="text" width={`${100 / columns}%`} height={16} />
         ))}
       </div>
-
-      {/* Rows */}
       {Array.from({ length: rows }).map((_, rowIndex) => (
         <div
           key={rowIndex}
-          className="px-4 py-3 flex gap-4 border-t border-neutral-100"
+          className="px-4 py-3 flex gap-4 border-t border-gray-200"
         >
           {Array.from({ length: columns }).map((_, colIndex) => (
             <Skeleton
@@ -180,15 +171,14 @@ export function SkeletonTable({
   );
 }
 
-// Stats skeleton
 export function SkeletonStats({ className = '' }: { className?: string }) {
   return (
-    <div className={`bg-gradient-to-r from-neutral-200 to-neutral-300 rounded-2xl p-6 animate-pulse ${className}`}>
+    <div className={`bg-gray-100 border-2 border-black shadow-[4px_4px_0px_#000] p-6 animate-pulse ${className}`}>
       <div className="grid grid-cols-3 gap-4">
         {[1, 2, 3].map((i) => (
           <div key={i}>
-            <Skeleton variant="text" width={60} height={40} className="bg-neutral-300 mb-2" />
-            <Skeleton variant="text" width={50} height={14} className="bg-neutral-300" />
+            <Skeleton variant="text" width={60} height={40} className="bg-gray-300 mb-2" />
+            <Skeleton variant="text" width={50} height={14} className="bg-gray-300" />
           </div>
         ))}
       </div>
@@ -196,7 +186,6 @@ export function SkeletonStats({ className = '' }: { className?: string }) {
   );
 }
 
-// Score circle skeleton
 export function SkeletonScoreCircle({
   size = 160,
   className = '',
@@ -206,7 +195,7 @@ export function SkeletonScoreCircle({
 }) {
   return (
     <div className={`flex flex-col items-center ${className}`}>
-      <Skeleton variant="circular" width={size} height={size} />
+      <Skeleton variant="rectangular" width={size} height={size} />
       <Skeleton variant="text" width={100} height={24} className="mt-4" />
       <Skeleton variant="text" width={80} height={16} className="mt-2" />
     </div>

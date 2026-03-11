@@ -24,7 +24,7 @@ export function MicrophoneIndicator() {
   }, [localParticipant, isSpeaking]);
 
   return (
-    <div className="flex items-center gap-3 bg-black/60 backdrop-blur-sm px-4 py-2 rounded-full">
+    <div className="flex items-center gap-3 bg-black/60 px-4 py-2 border-2 border-black">
       {/* Mic Icon */}
       <div className={`relative ${isMicrophoneEnabled ? 'text-white' : 'text-red-500'}`}>
         {isMicrophoneEnabled ? (

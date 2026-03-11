@@ -11,15 +11,15 @@ export function SidePanel({ scenarioTitle, scenarioContext }: SidePanelProps) {
   const [activeTab, setActiveTab] = useState<'chat' | 'coach' | 'info'>('chat');
 
   return (
-    <div className="h-full flex flex-col bg-neutral-900/95 backdrop-blur-sm">
+    <div className="h-full flex flex-col bg-gray-900">
       {/* Tabs */}
-      <div className="flex border-b border-neutral-800">
+      <div className="flex border-b-2 border-black">
         <button
           onClick={() => setActiveTab('chat')}
           className={`flex-1 px-3 py-3 text-sm font-medium transition-colors ${
             activeTab === 'chat'
-              ? 'text-white border-b-2 border-primary-500 bg-neutral-800/50'
-              : 'text-neutral-400 hover:text-white hover:bg-neutral-800/30'
+              ? 'text-white border-b-2 border-primary-500 bg-gray-800/50'
+              : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
           }`}
         >
           <span className="flex items-center justify-center gap-1.5">
@@ -34,8 +34,8 @@ export function SidePanel({ scenarioTitle, scenarioContext }: SidePanelProps) {
           onClick={() => setActiveTab('coach')}
           className={`flex-1 px-3 py-3 text-sm font-medium transition-colors ${
             activeTab === 'coach'
-              ? 'text-white border-b-2 border-primary-500 bg-neutral-800/50'
-              : 'text-neutral-400 hover:text-white hover:bg-neutral-800/30'
+              ? 'text-white border-b-2 border-primary-500 bg-gray-800/50'
+              : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
           }`}
         >
           <span className="flex items-center justify-center gap-1.5">
@@ -50,8 +50,8 @@ export function SidePanel({ scenarioTitle, scenarioContext }: SidePanelProps) {
           onClick={() => setActiveTab('info')}
           className={`flex-1 px-3 py-3 text-sm font-medium transition-colors ${
             activeTab === 'info'
-              ? 'text-white border-b-2 border-primary-500 bg-neutral-800/50'
-              : 'text-neutral-400 hover:text-white hover:bg-neutral-800/30'
+              ? 'text-white border-b-2 border-primary-500 bg-gray-800/50'
+              : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
           }`}
         >
           <span className="flex items-center justify-center gap-1.5">
@@ -81,7 +81,7 @@ export function SidePanel({ scenarioTitle, scenarioContext }: SidePanelProps) {
             <div className="space-y-4">
               {/* Scenario Info */}
               <div>
-                <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                   Cenario
                 </h3>
                 <p className="text-white font-medium">
@@ -91,21 +91,21 @@ export function SidePanel({ scenarioTitle, scenarioContext }: SidePanelProps) {
 
               {scenarioContext && (
                 <div>
-                  <h3 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                     Contexto
                   </h3>
-                  <p className="text-neutral-300 text-sm leading-relaxed">
+                  <p className="text-gray-300 text-sm leading-relaxed">
                     {scenarioContext}
                   </p>
                 </div>
               )}
 
               {/* Quick Tips */}
-              <div className="mt-6 p-3 bg-neutral-800/50 rounded-lg border border-neutral-700">
+              <div className="mt-6 p-3 bg-gray-800/50 rounded-lg border-2 border-black">
                 <h4 className="text-xs font-semibold text-primary-400 uppercase tracking-wider mb-2">
                   Dicas Rapidas
                 </h4>
-                <ul className="text-sm text-neutral-400 space-y-1">
+                <ul className="text-sm text-gray-400 space-y-1">
                   <li>• Use o metodo SPIN para guiar a conversa</li>
                   <li>• Deixe o cliente falar (30-50% voce)</li>
                   <li>• Responda objecoes com empatia</li>
@@ -114,18 +114,18 @@ export function SidePanel({ scenarioTitle, scenarioContext }: SidePanelProps) {
               </div>
 
               {/* Keyboard shortcuts */}
-              <div className="p-3 bg-neutral-800/50 rounded-lg border border-neutral-700">
-                <h4 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">
+              <div className="p-3 bg-gray-800/50 rounded-lg border-2 border-black">
+                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
                   Atalhos
                 </h4>
-                <div className="text-sm text-neutral-400 space-y-1">
+                <div className="text-sm text-gray-400 space-y-1">
                   <div className="flex justify-between">
                     <span>Pausar/Continuar</span>
-                    <kbd className="px-2 py-0.5 bg-neutral-700 rounded text-xs">Espaco</kbd>
+                    <kbd className="px-2 py-0.5 bg-gray-700 rounded text-xs">Espaco</kbd>
                   </div>
                   <div className="flex justify-between">
                     <span>Encerrar sessao</span>
-                    <kbd className="px-2 py-0.5 bg-neutral-700 rounded text-xs">Esc</kbd>
+                    <kbd className="px-2 py-0.5 bg-gray-700 rounded text-xs">Esc</kbd>
                   </div>
                 </div>
               </div>

@@ -46,10 +46,10 @@ export function TranscriptViewer({
   const previewLines = isExpanded ? lines : lines.slice(0, 6);
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+    <div className="bg-white border-2 border-black shadow-[4px_4px_0px_#000] overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50">
-        <h3 className="font-semibold text-black flex items-center gap-2">
+      <div className="flex items-center justify-between p-4 border-b-2 border-black bg-gray-50">
+        <h3 className="font-semibold text-black flex items-center gap-2 uppercase tracking-wider">
           <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
           </svg>
@@ -70,7 +70,7 @@ export function TranscriptViewer({
 
       {/* Legend */}
       {evidences.length > 0 && (
-        <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 flex flex-wrap gap-3 text-xs">
+        <div className="px-4 py-2 bg-gray-50 border-b-2 border-black flex flex-wrap gap-3 text-xs">
           <span className="flex items-center gap-1">
             <span className="w-3 h-3 rounded bg-blue-100 border border-blue-300" />
             Criterio
@@ -126,7 +126,7 @@ export function TranscriptViewer({
                 {line.timestamp && (
                   <p className="text-xs text-gray-400 mb-1">{line.timestamp}</p>
                 )}
-                <p className="text-sm leading-relaxed">{line.text}</p>
+                <p className="text-sm leading-relaxed font-mono">{line.text}</p>
               </div>
             </div>
           ))}
@@ -136,7 +136,7 @@ export function TranscriptViewer({
         {lines.length > 6 && (
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="mt-4 w-full py-2 text-sm text-gray-600 hover:text-black flex items-center justify-center gap-1 border-t border-gray-200"
+            className="mt-4 w-full py-2 text-sm text-gray-600 hover:text-black flex items-center justify-center gap-1 border-t-2 border-black"
           >
             {isExpanded ? (
               <>

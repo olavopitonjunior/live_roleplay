@@ -145,15 +145,15 @@ export function Feedback() {
         <div className="text-center max-w-sm">
           {/* Loading spinner */}
           <div className="relative mb-8">
-            <div className="w-24 h-24 rounded-full border-4 border-gray-200 border-t-yellow-400 animate-spin" />
+            <div className="w-24 h-24 border-4 border-black border-t-yellow-400 animate-spin" />
           </div>
 
-          <h2 className="text-2xl font-bold text-black mb-2">
+          <h2 className="text-2xl font-bold text-black mb-2 uppercase tracking-tight">
             {loading && !generating && !waitingForTranscript
               ? 'Carregando feedback...'
               : step.message}
           </h2>
-          <p className="text-gray-500 mb-6">
+          <p className="text-black font-mono mb-6">
             {loading && !generating && !waitingForTranscript
               ? 'Buscando resultados'
               : step.sub}
@@ -167,7 +167,7 @@ export function Feedback() {
                   key={i}
                   className={`h-1.5 rounded-full transition-all duration-500 ${
                     i <= loadingStep
-                      ? 'w-6 bg-yellow-400'
+                      ? 'w-6 bg-yellow-400 border border-black'
                       : 'w-1.5 bg-gray-200'
                   }`}
                 />
@@ -196,12 +196,12 @@ export function Feedback() {
 
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-white p-4">
-        <div className="max-w-md text-center">
-          <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-6">
-            <span className="text-2xl">{friendly.canRetry ? '!' : 'x'}</span>
+        <div className="max-w-md text-center border-2 border-black p-8 shadow-[4px_4px_0px_#000]">
+          <div className="w-16 h-16 bg-yellow-400 border-2 border-black flex items-center justify-center mx-auto mb-6">
+            <span className="text-2xl font-bold">{friendly.canRetry ? '!' : 'x'}</span>
           </div>
-          <h2 className="text-2xl font-bold text-black mb-2">{friendly.title}</h2>
-          <p className="text-gray-500 mb-8">{friendly.message}</p>
+          <h2 className="text-2xl font-bold text-black mb-2 uppercase tracking-tight">{friendly.title}</h2>
+          <p className="text-black font-mono mb-8">{friendly.message}</p>
           <div className="flex flex-col gap-3">
             {friendly.canRetry && sessionId && (
               <Button
@@ -228,14 +228,14 @@ export function Feedback() {
   if (!feedback || !scenario) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-white p-4">
-        <div className="max-w-md text-center">
-          <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-6">
-            <span className="text-2xl">?</span>
+        <div className="max-w-md text-center border-2 border-black p-8 shadow-[4px_4px_0px_#000]">
+          <div className="w-16 h-16 bg-yellow-400 border-2 border-black flex items-center justify-center mx-auto mb-6">
+            <span className="text-2xl font-bold">?</span>
           </div>
-          <h2 className="text-2xl font-bold text-black mb-2">
+          <h2 className="text-2xl font-bold text-black mb-2 uppercase tracking-tight">
             Feedback nao encontrado
           </h2>
-          <p className="text-gray-500 mb-8">
+          <p className="text-black font-mono mb-8">
             O feedback desta sessao ainda nao foi gerado ou a sessao foi muito curta para
             avaliar.
           </p>
@@ -272,12 +272,12 @@ export function Feedback() {
       )}
 
       {/* Header */}
-      <header className="border-b border-gray-200 sticky top-0 z-10 bg-white">
+      <header className="border-b-2 border-black sticky top-0 z-10 bg-white">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-black">Resultado</h1>
+          <h1 className="text-xl font-bold text-black uppercase tracking-tight">Resultado</h1>
           <button
             onClick={() => navigate('/home')}
-            className="text-gray-500 hover:text-black transition-colors"
+            className="text-black hover:text-yellow-600 transition-colors font-bold uppercase tracking-wider text-sm"
           >
             Fechar
           </button>
@@ -297,7 +297,7 @@ export function Feedback() {
       </main>
 
       {/* Bottom Actions */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4">
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-black p-4">
         <div className="max-w-2xl mx-auto flex gap-4">
           <Button
             onClick={() => navigate('/home')}

@@ -33,31 +33,31 @@ export function Badge({
   ...props
 }: BadgeProps) {
   const variantStyles = {
-    primary: 'bg-primary-100 text-primary-700 border-primary-200',
-    secondary: 'bg-secondary-100 text-secondary-700 border-secondary-200',
-    success: 'bg-success-100 text-success-700 border-success-200',
-    warning: 'bg-warning-100 text-warning-700 border-warning-200',
-    error: 'bg-error-100 text-error-700 border-error-200',
-    info: 'bg-info-100 text-info-700 border-info-200',
-    neutral: 'bg-neutral-100 text-neutral-700 border-neutral-200',
-    accent: 'bg-accent-100 text-accent-700 border-accent-200',
+    primary: 'bg-yellow-400 text-black border-black',
+    secondary: 'bg-white text-black border-black',
+    success: 'bg-green-100 text-black border-black',
+    warning: 'bg-yellow-100 text-black border-black',
+    error: 'bg-red-100 text-black border-black',
+    info: 'bg-blue-50 text-black border-black',
+    neutral: 'bg-gray-100 text-black border-black',
+    accent: 'bg-yellow-400 text-black border-black',
   };
 
   const dotStyles = {
-    primary: 'bg-primary-500',
-    secondary: 'bg-secondary-500',
-    success: 'bg-success-500',
-    warning: 'bg-warning-500',
-    error: 'bg-error-500',
-    info: 'bg-info-500',
-    neutral: 'bg-neutral-500',
-    accent: 'bg-accent-500',
+    primary: 'bg-yellow-500',
+    secondary: 'bg-gray-500',
+    success: 'bg-green-500',
+    warning: 'bg-yellow-500',
+    error: 'bg-red-500',
+    info: 'bg-blue-500',
+    neutral: 'bg-gray-500',
+    accent: 'bg-yellow-500',
   };
 
   const sizeStyles = {
     sm: 'text-xs px-2 py-0.5 gap-1',
-    md: 'text-sm px-2.5 py-1 gap-1.5',
-    lg: 'text-base px-3 py-1.5 gap-2',
+    md: 'text-xs px-2.5 py-1 gap-1.5',
+    lg: 'text-sm px-3 py-1.5 gap-2',
   };
 
   const dotSizeStyles = {
@@ -74,12 +74,13 @@ export function Badge({
 
   return (
     <span
-      className={`inline-flex items-center font-medium rounded-full border
+      className={`inline-flex items-center font-bold border-2 uppercase tracking-wider
                   ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
+      style={{ fontFamily: "'Space Mono', monospace" }}
       {...props}
     >
       {dot && (
-        <span className={`rounded-full ${dotStyles[variant]} ${dotSizeStyles[size]}`} />
+        <span className={`${dotStyles[variant]} ${dotSizeStyles[size]}`} />
       )}
       {icon && !dot && (
         <span className={`flex-shrink-0 ${iconSizeStyles[size]}`}>{icon}</span>
@@ -91,7 +92,7 @@ export function Badge({
             e.stopPropagation();
             onRemove?.();
           }}
-          className="flex-shrink-0 -mr-1 ml-0.5 p-0.5 rounded-full hover:bg-black/10 transition-colors"
+          className="flex-shrink-0 -mr-1 ml-0.5 p-0.5 hover:bg-black/10 transition-colors"
           aria-label="Remover"
         >
           <svg className={iconSizeStyles[size]} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -103,7 +104,7 @@ export function Badge({
   );
 }
 
-// Status Badge - common pattern for status indicators
+// Status Badge
 export interface StatusBadgeProps {
   status: 'active' | 'inactive' | 'pending' | 'completed' | 'error' | 'warning';
   size?: BadgeSize;
@@ -129,7 +130,7 @@ export function StatusBadge({ status, size = 'md', className = '' }: StatusBadge
   );
 }
 
-// Counter Badge - for notification counts
+// Counter Badge
 export interface CounterBadgeProps {
   count: number;
   max?: number;
@@ -150,18 +151,18 @@ export function CounterBadge({
   return (
     <span
       className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5
-                  text-xs font-bold rounded-full
-                  ${variant === 'primary' ? 'bg-primary-500 text-white' :
-                    variant === 'secondary' ? 'bg-secondary-500 text-white' :
-                    variant === 'error' ? 'bg-error-500 text-white' :
-                    'bg-neutral-500 text-white'} ${className}`}
+                  text-xs font-bold border-2 border-black
+                  ${variant === 'primary' ? 'bg-yellow-400 text-black' :
+                    variant === 'error' ? 'bg-red-500 text-white' :
+                    'bg-gray-100 text-black'} ${className}`}
+      style={{ fontFamily: "'Space Mono', monospace" }}
     >
       {displayCount}
     </span>
   );
 }
 
-// Badge Group - for displaying multiple badges
+// Badge Group
 export interface BadgeGroupProps {
   children: ReactNode;
   className?: string;
@@ -175,7 +176,7 @@ export function BadgeGroup({ children, className = '' }: BadgeGroupProps) {
   );
 }
 
-// Score Badge - for displaying scores with color coding
+// Score Badge
 export interface ScoreBadgeProps {
   score: number;
   size?: BadgeSize;

@@ -17,7 +17,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
     },
     ref
   ) => {
-    const baseStyles = 'bg-white border border-gray-200 rounded-lg transition-colors duration-200';
+    const baseStyles = 'bg-white border-2 border-black shadow-[4px_4px_0px_#000]';
 
     const paddingStyles = {
       none: '',
@@ -27,7 +27,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
     };
 
     const interactiveStyles = interactive
-      ? 'cursor-pointer hover:border-yellow-400'
+      ? 'cursor-pointer hover:shadow-[2px_2px_0px_#000] hover:translate-x-[2px] hover:translate-y-[2px] transition-all duration-100'
       : '';
 
     const combinedStyles = [
@@ -75,7 +75,7 @@ export const CardTitle = forwardRef<HTMLHeadingElement, CardTitleProps>(
     return (
       <Tag
         ref={ref}
-        className={`text-xl font-bold text-black ${className}`}
+        className={`text-xl font-bold text-black uppercase tracking-tight ${className}`}
         {...props}
       >
         {children}
@@ -125,7 +125,7 @@ export interface CardFooterProps extends HTMLAttributes<HTMLDivElement> {
 export const CardFooter = forwardRef<HTMLDivElement, CardFooterProps>(
   ({ children, className = '', ...props }, ref) => {
     return (
-      <div ref={ref} className={`mt-4 pt-4 border-t border-gray-200 ${className}`} {...props}>
+      <div ref={ref} className={`mt-4 pt-4 border-t-2 border-black ${className}`} {...props}>
         {children}
       </div>
     );

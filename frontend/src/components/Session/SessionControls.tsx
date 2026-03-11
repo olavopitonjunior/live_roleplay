@@ -116,8 +116,8 @@ export function SessionControls({ onEndSession, maxDuration = 180 }: SessionCont
             <button
               onClick={handlePauseClick}
               disabled={isEnding}
-              className="flex-1 py-4 rounded-lg font-semibold text-lg transition-all
-                         bg-neutral-800 text-white hover:bg-neutral-700 active:scale-[0.98]
+              className="flex-1 py-4 font-semibold text-lg transition-all
+                         bg-gray-800 text-white hover:bg-gray-700 border-2 border-black shadow-[4px_4px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1
                          disabled:opacity-50 disabled:cursor-not-allowed
                          flex items-center justify-center gap-2"
             >
@@ -132,10 +132,10 @@ export function SessionControls({ onEndSession, maxDuration = 180 }: SessionCont
             <button
               onClick={handleEndClick}
               disabled={isEnding}
-              className={`flex-1 py-4 rounded-lg font-semibold text-lg transition-all ${
+              className={`flex-1 py-4 font-semibold text-lg transition-all border-2 border-black shadow-[4px_4px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 ${
                 isEnding
                   ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                  : 'bg-yellow-400 text-black hover:bg-yellow-500 active:scale-[0.98]'
+                  : 'bg-yellow-400 text-black hover:bg-yellow-500'
               }`}
             >
               {isEnding ? 'Encerrando...' : 'Encerrar'}
@@ -146,8 +146,8 @@ export function SessionControls({ onEndSession, maxDuration = 180 }: SessionCont
           <div className="flex items-center justify-center gap-2 mt-4 text-gray-400 text-sm">
             <div className={`w-2 h-2 rounded-full ${isPaused ? 'bg-yellow-500' : 'bg-green-500'}`} />
             <span>{isPaused ? 'Microfone pausado' : 'Microfone ativo'}</span>
-            <span className="text-neutral-600 ml-2">|</span>
-            <span className="text-neutral-500 text-xs">Espaco para pausar</span>
+            <span className="text-gray-600 ml-2">|</span>
+            <span className="text-gray-500 text-xs">Espaco para pausar</span>
           </div>
         </div>
       </div>

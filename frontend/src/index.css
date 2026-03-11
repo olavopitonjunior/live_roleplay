@@ -1,9 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;500;600;700&display=swap');
 
 @import "tailwindcss";
 
 @theme {
-  /* Amarelo (acento/botões) */
+  /* Brutalist Yellow */
   --color-yellow-50: #FEFCE8;
   --color-yellow-100: #FEF9C3;
   --color-yellow-200: #FEF08A;
@@ -12,7 +12,7 @@
   --color-yellow-500: #EAB308;
   --color-yellow-600: #CA8A04;
 
-  /* Cinza (neutros) */
+  /* Neutrals */
   --color-gray-50: #FAFAFA;
   --color-gray-100: #F5F5F5;
   --color-gray-200: #E5E5E5;
@@ -30,13 +30,16 @@
   --color-green-100: #DCFCE7;
   --color-red-500: #EF4444;
   --color-red-100: #FEE2E2;
+  --color-blue-50: #EFF6FF;
+  --color-blue-500: #3B82F6;
+  --color-blue-700: #1D4ED8;
 
-  /* Fonts */
-  --font-family-sans: 'Inter', system-ui, sans-serif;
-  --font-family-mono: 'JetBrains Mono', monospace;
+  /* Fonts — Brutalist */
+  --font-family-sans: 'Space Grotesk', system-ui, sans-serif;
+  --font-family-mono: 'Space Mono', monospace;
 
   /* Animations */
-  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-fade-in: fade-in 0.15s ease-out;
 
   @keyframes fade-in {
     from { opacity: 0; }
@@ -46,7 +49,7 @@
 
 @layer base {
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Space Grotesk', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -63,7 +66,8 @@
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply font-bold text-black;
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    @apply font-bold text-black uppercase tracking-tight;
   }
 
   *:focus-visible {
@@ -72,86 +76,124 @@
 }
 
 @layer components {
-  /* Button - Minimalista */
+  /* Button — Brutalist */
   .btn {
-    @apply inline-flex items-center justify-center font-semibold rounded-lg
-           transition-colors duration-200
+    @apply inline-flex items-center justify-center font-bold
+           border-2 border-black uppercase tracking-wider
+           transition-all duration-100
            disabled:opacity-50 disabled:cursor-not-allowed;
+    font-family: 'Space Mono', monospace;
   }
 
   .btn-primary {
-    @apply bg-yellow-400 text-black hover:bg-yellow-500;
+    @apply bg-yellow-400 text-black;
+    box-shadow: 4px 4px 0px #000;
+  }
+  .btn-primary:hover:not(:disabled) {
+    @apply translate-x-[2px] translate-y-[2px];
+    box-shadow: 2px 2px 0px #000;
   }
 
   .btn-outline {
-    @apply bg-transparent border border-black text-black hover:bg-gray-100;
+    @apply bg-white border-2 border-black text-black;
+    box-shadow: 4px 4px 0px #000;
+  }
+  .btn-outline:hover:not(:disabled) {
+    @apply bg-gray-50 translate-x-[2px] translate-y-[2px];
+    box-shadow: 2px 2px 0px #000;
   }
 
   .btn-ghost {
-    @apply bg-transparent text-gray-600 hover:bg-gray-100 hover:text-black;
+    @apply bg-transparent text-black border-2 border-transparent;
+    box-shadow: none;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    @apply border-black bg-gray-50;
   }
 
   .btn-danger {
-    @apply bg-red-500 text-white hover:bg-red-600;
+    @apply bg-red-500 text-white border-2 border-black;
+    box-shadow: 4px 4px 0px #000;
+  }
+  .btn-danger:hover:not(:disabled) {
+    @apply translate-x-[2px] translate-y-[2px];
+    box-shadow: 2px 2px 0px #000;
   }
 
   /* Button Sizes */
-  .btn-sm {
-    @apply px-4 py-2 text-sm;
-  }
+  .btn-sm { @apply px-4 py-2 text-xs; }
+  .btn-md { @apply px-6 py-3 text-sm; }
+  .btn-lg { @apply px-8 py-4 text-base; }
 
-  .btn-md {
-    @apply px-6 py-3 text-base;
-  }
-
-  .btn-lg {
-    @apply px-8 py-4 text-base;
-  }
-
-  /* Card - Simples */
+  /* Card — Brutalist */
   .card {
-    @apply bg-white border border-gray-200 rounded-lg transition-colors duration-200;
+    @apply bg-white border-2 border-black;
+    box-shadow: 4px 4px 0px #000;
   }
 
   .card-hover {
-    @apply hover:border-yellow-400;
+    @apply cursor-pointer transition-all duration-100;
+  }
+  .card-hover:hover {
+    @apply translate-x-[2px] translate-y-[2px];
+    box-shadow: 2px 2px 0px #000;
   }
 
-  /* Input - Minimalista */
+  /* Input — Brutalist */
   .input {
-    @apply w-full px-4 py-3 bg-white border border-gray-300 rounded-lg
+    @apply w-full px-4 py-3 bg-white border-2 border-black
            text-black placeholder:text-gray-400
-           focus:border-black focus:ring-0
-           transition-colors duration-200 outline-none;
+           focus:ring-2 focus:ring-yellow-400 focus:ring-offset-0
+           outline-none;
+    font-family: 'Space Mono', monospace;
   }
 
   .input-error {
     @apply border-red-500;
   }
 
-  /* Badge - Simples */
+  /* Badge — Brutalist */
   .badge {
-    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
+    @apply inline-flex items-center px-3 py-1 border-2 border-black
+           text-xs font-bold uppercase tracking-wider;
+    font-family: 'Space Mono', monospace;
   }
 
-  .badge-yellow {
-    @apply bg-yellow-100 text-black;
-  }
-
-  .badge-gray {
-    @apply bg-gray-100 text-gray-700;
-  }
-
-  .badge-green {
-    @apply bg-green-100 text-green-600;
-  }
-
-  .badge-red {
-    @apply bg-red-100 text-red-600;
-  }
+  .badge-yellow { @apply bg-yellow-400 text-black; }
+  .badge-gray { @apply bg-gray-100 text-black; }
+  .badge-green { @apply bg-green-100 text-black; }
+  .badge-red { @apply bg-red-100 text-black; }
 }
 
 @layer utilities {
+  /* Brutalist shadows */
+  .shadow-brutal { box-shadow: 4px 4px 0px #000; }
+  .shadow-brutal-sm { box-shadow: 2px 2px 0px #000; }
+  .shadow-brutal-lg { box-shadow: 6px 6px 0px #000; }
+  .shadow-brutal-yellow { box-shadow: 4px 4px 0px #FACC15; }
+  .shadow-brutal-dark { box-shadow: 4px 4px 0px #333; }
+
+  /* Brutalist borders */
+  .border-brutal { @apply border-2 border-black; }
+  .border-brutal-dark { border: 2px solid #333; }
+
+  /* Terminal font */
+  .font-terminal { font-family: 'Space Mono', monospace; }
+
+  /* Label style */
+  .text-label {
+    @apply text-xs font-bold uppercase tracking-wider;
+    font-family: 'Space Mono', monospace;
+  }
+
+  /* Hover effect */
+  .hover-brutal {
+    @apply transition-all duration-100;
+  }
+  .hover-brutal:hover {
+    @apply translate-x-[2px] translate-y-[2px];
+  }
+
   .line-clamp-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;

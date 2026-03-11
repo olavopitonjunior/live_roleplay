@@ -22,21 +22,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
   ) => {
     const inputId = id || `input-${Math.random().toString(36).substr(2, 9)}`;
 
-    const baseInputStyles = `
-      w-full px-4 py-3 bg-white border border-gray-300 rounded-lg
-      text-black placeholder:text-gray-400
-      focus:border-black focus:ring-0
-      transition-colors duration-200 outline-none
-      disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100
-    `;
+    const baseInputStyles =
+      'w-full px-4 py-3 bg-white border-2 border-black text-black placeholder:text-gray-400 focus:ring-2 focus:ring-yellow-400 focus:ring-offset-0 outline-none disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100';
 
     const errorStyles = error ? 'border-red-500' : '';
 
-    const combinedInputStyles = [
-      baseInputStyles,
-      errorStyles,
-      className,
-    ]
+    const combinedInputStyles = [baseInputStyles, errorStyles, className]
       .filter(Boolean)
       .join(' ');
 
@@ -47,7 +38,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="block text-sm font-medium text-black mb-2"
+            className="block text-xs font-bold text-black mb-2 uppercase tracking-wider"
+            style={{ fontFamily: "'Space Mono', monospace" }}
           >
             {label}
           </label>
@@ -57,13 +49,14 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           ref={ref}
           id={inputId}
           className={combinedInputStyles}
+          style={{ fontFamily: "'Space Mono', monospace" }}
           aria-invalid={!!error}
           aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
           {...props}
         />
 
         {error && (
-          <p id={`${inputId}-error`} className="mt-2 text-sm text-red-500">
+          <p id={`${inputId}-error`} className="mt-2 text-sm text-red-500 font-bold">
             {error}
           </p>
         )}
@@ -92,13 +85,8 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ label, error, hint, fullWidth = true, className = '', id, ...props }, ref) => {
     const inputId = id || `textarea-${Math.random().toString(36).substr(2, 9)}`;
 
-    const baseStyles = `
-      w-full px-4 py-3 bg-white border border-gray-300 rounded-lg
-      text-black placeholder:text-gray-400
-      focus:border-black focus:ring-0
-      transition-colors duration-200 outline-none resize-none
-      disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100
-    `;
+    const baseStyles =
+      'w-full px-4 py-3 bg-white border-2 border-black text-black placeholder:text-gray-400 focus:ring-2 focus:ring-yellow-400 focus:ring-offset-0 outline-none resize-none disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-100';
 
     const errorStyles = error ? 'border-red-500' : '';
 
@@ -113,7 +101,8 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="block text-sm font-medium text-black mb-2"
+            className="block text-xs font-bold text-black mb-2 uppercase tracking-wider"
+            style={{ fontFamily: "'Space Mono', monospace" }}
           >
             {label}
           </label>
@@ -123,13 +112,14 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           ref={ref}
           id={inputId}
           className={combinedStyles}
+          style={{ fontFamily: "'Space Mono', monospace" }}
           aria-invalid={!!error}
           aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
           {...props}
         />
 
         {error && (
-          <p id={`${inputId}-error`} className="mt-2 text-sm text-red-500">
+          <p id={`${inputId}-error`} className="mt-2 text-sm text-red-500 font-bold">
             {error}
           </p>
         )}
