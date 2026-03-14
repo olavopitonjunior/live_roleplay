@@ -633,10 +633,10 @@ serve(async (req: Request) => {
 
     // Authenticate (dual-auth: JWT or access_code, admin required)
     const authResult = await authenticate(req, { body, requireAdmin: true, requiredRole: "admin" });
-    if (!authResult.authenticated) {
-      return corsErrorResponse(authResult.error || "Unauthorized", authResult.status || 401, req);
+    if (!authResult.success) {
+      return corsErrorResponse(authResult.error, authResult.status, req);
     }
-    const auth = authResult.context!;
+    const auth = authResult.context;
 
     // Initialize Anthropic client
     const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");
