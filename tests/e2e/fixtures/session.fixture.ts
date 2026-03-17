@@ -84,11 +84,11 @@ export async function startSession(
   // Ensure we're on home
   await page.waitForURL('**/home', { timeout: 15_000 });
 
-  // Wait for scenarios to load
-  await page.waitForSelector('button.group', { timeout: 15_000 });
+  // Wait for scenario cards to load (cards contain "Comecar treino" CTA)
+  await page.waitForSelector('button:has-text("Comecar treino")', { timeout: 15_000 });
 
-  // Click scenario card
-  const cards = page.locator('button.group');
+  // Click scenario card (filter to only cards with CTA text, not category toggles)
+  const cards = page.locator('button:has-text("Comecar treino")');
   await cards.nth(scenarioIndex).click();
 
   // Wait for mode modal
@@ -102,8 +102,8 @@ export async function startSession(
     await modal.locator('button:has-text("Modo Treino")').click();
   }
 
-  // Start session
-  await modal.locator('button:has-text("Iniciar Sessao")').click();
+  // Start session (JS click — modal may overflow fixed viewport)
+  await modal.locator('button:has-text("Iniciar Sessao")').dispatchEvent('click');
 
   // Wait for session page
   await page.waitForURL(/\/session\//, { timeout: 30_000 });

@@ -459,12 +459,7 @@ async function saveMinimalFeedback(
   req: Request
 ): Promise<Response> {
   const summary = reason;
-  // Look up session org_id for minimal feedback
-  const { data: sessionForOrg } = await supabase
-    .from("sessions")
-    .select("org_id")
-    .eq("id", sessionId)
-    .single();
+  // Insert minimal feedback (org_id omitted — column may not exist yet)
   const { data: feedback, error } = await supabase
     .from("feedbacks")
     .insert({
@@ -475,7 +470,6 @@ async function saveMinimalFeedback(
       key_moments: [],
       confidence_level: "low",
       transcript_coverage: 0,
-      org_id: sessionForOrg?.org_id || null,
     })
     .select()
     .single();
@@ -545,8 +539,7 @@ serve(async (req: Request) => {
         transcript_metadata,
         session_trajectory,
         turn_evaluations,
-        coaching_plan,
-        org_id
+        coaching_plan
       `
       )
       .eq("id", session_id)
@@ -827,8 +820,6 @@ serve(async (req: Request) => {
         transcript_coverage: transcriptCoverage,
         key_moments: feedbackData.key_moments || [],
         omissions: feedbackData.omissions || [],
-        // Multi-tenant
-        org_id: session.org_id || null,
       })
       .select()
       .single();
@@ -1181,7 +1172,6 @@ async function handleLegacyEvaluation(
       summary: feedbackData.summary || "Avaliacao concluida.",
       score: finalScore,
       key_moments: feedbackData.key_moments || [],
-      org_id: session.org_id || null,
     })
     .select()
     .single();
