@@ -71,6 +71,7 @@ from coaching import get_coaching_engine, reset_coaching_engine, CoachingHint, H
 from ai_coach import get_ai_coach, reset_ai_coach, AISuggestion, SuggestionType
 from conversation_coach import ConversationCoach
 from coach_orchestrator import CoachOrchestrator
+from tracing import traceable, enrich_current_trace
 
 # Load environment variables
 load_dotenv()
@@ -924,6 +925,7 @@ def create_avatar_session(scenario: dict[str, Any]) -> Any | None:
     return None
 
 
+@traceable(name="roleplay_session", tags=["session", "agent"])
 async def entrypoint(ctx: JobContext):
     """
     Main entry point for the LiveKit agent.
@@ -1005,6 +1007,15 @@ async def entrypoint(ctx: JobContext):
         difficulty_level = 3  # Default
 
     logger.info(f"Difficulty level: {difficulty_level}/10")
+
+    # Enrich LangSmith trace with session metadata (no-op if tracing disabled)
+    enrich_current_trace({
+        "session_id": session_id,
+        "scenario_id": scenario_id,
+        "scenario_title": scenario.get("title", ""),
+        "session_mode": session_mode,
+        "difficulty_level": difficulty_level,
+    })
 
     # Fetch learning profile for AI coach (cross-session learning)
     learning_profile = {}
@@ -2350,9 +2361,33 @@ async def entrypoint(ctx: JobContext):
         asyncio.create_task(heartbeat_loop())
         logger.info("Heartbeat loop started (every 5s)")
 
-        # Trigger greeting immediately (no delay needed!)
+        # Wait for frontend participant before greeting (prevents audio before screen loads)
+        remote_participants = ctx.room.remote_participants
+        if len(remote_participants) == 0:
+            logger.info("Waiting for frontend participant before greeting...")
+            _participant_event = asyncio.Event()
+            _participant_handler_active = True
+
+            @ctx.room.on("participant_connected")
+            def _on_participant_connected(participant):
+                nonlocal _participant_handler_active
+                if _participant_handler_active and not participant.identity.startswith("agent"):
+                    logger.info(f"Frontend participant joined: {participant.identity}")
+                    _participant_event.set()
+
+            try:
+                await asyncio.wait_for(_participant_event.wait(), timeout=15.0)
+                # Small grace period for RoomAudioRenderer to mount
+                await asyncio.sleep(0.5)
+            except asyncio.TimeoutError:
+                logger.warning("No participant joined after 15s, sending greeting anyway")
+            finally:
+                _participant_handler_active = False
+        else:
+            logger.info(f"Frontend already connected ({len(remote_participants)} participants)")
+
+        # Trigger greeting — frontend is connected (or timed out).
         # OpenAI Realtime is already connected (session.start() completed above).
-        # Audio buffers in DataStreamAudioOutput until Hedra publishes video track.
         await send_status_to_room("Iniciando conversa...")
         _greeting_trigger_time = time.time()
         max_greeting_attempts = 3

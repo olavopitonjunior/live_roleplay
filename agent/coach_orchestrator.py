@@ -35,6 +35,8 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
+from tracing import get_traced_openai_client, traceable
+
 from ai_coach import (
     AISuggestion,
     ConversationContext,
@@ -478,7 +480,7 @@ class CoachOrchestrator:
             logger.warning("OPENAI_API_KEY not set — orchestrator AI path disabled")
             return
         try:
-            self._client = AsyncOpenAI(api_key=api_key)
+            self._client = get_traced_openai_client(api_key=api_key)
             logger.info("Orchestrator: OpenAI client initialized (GPT-4o-mini)")
         except Exception as e:
             logger.error(f"Orchestrator: Failed to init OpenAI: {e}")
@@ -587,6 +589,7 @@ class CoachOrchestrator:
     # Coaching Plan (pre-loaded suggestions)
     # ------------------------------------------------------------------
 
+    @traceable(name="orchestrator_coaching_plan", tags=["coach_orchestrator", "gpt-4o-mini"])
     async def generate_coaching_plan(self) -> list[dict]:
         """Generate pre-loaded coaching plan for the session."""
         if not self._active or not self._client:
@@ -790,6 +793,7 @@ class CoachOrchestrator:
     # Turn Evaluation — AI Path (GPT-4o-mini, async, ~300-500ms)
     # ------------------------------------------------------------------
 
+    @traceable(name="orchestrator_turn_eval", tags=["coach_orchestrator", "gpt-4o-mini"])
     async def evaluate_user_turn_ai(self, text: str) -> Optional[dict]:
         """
         AI-powered evaluation of user turn.
@@ -1050,6 +1054,7 @@ class CoachOrchestrator:
             self._last_anchor_time = time.time()
             logger.info(f"Orchestrator: anchor sent (summary={len(self._conversation_summary)} chars)")
 
+    @traceable(name="orchestrator_conversation_summary", tags=["coach_orchestrator", "gpt-4o-mini"])
     async def _generate_conversation_summary(self) -> Optional[str]:
         """Generate conversation summary via GPT-4o-mini."""
         if not self._client:

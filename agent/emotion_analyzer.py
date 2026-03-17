@@ -19,6 +19,8 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
+from tracing import get_traced_openai_client, traceable
+
 logger = logging.getLogger(__name__)
 
 # Valid emotion states (ordered from positive to negative)
@@ -118,7 +120,7 @@ class EmotionAnalyzer:
             return
 
         try:
-            self._client = AsyncOpenAI(api_key=api_key)
+            self._client = get_traced_openai_client(api_key=api_key)
             logger.info("OpenAI initialized for emotion analysis (GPT-4o-mini)")
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI: {e}")
@@ -316,6 +318,7 @@ class EmotionAnalyzer:
         """Reset intensity history (call at start of new session)."""
         self._intensity_history = []
 
+    @traceable(name="emotion_analysis", tags=["emotion_analyzer", "gpt-4o-mini"])
     async def _analyze_with_openai(
         self,
         text: str,

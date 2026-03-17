@@ -21,6 +21,7 @@ import {
   corsErrorResponse,
 } from "../_shared/cors.ts";
 import { withRetry } from "../_shared/retry.ts";
+import { traceClaudeCall } from "../_shared/langsmith.ts";
 
 interface RequestBody {
   session_id: string;
@@ -687,6 +688,7 @@ serve(async (req: Request) => {
     // Call Claude API with retry logic
     console.log("Calling Claude API for rubric evaluation...");
 
+    const _traceStart = Date.now();
     const message = await withRetry(
       async () => {
         return await anthropic.messages.create({
@@ -708,6 +710,16 @@ serve(async (req: Request) => {
         },
       }
     );
+    traceClaudeCall({
+      name: "generate_feedback_rubric",
+      sessionId: session_id,
+      input: { model: "claude-sonnet-4-20250514", max_tokens: 4096, prompt_length: prompt.length },
+      output: { content_length: message.content[0]?.type === "text" ? message.content[0].text.length : 0 },
+      startTime: _traceStart,
+      endTime: Date.now(),
+      tokens: { input: message.usage?.input_tokens ?? 0, output: message.usage?.output_tokens ?? 0 },
+      tags: ["edge-function", "feedback", "rubric"],
+    });
 
     // Extract response text
     const responseText =
@@ -1109,6 +1121,7 @@ async function handleLegacyEvaluation(
 
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
+  const _traceStartLegacy = Date.now();
   const message = await withRetry(
     async () => {
       return await anthropic.messages.create({
@@ -1119,6 +1132,16 @@ async function handleLegacyEvaluation(
     },
     { maxAttempts: 3, initialDelay: 1000 }
   );
+  traceClaudeCall({
+    name: "generate_feedback_legacy",
+    sessionId: session.id,
+    input: { model: "claude-sonnet-4-20250514", max_tokens: 2048, prompt_length: prompt.length },
+    output: { content_length: message.content[0]?.type === "text" ? message.content[0].text.length : 0 },
+    startTime: _traceStartLegacy,
+    endTime: Date.now(),
+    tokens: { input: message.usage?.input_tokens ?? 0, output: message.usage?.output_tokens ?? 0 },
+    tags: ["edge-function", "feedback", "legacy"],
+  });
 
   const responseText =
     message.content[0].type === "text" ? message.content[0].text : "";

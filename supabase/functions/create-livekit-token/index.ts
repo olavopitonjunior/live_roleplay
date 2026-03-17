@@ -131,7 +131,7 @@ serve(async (req: Request) => {
     // Validate scenario exists and is active, fetch avatar/voice settings
     const { data: scenarioData, error: scenarioError } = await supabase
       .from("scenarios")
-      .select("id, title, simli_face_id, ai_voice, avatar_provider, avatar_id, version, target_duration_seconds, character_gender, org_id")
+      .select("id, title, simli_face_id, ai_voice, avatar_provider, avatar_id, version, target_duration_seconds, character_gender")
       .eq("id", scenario_id)
       .eq("is_active", true)
       .single();
@@ -140,41 +140,16 @@ serve(async (req: Request) => {
       return corsErrorResponse("Invalid or inactive scenario", 404, req);
     }
 
-    // Org isolation: if user has org_id, scenario must be in same org or platform-level (null)
-    if (auth.org_id && scenarioData.org_id && scenarioData.org_id !== auth.org_id) {
+    // Org isolation (multi-tenant) — only enforce when org_id columns exist
+    const scenarioOrgId = (scenarioData as Record<string, unknown>).org_id as string | null;
+    if (auth.org_id && scenarioOrgId && scenarioOrgId !== auth.org_id) {
       return corsErrorResponse("Scenario not available for your organization", 403, req);
     }
-
-    // Determine the org_id for this session
-    const sessionOrgId = auth.org_id || scenarioData.org_id || null;
+    const sessionOrgId = auth.org_id || scenarioOrgId || null;
 
     // Fetch user's difficulty profile
     let difficultyLevel = 3; // Default level
-    if (auth.method === "jwt" && auth.user_profile_id) {
-      // Enterprise user: look up by user_profile_id
-      const { data: profileData } = await supabase
-        .from("user_difficulty_profiles")
-        .select("current_level, sessions_at_level, consecutive_high_scores, consecutive_low_scores")
-        .eq("user_profile_id", auth.user_profile_id)
-        .single();
-
-      if (profileData) {
-        difficultyLevel = profileData.current_level || 3;
-        console.log(`Found difficulty profile (user_profile): level ${difficultyLevel}`);
-      } else {
-        // Create new profile for enterprise user
-        const { error: profileError } = await supabase
-          .from("user_difficulty_profiles")
-          .insert({
-            user_profile_id: auth.user_profile_id,
-            org_id: auth.org_id || null,
-            current_level: 3,
-          });
-        if (profileError) console.warn("Could not create difficulty profile:", profileError);
-        else console.log("Created new difficulty profile (user_profile) with level 3");
-      }
-    } else if (auth.access_code_id) {
-      // Trial user: look up by access_code_id
+    if (auth.access_code_id) {
       const { data: profileData } = await supabase
         .from("user_difficulty_profiles")
         .select("current_level, sessions_at_level, consecutive_high_scores, consecutive_low_scores")
@@ -189,7 +164,6 @@ serve(async (req: Request) => {
           .from("user_difficulty_profiles")
           .insert({
             access_code_id: auth.access_code_id,
-            org_id: sessionOrgId,
             current_level: 3,
           });
         if (profileError) console.warn("Could not create difficulty profile:", profileError);
@@ -201,27 +175,17 @@ serve(async (req: Request) => {
     const sessionId = crypto.randomUUID();
     const roomName = `roleplay_${sessionId}`;
 
-    // Create session record in database with mode settings, difficulty, and org identity
-    const sessionInsert: Record<string, unknown> = {
+    // Create session record in database
+    const { error: sessionError } = await supabase.from("sessions").insert({
       id: sessionId,
+      access_code_id: auth.access_code_id,
       scenario_id: scenario_id,
       livekit_room_name: roomName,
       status: "active",
       session_mode: session_mode,
       difficulty_level: difficultyLevel,
       scenario_version: scenarioData.version || 1,
-      org_id: sessionOrgId,
-    };
-
-    // Set identity fields based on auth method
-    if (auth.method === "jwt") {
-      sessionInsert.user_profile_id = auth.user_profile_id || null;
-    } else {
-      sessionInsert.access_code_id = auth.access_code_id;
-      sessionInsert.trial_user_id = trial_user_id || null;
-    }
-
-    const { error: sessionError } = await supabase.from("sessions").insert(sessionInsert);
+    });
 
     if (sessionError) {
       console.error("Failed to create session:", sessionError);
@@ -292,10 +256,32 @@ serve(async (req: Request) => {
       console.log(`[DISPATCH] Admin token generated, length=${adminToken.length}`);
 
       try {
+        // Helper: fetch with timeout (prevents Edge Function 504 on hung LiveKit API)
+        async function fetchWithTimeout(
+          url: string,
+          options: RequestInit,
+          timeoutMs: number,
+          label: string,
+        ): Promise<Response> {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+          try {
+            const resp = await fetch(url, { ...options, signal: controller.signal });
+            clearTimeout(timeoutId);
+            return resp;
+          } catch (err) {
+            clearTimeout(timeoutId);
+            if (err instanceof DOMException && err.name === "AbortError") {
+              throw new Error(`${label} timed out after ${timeoutMs}ms`);
+            }
+            throw err;
+          }
+        }
+
         // 1. Create room with metadata so agent can read scenario info
         const createRoomUrl = `${livekitHost}/twirp/livekit.RoomService/CreateRoom`;
         console.log(`[DISPATCH] Creating room: POST ${createRoomUrl}`);
-        const createRoomResp = await fetch(createRoomUrl, {
+        const createRoomResp = await fetchWithTimeout(createRoomUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -307,7 +293,7 @@ serve(async (req: Request) => {
             max_participants: 5,
             metadata: agentMetadata,
           }),
-        });
+        }, 10_000, "CreateRoom");
 
         dispatchResult.room_http_status = createRoomResp.status;
         if (createRoomResp.ok) {
@@ -322,7 +308,7 @@ serve(async (req: Request) => {
         // 2. Dispatch agent to the room
         const dispatchUrl = `${livekitHost}/twirp/livekit.AgentDispatchService/CreateDispatch`;
         console.log(`[DISPATCH] Dispatching agent: POST ${dispatchUrl}`);
-        const dispatchResp = await fetch(dispatchUrl, {
+        const dispatchResp = await fetchWithTimeout(dispatchUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -333,7 +319,7 @@ serve(async (req: Request) => {
             agent_name: AGENT_NAME,
             metadata: agentMetadata,
           }),
-        });
+        }, 10_000, "CreateDispatch");
 
         dispatchResult.dispatch_http_status = dispatchResp.status;
         if (dispatchResp.ok) {
@@ -353,7 +339,7 @@ serve(async (req: Request) => {
           const listUrl = `${livekitHost}/twirp/livekit.AgentDispatchService/ListDispatch`;
           console.log(`[DISPATCH] Checking dispatch state: POST ${listUrl}`);
           try {
-            const listResp = await fetch(listUrl, {
+            const listResp = await fetchWithTimeout(listUrl, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -363,7 +349,7 @@ serve(async (req: Request) => {
                 room: roomName,
                 dispatch_id: dispatchResult.dispatch_id,
               }),
-            });
+            }, 8_000, "ListDispatch");
             if (listResp.ok) {
               const listData = await listResp.json();
               console.log(`[DISPATCH] ListDispatch raw response:`, JSON.stringify(listData));

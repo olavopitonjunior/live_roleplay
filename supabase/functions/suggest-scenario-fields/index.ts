@@ -16,6 +16,7 @@ import {
 } from "../_shared/cors.ts";
 import { withRetry } from "../_shared/retry.ts";
 import { authenticate } from "../_shared/auth.ts";
+import { traceClaudeCall } from "../_shared/langsmith.ts";
 
 // Voice mapping: legacy Gemini names -> OpenAI names
 const VOICE_MAP: Record<string, string> = {
@@ -665,6 +666,7 @@ serve(async (req: Request) => {
     const maxTokens = fieldToGenerate === 'all' ? 8192 : 1024;
 
     // Call Claude API with retry logic
+    const _traceStart = Date.now();
     const message = await withRetry(
       async () => {
         return await anthropic.messages.create({
@@ -689,6 +691,15 @@ serve(async (req: Request) => {
         },
       }
     );
+    traceClaudeCall({
+      name: "suggest_scenario_fields",
+      input: { model: "claude-sonnet-4-20250514", max_tokens: maxTokens, field: fieldToGenerate, prompt_length: prompt.length },
+      output: { content_length: message.content[0]?.type === "text" ? message.content[0].text.length : 0 },
+      startTime: _traceStart,
+      endTime: Date.now(),
+      tokens: { input: message.usage?.input_tokens ?? 0, output: message.usage?.output_tokens ?? 0 },
+      tags: ["edge-function", "scenario", fieldToGenerate],
+    });
 
     // Extract response text
     const responseText =

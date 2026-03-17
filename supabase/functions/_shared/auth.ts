@@ -106,66 +106,74 @@ export async function authenticate(
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.replace("Bearer ", "");
 
-    // Use Supabase Auth to verify the JWT
-    const supabaseAuth = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY") || supabaseServiceKey, {
-      global: { headers: { Authorization: `Bearer ${token}` } },
-    });
+    // Skip JWT auth if the token is the Supabase anon key (role="anon").
+    // The Supabase JS client always sends Authorization: Bearer <anon_key>
+    // for unauthenticated users — fall through to access_code check instead.
+    const preCheck = decodeJwtPayload(token);
+    const isAnonKey = preCheck?.role === "anon";
 
-    const { data: { user }, error: userError } = await supabaseAuth.auth.getUser(token);
+    if (!isAnonKey) {
+      // Use Supabase Auth to verify the JWT
+      const supabaseAuth = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY") || supabaseServiceKey, {
+        global: { headers: { Authorization: `Bearer ${token}` } },
+      });
 
-    if (userError || !user) {
-      return { success: false, error: "Invalid or expired JWT", status: 401 };
-    }
+      const { data: { user }, error: userError } = await supabaseAuth.auth.getUser(token);
 
-    // Extract custom claims from JWT (injected by custom_access_token_hook)
-    // These are in the user's app_metadata or directly decoded from JWT
-    const jwt = decodeJwtPayload(token);
-    const org_id = jwt?.org_id || null;
-    const user_role = jwt?.user_role || null;
-    const profile_id = jwt?.profile_id || null;
-
-    // If no org_id in JWT, look up user_profile
-    let resolvedOrgId = org_id;
-    let resolvedRole = user_role;
-    let resolvedProfileId = profile_id;
-
-    if (!resolvedOrgId || !resolvedRole || !resolvedProfileId) {
-      const { data: profile } = await supabase
-        .from("user_profiles")
-        .select("id, org_id, role")
-        .eq("auth_user_id", user.id)
-        .eq("is_active", true)
-        .single();
-
-      if (profile) {
-        resolvedOrgId = resolvedOrgId || profile.org_id;
-        resolvedRole = resolvedRole || profile.role;
-        resolvedProfileId = resolvedProfileId || profile.id;
+      if (userError || !user) {
+        return { success: false, error: "Invalid or expired JWT", status: 401 };
       }
-    }
 
-    // Check role requirement
-    if (options.requiredRole && resolvedRole) {
-      if (!hasMinRole(resolvedRole, options.requiredRole)) {
-        return {
-          success: false,
-          error: `Requires ${options.requiredRole} role or higher`,
-          status: 403,
-        };
+      // Extract custom claims from JWT (injected by custom_access_token_hook)
+      const jwt = decodeJwtPayload(token);
+      const org_id = jwt?.org_id || null;
+      const user_role = jwt?.user_role || null;
+      const profile_id = jwt?.profile_id || null;
+
+      // If no org_id in JWT, look up user_profile
+      let resolvedOrgId = org_id;
+      let resolvedRole = user_role;
+      let resolvedProfileId = profile_id;
+
+      if (!resolvedOrgId || !resolvedRole || !resolvedProfileId) {
+        const { data: profile } = await supabase
+          .from("user_profiles")
+          .select("id, org_id, role")
+          .eq("auth_user_id", user.id)
+          .eq("is_active", true)
+          .single();
+
+        if (profile) {
+          resolvedOrgId = resolvedOrgId || profile.org_id;
+          resolvedRole = resolvedRole || profile.role;
+          resolvedProfileId = resolvedProfileId || profile.id;
+        }
       }
-    }
 
-    return {
-      success: true,
-      context: {
-        method: "jwt",
-        auth_user_id: user.id,
-        user_profile_id: resolvedProfileId || undefined,
-        org_id: resolvedOrgId || undefined,
-        user_role: resolvedRole || undefined,
-      },
-      supabase,
-    };
+      // Check role requirement
+      if (options.requiredRole && resolvedRole) {
+        if (!hasMinRole(resolvedRole, options.requiredRole)) {
+          return {
+            success: false,
+            error: `Requires ${options.requiredRole} role or higher`,
+            status: 403,
+          };
+        }
+      }
+
+      return {
+        success: true,
+        context: {
+          method: "jwt",
+          auth_user_id: user.id,
+          user_profile_id: resolvedProfileId || undefined,
+          org_id: resolvedOrgId || undefined,
+          user_role: resolvedRole || undefined,
+        },
+        supabase,
+      };
+    }
+    // isAnonKey — fall through to access_code check
   }
 
   // --- Fallback: Access Code (body or header) ---
@@ -182,9 +190,11 @@ export async function authenticate(
   }
 
   // Validate access code
+  // Note: org_id column may not exist yet (multi-tenant migration pending).
+  // Query id + role first, then try org_id separately if needed.
   const { data: codeData, error: codeError } = await supabase
     .from("access_codes")
-    .select("id, role, org_id")
+    .select("id, role")
     .eq("code", accessCode.toUpperCase())
     .eq("is_active", true)
     .single();
@@ -204,7 +214,7 @@ export async function authenticate(
       method: "access_code",
       access_code_id: codeData.id,
       access_code_role: codeData.role,
-      org_id: codeData.org_id || undefined,
+      org_id: (codeData as Record<string, unknown>).org_id as string || undefined,
     },
     supabase,
   };

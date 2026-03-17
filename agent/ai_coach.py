@@ -28,6 +28,7 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 import os
+from tracing import get_traced_openai_client, traceable
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +310,7 @@ class AICoachEngine:
             return
 
         try:
-            self._client = AsyncOpenAI(api_key=api_key)
+            self._client = get_traced_openai_client(api_key=api_key)
             logger.info("OpenAI initialized for AI coaching (GPT-4o-mini)")
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI for coaching: {e}")
@@ -437,6 +438,7 @@ class AICoachEngine:
         else:
             logger.error("AI Coach OpenAI client NOT initialized - suggestions will be disabled")
 
+    @traceable(name="coach_initial_suggestion", tags=["ai_coach", "gpt-4o-mini"])
     async def generate_initial_suggestion(self) -> Optional[AISuggestion]:
         """Generate proactive suggestion at session start."""
         if not self._client:
@@ -648,6 +650,7 @@ Responda APENAS com JSON valido (sem markdown):
             return f"LEMBRE: Vendedor tem dificuldade com: {top_weakness}"
         return ""
 
+    @traceable(name="coach_streaming_analysis", tags=["ai_coach", "gpt-4o-mini"])
     async def analyze_streaming(
         self,
         text: str,
@@ -713,6 +716,7 @@ Responda APENAS com JSON valido (sem markdown):
                 logger.warning(f"Streaming analysis failed: {e}")
             return None
 
+    @traceable(name="coach_final_analysis", tags=["ai_coach", "gpt-4o-mini"])
     async def analyze_final(
         self,
         text: str,
