@@ -798,3 +798,80 @@ export const ROLE_HIERARCHY: Record<TenantRole, number> = {
 export function hasMinRole(userRole: TenantRole, requiredRole: TenantRole): boolean {
   return (ROLE_HIERARCHY[userRole] ?? 0) >= (ROLE_HIERARCHY[requiredRole] ?? 0);
 }
+
+// ============================================
+// Training Tracks
+// ============================================
+
+export interface TrainingTrack {
+  id: string;
+  title: string;
+  slug: string;
+  description: string | null;
+  cover_image_url: string | null;
+  category: string | null;
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
+  track_scenarios?: TrackScenario[];
+  progress?: UserTrackProgress | null;
+}
+
+export interface TrackScenario {
+  id: string;
+  track_id: string;
+  scenario_id: string;
+  position: number;
+  is_required: boolean;
+  skills_introduced: string[];
+  skills_expected: string[];
+  scenarios?: Scenario;
+}
+
+export interface UserTrackProgress {
+  id: string;
+  access_code_id: string;
+  track_id: string;
+  current_position: number;
+  completed_scenarios: TrackCompletedScenario[];
+  started_at: string;
+  completed_at: string | null;
+  updated_at: string;
+}
+
+export interface TrackCompletedScenario {
+  scenario_id: string;
+  session_id: string;
+  score: number;
+  weaknesses: string[];
+  spin_stage_reached: string;
+  completed_at: string;
+}
+
+export interface TrackContext {
+  trackScenarioId: string;
+  trackId: string;
+  trackSlug: string;
+  trackTitle: string;
+  position: number;
+  total: number;
+}
+
+// ============================================
+// Presentation Support
+// ============================================
+
+export interface PresentationSlide {
+  position: number;
+  image_url: string;
+  extracted_text: string;
+  title?: string;
+  data_points?: string[];
+}
+
+export interface PresentationData {
+  file_url?: string;
+  total_slides: number;
+  slides: PresentationSlide[];
+}

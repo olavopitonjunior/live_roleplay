@@ -12,10 +12,13 @@ import { SidePanel } from './SidePanel';
 import { EmotionMeter } from './EmotionMeter';
 import { LatencyOverlay } from './LatencyOverlay';
 import { MobileSessionLayout } from './MobileSessionLayout';
+import { SlideViewer } from './SlideViewer';
+import { ParticipantPip } from './ParticipantPip';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { TranscriptProvider } from '../../hooks/useTranscript';
 import { LatencyProvider } from '../../hooks/useLatency';
 import { SessionCoachPanel } from './SessionCoachPanel';
+import type { PresentationData } from '../../types';
 
 interface SessionRoomProps {
   token: string;
@@ -25,6 +28,7 @@ interface SessionRoomProps {
   scenarioContext?: string;
   maxDuration?: number; // Maximum session duration in seconds (default: 180)
   existingRoom?: Room | null; // Pass existing room from useAgentConnection
+  presentationData?: PresentationData | null; // Presentation slides for Zoom share layout
 }
 
 /**
@@ -37,11 +41,13 @@ function SessionContent({
   scenarioTitle,
   scenarioContext,
   maxDuration = 180,
+  presentationData,
 }: {
   onSessionEnd: (duration: number) => void;
   scenarioTitle?: string;
   scenarioContext?: string;
   maxDuration?: number;
+  presentationData?: PresentationData | null;
 }) {
   const isMobile = useIsMobile();
 
@@ -64,6 +70,7 @@ function SessionContent({
       scenarioTitle={scenarioTitle}
       scenarioContext={scenarioContext}
       maxDuration={maxDuration}
+      presentationData={presentationData}
     />
   );
 }
@@ -76,12 +83,16 @@ function DesktopSessionLayout({
   scenarioTitle,
   scenarioContext,
   maxDuration = 180,
+  presentationData,
 }: {
   onSessionEnd: (duration: number) => void;
   scenarioTitle?: string;
   scenarioContext?: string;
   maxDuration?: number;
+  presentationData?: PresentationData | null;
 }) {
+  const [currentSlide, setCurrentSlide] = useState(1);
+  const hasPresentation = !!(presentationData && presentationData.slides.length > 0);
   const room = useRoomContext();
   const connectionState = useConnectionState();
   const startTimeRef = useRef(Date.now());
@@ -276,6 +287,14 @@ function DesktopSessionLayout({
               {scenarioTitle || 'Treinamento'}
             </span>
           </div>
+          {/* Slide counter badge (presentation mode) */}
+          {hasPresentation && (
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-gray-800 border-2 border-black">
+              <span className="text-yellow-400 text-xs font-bold font-mono">
+                Slide {currentSlide}/{presentationData!.total_slides}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* End button */}
@@ -310,41 +329,104 @@ function DesktopSessionLayout({
 
       {/* Main Content - Split Layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Avatar Area (Left) - YouTube-style centered 16:9 video */}
-        <div className="flex-1 flex items-center justify-center bg-gray-950 p-4">
-          <div className="relative w-full max-w-3xl">
-            {/* 16:9 Aspect Ratio Container */}
-            <div className="relative aspect-video bg-black overflow-hidden border-2 border-black shadow-[4px_4px_0px_#000]">
-              {/* Avatar Video */}
-              <AvatarContainer />
+        {hasPresentation ? (
+          /* ===== ZOOM SCREEN SHARE LAYOUT ===== */
+          <div className="flex-1 flex flex-col bg-gray-950 relative">
+            {/* Shared screen: SlideViewer fills the main area */}
+            <SlideViewer
+              presentationData={presentationData!}
+              currentSlide={currentSlide}
+              onNextSlide={() => {
+                const next = Math.min(currentSlide + 1, presentationData!.total_slides);
+                setCurrentSlide(next);
+                // Publish slide change to agent via data channel
+                try {
+                  room.localParticipant.publishData(
+                    new TextEncoder().encode(JSON.stringify({
+                      type: 'slide_navigation',
+                      slide_number: next,
+                      timestamp: Date.now(),
+                    })),
+                    { reliable: true }
+                  );
+                } catch (e) { console.warn('Failed to send slide_navigation:', e); }
+              }}
+              onPrevSlide={() => {
+                const prev = Math.max(currentSlide - 1, 1);
+                setCurrentSlide(prev);
+                try {
+                  room.localParticipant.publishData(
+                    new TextEncoder().encode(JSON.stringify({
+                      type: 'slide_navigation',
+                      slide_number: prev,
+                      timestamp: Date.now(),
+                    })),
+                    { reliable: true }
+                  );
+                } catch (e) { console.warn('Failed to send slide_navigation:', e); }
+              }}
+              onGoToSlide={(n) => {
+                setCurrentSlide(n);
+                try {
+                  room.localParticipant.publishData(
+                    new TextEncoder().encode(JSON.stringify({
+                      type: 'slide_navigation',
+                      slide_number: n,
+                      timestamp: Date.now(),
+                    })),
+                    { reliable: true }
+                  );
+                } catch (e) { console.warn('Failed to send slide_navigation:', e); }
+              }}
+            />
 
-              {/* Emotion Meter - Left side inside video */}
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10">
-                <div className="bg-gray-900 p-2 border-2 border-black">
-                  <EmotionMeter />
-                </div>
+            {/* Floating participant pip (Zoom self-view style) */}
+            <ParticipantPip />
+
+            {/* Coach Panel - Below slide area */}
+            <div className="px-4 py-2 bg-gray-900 border-t border-gray-800">
+              <div className="max-w-md mx-auto">
+                <SessionCoachPanel />
               </div>
-
-              {/* Microphone Indicator - Bottom center inside video */}
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
-                <MicrophoneIndicator />
-              </div>
-
-              {/* Live badge - Top right inside video */}
-              <div className="absolute top-3 right-3 z-10">
-                <div className="flex items-center gap-2 bg-red-500 px-3 py-1 border-2 border-black">
-                  <div className="w-2 h-2 bg-white animate-pulse" />
-                  <span className="text-white text-xs font-semibold uppercase tracking-wider">Ao Vivo</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Coach Panel - Below video */}
-            <div className="mt-3 max-w-md mx-auto w-full">
-              <SessionCoachPanel />
             </div>
           </div>
-        </div>
+        ) : (
+          /* ===== STANDARD AVATAR LAYOUT ===== */
+          <div className="flex-1 flex items-center justify-center bg-gray-950 p-4">
+            <div className="relative w-full max-w-3xl">
+              {/* 16:9 Aspect Ratio Container */}
+              <div className="relative aspect-video bg-black overflow-hidden border-2 border-black shadow-[4px_4px_0px_#000]">
+                {/* Avatar Video */}
+                <AvatarContainer />
+
+                {/* Emotion Meter - Left side inside video */}
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10">
+                  <div className="bg-gray-900 p-2 border-2 border-black">
+                    <EmotionMeter />
+                  </div>
+                </div>
+
+                {/* Microphone Indicator - Bottom center inside video */}
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10">
+                  <MicrophoneIndicator />
+                </div>
+
+                {/* Live badge - Top right inside video */}
+                <div className="absolute top-3 right-3 z-10">
+                  <div className="flex items-center gap-2 bg-red-500 px-3 py-1 border-2 border-black">
+                    <div className="w-2 h-2 bg-white animate-pulse" />
+                    <span className="text-white text-xs font-semibold uppercase tracking-wider">Ao Vivo</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Coach Panel - Below video */}
+              <div className="mt-3 max-w-md mx-auto w-full">
+                <SessionCoachPanel />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Side Panel (Right - Fixed Width) */}
         <div className="w-80 lg:w-96 border-l-2 border-black flex-shrink-0">
@@ -366,6 +448,7 @@ export function SessionRoom({
   scenarioContext,
   maxDuration = 180,
   existingRoom,
+  presentationData,
 }: SessionRoomProps) {
   // If we have an existing room from useAgentConnection, use it
   // Otherwise, let LiveKitRoom create a new connection
@@ -399,6 +482,7 @@ export function SessionRoom({
             scenarioTitle={scenarioTitle}
             scenarioContext={scenarioContext}
             maxDuration={maxDuration}
+            presentationData={presentationData}
           />
         </LatencyProvider>
       </TranscriptProvider>

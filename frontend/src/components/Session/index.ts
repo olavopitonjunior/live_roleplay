@@ -9,3 +9,5 @@ export { SessionLoading } from './SessionLoading';
 export { SessionRoom } from './SessionRoom';
 export { SidePanel } from './SidePanel';
 export { TranscriptionOverlay } from './TranscriptionOverlay';
+export { SlideViewer } from './SlideViewer';
+export { ParticipantPip } from './ParticipantPip';

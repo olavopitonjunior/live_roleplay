@@ -57,6 +57,8 @@ interface RequestBody {
   trial_user_id?: string;     // client-generated UUID for trial users
   session_mode?: SessionMode;
   voice_override?: AiVoice;
+  track_scenario_id?: string; // training track context
+  presentation_data?: Record<string, unknown>; // ad-hoc uploaded presentation
 }
 
 interface TokenResponse {
@@ -103,6 +105,8 @@ serve(async (req: Request) => {
       trial_user_id,
       session_mode = "training",
       voice_override,
+      track_scenario_id,
+      presentation_data,
     } = body;
 
     if (!scenario_id) {
@@ -176,7 +180,7 @@ serve(async (req: Request) => {
     const roomName = `roleplay_${sessionId}`;
 
     // Create session record in database
-    const { error: sessionError } = await supabase.from("sessions").insert({
+    const sessionInsert: Record<string, unknown> = {
       id: sessionId,
       access_code_id: auth.access_code_id,
       scenario_id: scenario_id,
@@ -185,7 +189,11 @@ serve(async (req: Request) => {
       session_mode: session_mode,
       difficulty_level: difficultyLevel,
       scenario_version: scenarioData.version || 1,
-    });
+    };
+    if (track_scenario_id) sessionInsert.track_scenario_id = track_scenario_id;
+    if (presentation_data) sessionInsert.presentation_data = presentation_data;
+
+    const { error: sessionError } = await supabase.from("sessions").insert(sessionInsert);
 
     if (sessionError) {
       console.error("Failed to create session:", sessionError);
@@ -226,6 +234,8 @@ serve(async (req: Request) => {
       difficulty_level: difficultyLevel,
       target_duration_seconds: scenarioData.target_duration_seconds || 180,
       org_id: sessionOrgId,
+      track_scenario_id: track_scenario_id || null,
+      has_presentation: !!(presentation_data || scenarioData.presentation_config),
     });
 
     console.log(`Session created, room: ${roomName}, agent: ${AGENT_NAME}, mode: ${session_mode}, difficulty: ${difficultyLevel}, auth: ${auth.method}, org: ${sessionOrgId || 'none'}`);

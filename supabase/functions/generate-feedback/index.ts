@@ -161,7 +161,8 @@ function buildRubricEvaluationPrompt(
   scenario: ScenarioWithRubrics,
   transcript: string,
   outcomes: ScenarioOutcome[] = [],
-  orchestratorInsights: string = ""
+  orchestratorInsights: string = "",
+  hasPresentation: boolean = false,
 ): string {
   const criteriaSection = scenario.criteria_with_rubrics
     .map(
@@ -260,7 +261,18 @@ POSSIVEIS RESULTADOS DA SESSAO (determine um baseado no desempenho):
 ═══════════════════════════════════════════════════════════════
 ${outcomesSection}
 
+
+${hasPresentation ? `═══════════════════════════════════════════════════════════════
+CRITERIOS ADICIONAIS DE APRESENTACAO:
 ═══════════════════════════════════════════════════════════════
+Esta sessao incluiu uma apresentacao de slides. Avalie tambem:
+- Uso efetivo de dados dos slides (nao apenas ler)
+- Transicoes logicas entre slides
+- Conexao entre dados apresentados e necessidades do cliente
+- Capacidade de responder perguntas sobre o conteudo
+- Tempo adequado por slide (nem rapido demais nem lento demais)
+Mencione na narrativa se o vendedor soube usar os slides como ferramenta de persuasao.
+` : ''}═══════════════════════════════════════════════════════════════
 TRANSCRICAO DA CONVERSA:
 ═══════════════════════════════════════════════════════════════
 ${transcript}
@@ -539,7 +551,8 @@ serve(async (req: Request) => {
         transcript_metadata,
         session_trajectory,
         turn_evaluations,
-        coaching_plan
+        coaching_plan,
+        presentation_data
       `
       )
       .eq("id", session_id)
@@ -662,7 +675,8 @@ serve(async (req: Request) => {
     const orchestratorInsights = formatOrchestratorInsights(session);
 
     // Build prompt with rubrics, outcomes, and orchestrator insights
-    const prompt = buildRubricEvaluationPrompt(scenarioWithRubrics, session.transcript, outcomes, orchestratorInsights);
+    const hasPresentation = !!(session.presentation_data || scenario?.presentation_config);
+    const prompt = buildRubricEvaluationPrompt(scenarioWithRubrics, session.transcript, outcomes, orchestratorInsights, hasPresentation);
 
     // Initialize Anthropic client
     const anthropicApiKey = Deno.env.get("ANTHROPIC_API_KEY");

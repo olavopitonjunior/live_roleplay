@@ -1,26 +1,33 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useScenarios } from '../hooks/useScenarios';
 import { useDifficultyProfile } from '../hooks/useDifficultyProfile';
+import { useTracks } from '../hooks/useTracks';
 import { ScenarioList, ModeSelectionModal } from '../components/Scenarios';
-import type { Scenario, SessionMode, AiVoice } from '../types';
+import { TrackCard } from '../components/Tracks/TrackCard';
+import type { Scenario, SessionMode, AiVoice, PresentationData } from '../types';
 
 export function Home() {
   const navigate = useNavigate();
   const { accessCode, logout, isAdmin } = useAuth();
   const { scenarios, loading, error } = useScenarios();
+  const { tracks, loading: tracksLoading, fetchTracks } = useTracks();
   const { profile: difficultyProfile } = useDifficultyProfile();
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
+
+  useEffect(() => {
+    fetchTracks(accessCode?.code ?? null);
+  }, [accessCode?.code, fetchTracks]);
 
   const handleScenarioClick = (scenario: Scenario) => {
     setSelectedScenario(scenario);
   };
 
-  const handleModeStart = (mode: SessionMode, durationSeconds: number, voiceOverride?: AiVoice) => {
+  const handleModeStart = (mode: SessionMode, durationSeconds: number, voiceOverride?: AiVoice, presentationData?: PresentationData) => {
     if (selectedScenario) {
       navigate(`/session/${selectedScenario.id}`, {
-        state: { sessionMode: mode, durationSeconds, voiceOverride }
+        state: { sessionMode: mode, durationSeconds, voiceOverride, presentationData }
       });
     }
   };
@@ -72,6 +79,12 @@ export function Home() {
                     Cenarios
                   </button>
                   <button
+                    onClick={() => navigate('/admin/tracks')}
+                    className="text-sm font-bold text-black hover:text-yellow-600 transition-colors uppercase tracking-wider"
+                  >
+                    Esteiras
+                  </button>
+                  <button
                     onClick={() => navigate('/admin/api-dashboard')}
                     className="text-sm font-bold text-black hover:text-yellow-600 transition-colors uppercase tracking-wider"
                   >
@@ -109,11 +122,47 @@ export function Home() {
           </div>
         )}
 
-        <ScenarioList
-          scenarios={scenarios}
-          loading={loading}
-          onScenarioClick={handleScenarioClick}
-        />
+        {/* Training Tracks Section */}
+        {(tracksLoading || tracks.length > 0) && (
+          <section className="mb-10">
+            <h2 className="text-lg font-bold text-black uppercase tracking-wider mb-4 flex items-center gap-2">
+              <span className="w-2 h-6 bg-yellow-400 border border-black" />
+              Esteiras de Treinamento
+            </h2>
+            {tracksLoading ? (
+              <div className="grid md:grid-cols-2 gap-4">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-48 bg-gray-100 border-2 border-black animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-4">
+                {tracks.map((track) => (
+                  <TrackCard
+                    key={track.id}
+                    track={track}
+                    onClick={() => navigate(`/tracks/${track.slug}`)}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* All Scenarios Section */}
+        <section>
+          {tracks.length > 0 && (
+            <h2 className="text-lg font-bold text-black uppercase tracking-wider mb-4 flex items-center gap-2">
+              <span className="w-2 h-6 bg-black" />
+              Todos os Cenarios
+            </h2>
+          )}
+          <ScenarioList
+            scenarios={scenarios}
+            loading={loading}
+            onScenarioClick={handleScenarioClick}
+          />
+        </section>
       </main>
 
       {/* Mode Selection Modal */}

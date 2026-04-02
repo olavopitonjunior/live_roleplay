@@ -6,12 +6,14 @@ import { useAgentConnection } from '../hooks/useAgentConnection';
 import { SessionRoom, SessionLoading } from '../components/Session';
 import { Button } from '../components/ui';
 import { supabase } from '../lib/supabase';
-import type { SessionMode, Scenario } from '../types';
+import type { SessionMode, Scenario, TrackContext, PresentationData } from '../types';
 
 interface LocationState {
   sessionMode?: SessionMode;
   durationSeconds?: number;
   voiceOverride?: string;
+  trackContext?: TrackContext;
+  presentationData?: PresentationData;
 }
 
 export function Session() {
@@ -124,7 +126,9 @@ export function Session() {
         } catch (err) {
           console.error('[Session] Error ending session:', err);
         }
-        navigate(`/feedback/${sessionId}`);
+        navigate(`/feedback/${sessionId}`, {
+          state: { trackContext: locationState?.trackContext },
+        });
       }
     },
     [sessionId, endSession, navigate, disconnect]
@@ -205,6 +209,7 @@ export function Session() {
       scenarioContext={scenario?.context}
       maxDuration={locationState?.durationSeconds || scenario?.target_duration_seconds || 180}
       existingRoom={connectedRoom} // Pass existing room to avoid agent disconnect
+      presentationData={locationState?.presentationData || scenario?.presentation_config as PresentationData | undefined}
     />
   );
 }

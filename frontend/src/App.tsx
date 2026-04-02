@@ -6,8 +6,12 @@ import { Session } from './pages/Session';
 import { Feedback } from './pages/Feedback';
 import { History } from './pages/History';
 import { Profile } from './pages/Profile';
+import { TrackDetailPage } from './pages/TrackDetail';
 import { AdminScenarios } from './pages/Admin/Scenarios';
 import { ApiDashboard } from './pages/Admin/ApiDashboard';
+
+// Lazy-load Admin Tracks page
+const AdminTracks = lazy(() => import('./pages/Admin/Tracks'));
 import { ProtectedRoute } from './components/Auth';
 
 // Lazy-load PipecatTest to code-split Three.js (~1.5 MB) from main bundle
@@ -135,12 +139,31 @@ function App() {
           }
         />
 
+        {/* Track detail page — all authenticated users */}
+        <Route
+          path="/tracks/:slug"
+          element={
+            <ProtectedRoute>
+              <TrackDetailPage />
+            </ProtectedRoute>
+          }
+        />
+
         {/* Admin routes (backward compat — redirects to /org/ equivalents) */}
         <Route
           path="/admin/scenarios"
           element={
             <ProtectedRoute adminOnly>
               <AdminScenarios />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/tracks"
+          element={
+            <ProtectedRoute adminOnly>
+              <Suspense fallback={LazyFallback}><AdminTracks /></Suspense>
             </ProtectedRoute>
           }
         />

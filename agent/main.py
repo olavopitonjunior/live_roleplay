@@ -590,6 +590,100 @@ async def fetch_learning_profile(identifier: str, by_user_profile: bool = False)
     return result if result else {}
 
 
+async def _fetch_track_context_impl(
+    track_scenario_id: str,
+    user_identifier: str,
+) -> dict[str, Any] | None:
+    """Fetch track context for coaching — track info + prior scenario results."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with aiohttp.ClientSession() as http_session:
+            # 1. Fetch track_scenario (position, skills, track_id)
+            ts_url = f"{SUPABASE_URL}/rest/v1/track_scenarios"
+            ts_params = {"id": f"eq.{track_scenario_id}", "select": "*"}
+            async with http_session.get(ts_url, headers=headers, params=ts_params) as resp:
+                if resp.status != 200:
+                    return None
+                ts_data = await resp.json()
+                if not ts_data:
+                    return None
+                ts = ts_data[0]
+
+            track_id = ts.get("track_id")
+
+            # 2. Fetch training_track (title)
+            tt_url = f"{SUPABASE_URL}/rest/v1/training_tracks"
+            tt_params = {"id": f"eq.{track_id}", "select": "id,title,slug"}
+            async with http_session.get(tt_url, headers=headers, params=tt_params) as resp:
+                if resp.status != 200:
+                    return None
+                tt_data = await resp.json()
+                track_title = tt_data[0].get("title", "") if tt_data else ""
+
+            # 3. Fetch total scenarios in track
+            all_ts_url = f"{SUPABASE_URL}/rest/v1/track_scenarios"
+            all_ts_params = {"track_id": f"eq.{track_id}", "select": "scenario_id,position", "order": "position"}
+            async with http_session.get(all_ts_url, headers=headers, params=all_ts_params) as resp:
+                all_ts = await resp.json() if resp.status == 200 else []
+
+            # 4. Fetch user_track_progress
+            utp_url = f"{SUPABASE_URL}/rest/v1/user_track_progress"
+            utp_params = {
+                "track_id": f"eq.{track_id}",
+                "access_code_id": f"eq.{user_identifier}",
+                "select": "completed_scenarios",
+            }
+            async with http_session.get(utp_url, headers=headers, params=utp_params) as resp:
+                utp_data = await resp.json() if resp.status == 200 else []
+                completed = utp_data[0].get("completed_scenarios", []) if utp_data else []
+
+            # Compile weaknesses from prior completions
+            track_weaknesses: list[str] = []
+            for c in completed:
+                for w in c.get("weaknesses", []):
+                    if w not in track_weaknesses:
+                        track_weaknesses.append(w)
+
+            # Compute cumulative score
+            scores = [c.get("score", 0) for c in completed if c.get("score")]
+            cumulative_score = sum(scores) / len(scores) if scores else 50
+
+            return {
+                "track_id": track_id,
+                "track_name": track_title,
+                "position": ts.get("position", 1),
+                "total_scenarios": len(all_ts),
+                "previous_scenarios": completed,
+                "cumulative_track_score": round(cumulative_score, 1),
+                "track_weaknesses": track_weaknesses[:5],
+                "skills_introduced": ts.get("skills_introduced", []),
+                "skills_expected": ts.get("skills_expected", []),
+            }
+    except Exception as e:
+        logger.error(f"Error fetching track context: {e}")
+        return None
+
+
+async def fetch_track_context(track_scenario_id: str, user_identifier: str) -> dict[str, Any] | None:
+    """Fetch track context with retry."""
+    return await with_retry(
+        _fetch_track_context_impl,
+        track_scenario_id,
+        user_identifier,
+        max_retries=2,
+        delay=1.0,
+        operation_name="fetch_track_context"
+    )
+
+
 async def _update_session_transcript_impl(
     session_id: str,
     transcript: str,
@@ -1041,8 +1135,37 @@ async def entrypoint(ctx: JobContext):
 
     logger.info(f"Using voice: {voice}, avatar_provider: {avatar_provider}")
 
-    # Build dynamic instructions with outcomes and difficulty
-    instructions = build_agent_instructions(scenario, outcomes, difficulty_level)
+    # Fetch track context for progressive coaching (if session is part of a track)
+    track_context = None
+    track_scenario_id = session_data.get("track_scenario_id")
+    if track_scenario_id and (access_code_id or user_profile_id):
+        track_context = await fetch_track_context(
+            track_scenario_id, access_code_id or user_profile_id
+        )
+        if track_context:
+            logger.info(f"Track context loaded: {track_context.get('track_name')} "
+                        f"(pos {track_context.get('position')}/{track_context.get('total_scenarios')}, "
+                        f"weaknesses: {track_context.get('track_weaknesses', [])})")
+            # Modulate difficulty based on track performance
+            cumulative = track_context.get('cumulative_track_score', 50)
+            if cumulative > 75:
+                difficulty_level = min(10, difficulty_level + 1)
+                logger.info(f"Track performance high ({cumulative}), difficulty bumped to {difficulty_level}")
+            elif cumulative < 45:
+                difficulty_level = max(1, difficulty_level - 1)
+                logger.info(f"Track performance low ({cumulative}), difficulty eased to {difficulty_level}")
+
+    # Fetch presentation data (from session upload or scenario pre-config)
+    presentation_data = session_data.get("presentation_data") or scenario.get("presentation_config")
+    if presentation_data:
+        logger.info(f"Presentation loaded: {presentation_data.get('total_slides', 0)} slides")
+
+    # Build dynamic instructions with outcomes, difficulty, track, and presentation context
+    instructions = build_agent_instructions(
+        scenario, outcomes, difficulty_level,
+        track_context=track_context,
+        presentation_data=presentation_data,
+    )
 
     # Greeting is triggered separately via generate_reply() after session.start()
     # Do NOT include greeting in instructions — causes race condition with OpenAI Realtime
@@ -2360,6 +2483,54 @@ async def entrypoint(ctx: JobContext):
 
         asyncio.create_task(heartbeat_loop())
         logger.info("Heartbeat loop started (every 5s)")
+
+        # Slide navigation handler (presentation mode) — listens for data channel messages from frontend
+        current_slide_ref = [1]
+
+        @ctx.room.on("data_received")
+        def on_data_received(data: bytes, *_args, **_kwargs):
+            """Handle data channel messages from frontend (slide navigation, etc.)."""
+            try:
+                import json as _dc_json
+                payload = _dc_json.loads(data.decode('utf-8') if isinstance(data, bytes) else str(data))
+                msg_type = payload.get('type')
+
+                if msg_type == 'slide_navigation' and presentation_data:
+                    new_slide = payload.get('slide_number', 1)
+                    if new_slide != current_slide_ref[0]:
+                        current_slide_ref[0] = new_slide
+                        logger.info(f"[SLIDE] Navigation to slide {new_slide}")
+
+                        # Update orchestrator slide position
+                        if coaching_enabled and orchestrator and hasattr(orchestrator, 'update_slide_position'):
+                            orchestrator.update_slide_position(new_slide)
+
+                        # Inject updated slide context into avatar via existing injection queue
+                        slides = presentation_data.get('slides', [])
+                        current = next((s for s in slides if s.get('position') == new_slide), None)
+                        if current and orchestrator:
+                            from coach_orchestrator import AvatarDirective
+                            directive = AvatarDirective(
+                                role_reminder=f"Voce e {scenario.get('character_name', 'o cliente')}.",
+                                conversation_summary=getattr(orchestrator, '_conversation_summary', '') or '',
+                                emotional_state=getattr(orchestrator, '_current_emotion', 'neutral'),
+                                behavior_instruction=(
+                                    f"Vendedor mudou para slide {new_slide}/{len(slides)}: "
+                                    f'"{current.get("title", "")}". '
+                                    f"Conteudo: {str(current.get('extracted_text', ''))[:200]}. "
+                                    f"Reaja naturalmente."
+                                ),
+                                emotional_shift="mantenha",
+                                intensity=0.3,
+                                reason=f"slide_change:{new_slide}",
+                            )
+                            asyncio.create_task(orchestrator.injection_queue.enqueue(directive))
+            except Exception as e:
+                # Don't log every non-JSON data message (heartbeat responses, etc.)
+                pass
+
+        if presentation_data:
+            logger.info(f"[SLIDE] Data channel handler registered for {presentation_data.get('total_slides', 0)} slides")
 
         # Wait for frontend participant before greeting (prevents audio before screen loads)
         remote_participants = ctx.room.remote_participants

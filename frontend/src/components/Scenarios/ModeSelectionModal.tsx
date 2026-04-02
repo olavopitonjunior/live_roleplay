@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import type { Scenario, SessionMode, AiVoice, CharacterGender } from '../../types';
+import type { Scenario, SessionMode, AiVoice, CharacterGender, PresentationData } from '../../types';
+import { usePresentation } from '../../hooks/usePresentation';
+import { PresentationUpload } from './PresentationUpload';
+import { useAuth } from '../../hooks/useAuth';
 
 interface ModeSelectionModalProps {
   scenario: Scenario;
-  onStart: (mode: SessionMode, durationSeconds: number, voiceOverride?: AiVoice) => void;
+  onStart: (mode: SessionMode, durationSeconds: number, voiceOverride?: AiVoice, presentationData?: PresentationData) => void;
   onCancel: () => void;
   difficultyLevel?: number;
 }
@@ -52,19 +55,30 @@ function getDifficultyInfo(level: number): { label: string; color: string; bgCol
 }
 
 export function ModeSelectionModal({ scenario, onStart, onCancel, difficultyLevel = 3 }: ModeSelectionModalProps) {
+  const { accessCode } = useAuth();
   const [selectedMode, setSelectedMode] = useState<SessionMode>(
     scenario.default_session_mode || 'training'
   );
   const defaultDuration = scenario.target_duration_seconds || 180;
   const [selectedDuration, setSelectedDuration] = useState(defaultDuration);
+  const [showPresentation, setShowPresentation] = useState(false);
 
   const gender: CharacterGender = scenario.character_gender || 'male';
   const availableVoices = VOICE_OPTIONS.filter(v => v.gender === gender);
   const [selectedVoice, setSelectedVoice] = useState<AiVoice>(scenario.ai_voice || availableVoices[0]?.value || 'echo');
 
+  const {
+    presentationData,
+    isProcessing,
+    processingStatus,
+    error: presentationError,
+    uploadPdf,
+    removePresentation,
+  } = usePresentation();
+
   const handleStart = () => {
     const voiceOverride = selectedVoice !== scenario.ai_voice ? selectedVoice : undefined;
-    onStart(selectedMode, selectedDuration, voiceOverride);
+    onStart(selectedMode, selectedDuration, voiceOverride, presentationData ?? undefined);
   };
 
   return (
@@ -272,6 +286,39 @@ export function ModeSelectionModal({ scenario, onStart, onCancel, difficultyLeve
             </button>
           </div>
 
+        </div>
+
+        {/* Presentation Upload (collapsible) */}
+        <div className="px-6 py-4 border-t-2 border-black">
+          <button
+            onClick={() => setShowPresentation(!showPresentation)}
+            className="flex items-center gap-2 text-sm font-bold text-black hover:text-yellow-600 transition-colors uppercase tracking-wider w-full"
+          >
+            <svg
+              className={`w-4 h-4 transition-transform ${showPresentation ? 'rotate-90' : ''}`}
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            Apresentacao (opcional)
+            {presentationData && (
+              <span className="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 font-bold border border-green-300 uppercase tracking-wider ml-auto">
+                {presentationData.total_slides} slides
+              </span>
+            )}
+          </button>
+          {showPresentation && (
+            <div className="mt-3">
+              <PresentationUpload
+                onUpload={(file) => uploadPdf(file, accessCode?.code ?? null)}
+                onRemove={removePresentation}
+                presentationData={presentationData}
+                isProcessing={isProcessing}
+                processingStatus={processingStatus}
+                error={presentationError}
+              />
+            </div>
+          )}
         </div>
 
         {/* Footer */}

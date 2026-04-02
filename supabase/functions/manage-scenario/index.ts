@@ -123,6 +123,7 @@ const STRUCTURED_FIELDS = [
   "negative_indicators",
   "phase_flow",
   "difficulty_escalation",
+  "presentation_config",
 ] as const;
 
 serve(async (req: Request) => {
@@ -259,9 +260,9 @@ async function handleCreate(supabase: any, body: CreateRequest, auth: AuthContex
     avatar_id: data.avatar_id?.trim() || null,
     is_active: data.is_active ?? true,
     ...extractStructuredFields(data),
-    // Multi-tenant: set org_id and created_by
-    org_id: auth.org_id || null,
-    created_by: auth.user_profile_id || null,
+    // Multi-tenant: omit org_id/created_by until migrations applied
+    // org_id: auth.org_id || null,
+    // created_by: auth.user_profile_id || null,
   };
 
   const { data: scenario, error } = await supabase

@@ -17,11 +17,17 @@ live_roleplay/
 ├── frontend/          # React app (PWA)
 │   └── src/
 │       ├── components/   # UI components
-│       ├── hooks/        # useAuth, useSession, useFeedback, useScenarios
+│       │   ├── Tracks/          # TrackCard, TrackDetail, TrackProgress
+│       │   ├── Session/
+│       │   │   ├── SlideViewer.tsx      # Presentation slide display (Zoom screen share)
+│       │   │   └── ParticipantPip.tsx   # Floating emotion+mic pip
+│       │   └── Scenarios/
+│       │       └── PresentationUpload.tsx  # PDF drop zone + processing
+│       ├── hooks/        # useAuth, useSession, useFeedback, useScenarios, useTracks, usePresentation
 │       └── lib/          # Supabase client
 ├── agent/             # Python agent
 │   ├── main.py        # Orquestração LiveKit + OpenAI Realtime + Hedra
-│   ├── prompts.py     # Compilação de prompts a partir de campos estruturados (6 seções)
+│   ├── prompts.py     # Compilação de prompts a partir de campos estruturados (7 seções, inclui APRESENTACAO)
 │   ├── coach_orchestrator.py  # Unified coaching: keywords + AI + silence + SPIN (ADR-006)
 │   ├── emotion_analyzer.py  # GPT-4o-mini emotion detection
 │   └── metrics_collector.py # Coleta de métricas da sessão
@@ -31,6 +37,8 @@ live_roleplay/
 │       ├── generate-feedback/
 │       ├── generate-scenario/
 │       ├── manage-scenario/
+│       ├── manage-tracks/
+│       ├── manage-presentation/
 │       ├── suggest-scenario-fields/
 │       └── get-api-metrics/
 └── tests/             # Playwright E2E tests (26 specs)
@@ -74,19 +82,22 @@ O sistema compila prompts a partir de 22+ campos estruturados do cenário. Cada 
 
 ```python
 build_agent_instructions(
-    scenario,         # Cenário com campos estruturados (character_name, personality, phase_flow, etc.)
-    outcomes,         # Finais possíveis
-    difficulty_level  # 1-10
+    scenario,           # Cenário com campos estruturados (character_name, personality, phase_flow, etc.)
+    outcomes,           # Finais possíveis
+    difficulty_level,   # 1-10
+    track_context,      # Contexto da esteira (weaknesses, skills) — opcional
+    presentation_data,  # Dados dos slides (extracted_text, titles) — opcional
 )
 ```
 
-**6 seções do prompt (compiladas por funções dedicadas):**
+**7 seções do prompt (compiladas por funções dedicadas):**
 1. **PAPEL** (`_build_role_section`): character_name + character_role, regras anti-inversão (12 regras)
 2. **PERSONALIDADE** (`_build_personality_section`): personality, communication_style, typical_phrases, emotional_reactivity
-3. **CONTEXTO** (`_build_context_section`): context (perspectiva do AVATAR), session_type → comportamento específico (cold_call=surpresa, interview=candidato, negotiation=defesa, retention=cancelamento), market_context, backstory
-4. **INSTRUÇÕES** (`_build_instructions_section`): dificuldade 1-10, objeções, outcomes
-5. **FLUXO** (`_build_flow_section`): phase_flow.phases[], difficulty_escalation.stages[], success/end conditions
-6. **SEGURANÇA** (`_build_safety_section`): opening_line (defaults por session_type), regras 1-12, target_duration
+3. **CONTEXTO** (`_build_context_section`): context (perspectiva do AVATAR), session_type → comportamento específico, market_context, backstory. Inclui track_context (fraquezas recorrentes) quando sessão faz parte de uma esteira.
+4. **APRESENTAÇÃO** (`_build_presentation_section`): Conteúdo dos slides, regras de comportamento com apresentação (9 regras). Só inclusa quando presentation_data existe. Overlay ortogonal — combina com qualquer session_type.
+5. **INSTRUÇÕES** (`_build_instructions_section`): dificuldade 1-10, objeções, outcomes
+6. **FLUXO** (`_build_flow_section`): phase_flow.phases[], difficulty_escalation.stages[], success/end conditions
+7. **SEGURANÇA** (`_build_safety_section`): opening_line (defaults por session_type), regras 1-16 + regras 17-19 (apresentação), target_duration
 
 ### Prevenção de Inversão de Papéis
 
@@ -166,6 +177,8 @@ Consultar antes de propor mudanças de stack ou infraestrutura.
 | [004](docs/adr/004-aws-sp-infra.md) | Infra: AWS sa-east-1 (EC2 t3.medium) | Proposto |
 | [005](docs/adr/005-pipecat-poc.md) | PoC paralelo com Pipecat | Proposto |
 | [006](docs/adr/006-coach-orchestrator.md) | Coach Orchestrator (unified coaching) | Aceito |
+| 007 | Training Tracks — esteiras sequenciais com skills progressivas | Aceito |
+| 008 | Presentation Support — Zoom screen share + PDF upload pre-sessão | Aceito |
 
 ## Documentação Técnica
 
@@ -185,12 +198,14 @@ Consultar antes de propor mudanças de stack ou infraestrutura.
 
 1. Usuário entra com código de acesso
 2. Seleciona cenário → modal de modo (training/evaluation) com seletor de duração e info do personagem
-3. Frontend solicita token LiveKit (Edge Function cria sessão com scenario_version)
+2b. (Opcional) Upload de PDF no modal → slides extraídos via Claude Vision → presentationData
+2c. (Alternativo) Seleciona esteira → vê cenários em ordem → abre modal para cenário disponível
+3. Frontend solicita token LiveKit (Edge Function cria sessão com scenario_version, track_scenario_id, presentation_data)
 4. Conecta à room WebRTC
-5. Agent inicia com OpenAI Realtime (audio-only, Hedra suspenso)
-6. Sessão de roleplay (duração selecionável, padrão 3 min)
-7. Transcript salvo, feedback gerado via Claude
-8. Usuário visualiza score e critérios
+5. Agent inicia com OpenAI Realtime (audio-only, Hedra suspenso). Se presentation_data existe, 7ª seção APRESENTAÇÃO incluída no prompt.
+6. Sessão de roleplay. Se apresentação ativa: layout Zoom screen share (slides + pip flutuante). Navegação de slides envia `slide_navigation` via data channel → agent re-injeta contexto do slide atual.
+7. Transcript salvo, feedback gerado via Claude (com critérios de apresentação se aplicável)
+8. Usuário visualiza score e critérios. Se esteira: botão "Próximo cenário" + progress atualizado.
 
 ## Deployment Checklist
 
