@@ -2,14 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useTracks } from '../../hooks/useTracks';
-import { useScenarios } from '../../hooks/useScenarios';
 import type { TrainingTrack } from '../../types';
 
 function AdminTracksPage() {
   const navigate = useNavigate();
   const { accessCode } = useAuth();
   const { tracks, loading, error, fetchTracks, createTrack, deleteTrack } = useTracks();
-  const { scenarios } = useScenarios();
   const [showCreate, setShowCreate] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newSlug, setNewSlug] = useState('');

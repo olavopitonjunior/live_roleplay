@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 import type { PresentationData } from '../../types';
 
 interface SlideViewerProps {

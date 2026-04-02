@@ -25,7 +25,6 @@ export function TrackDetail({ track, onStartScenario }: TrackDetailProps) {
     completedMap.set(c.scenario_id, c);
   }
 
-  const currentPosition = track.progress?.current_position ?? 0;
   const totalScenarios = scenarios.length;
   const completedCount = completedMap.size;
 

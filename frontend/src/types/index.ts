@@ -172,6 +172,8 @@ export interface Scenario {
   // Comportamento Dinamico
   phase_flow?: PhaseFlow | null;
   difficulty_escalation?: DifficultyEscalation | null;
+  // Presentation
+  presentation_config?: PresentationData | null;
   // Versionamento
   version?: number;
   version_history?: unknown[];
